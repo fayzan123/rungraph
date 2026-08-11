@@ -1,0 +1,46 @@
+{
+  "name": "rungraph",
+  "version": "0.1.0",
+  "description": "See your agent runs as a graph. Zero-setup, agent-first visualizer for AI coding-agent sessions and workflow runs.",
+  "keywords": [
+    "claude-code",
+    "agents",
+    "visualization",
+    "transcripts",
+    "graph",
+    "cli"
+  ],
+  "homepage": "https://github.com/fayzan123/rungraph#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fayzan123/rungraph.git"
+  },
+  "license": "MIT",
+  "author": "Fayzan Malik",
+  "type": "module",
+  "bin": {
+    "rungraph": "bin/rungraph.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "dist",
+    "SCHEMA.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-frontend.mjs",
+    "dev": "node scripts/build-frontend.mjs --watch",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "elkjs": "^0.9.3",
+    "esbuild": "^0.24.0",
+    "preact": "^10.24.0",
+    "vitest": "^2.1.0"
+  }
+}
