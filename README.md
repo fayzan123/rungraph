@@ -2,8 +2,9 @@
 
 **See your agent runs as a graph.**
 
-<!-- demo GIF: point it at yesterday's session, see the graph -->
-<!-- demo GIF: watch a live workflow bloom -->
+![rungraph visualizing the live session that shipped it: open a run, walk nodes with the keyboard, read the "why" behind a tool call, jump via the minimap, fit the whole graph](https://raw.githubusercontent.com/fayzan123/rungraph/master/docs/rungraph-demo.gif)
+
+*That's rungraph watching the live session that built this feature — the graph grows as the agent works.*
 
 Your coding agent already wrote down everything it did. `rungraph` turns those
 transcripts into an interactive **directed agentic graph** — orchestrator,
