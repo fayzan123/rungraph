@@ -1,0 +1,84 @@
+{
+  "runId": "wf_12345678-abc",
+  "workflowName": "auth-hardening",
+  "summary": "Find and fix auth races",
+  "status": "completed",
+  "taskId": "wfx001",
+  "script": "…",
+  "scriptPath": "/Users/fayzanmalik/Documents/GitHub/rungraph/tests/fixtures/projects/-home-dev-acme/11111111-1111-4111-8111-111111111111/workflows/scripts/auth-hardening-wf_12345678-abc.js",
+  "startTime": 1785585900000,
+  "timestamp": "2026-08-01T12:11:00.000Z",
+  "durationMs": 360000,
+  "totalTokens": 410,
+  "totalToolCalls": 3,
+  "agentCount": 2,
+  "defaultModel": "claude-fable-5",
+  "phases": [
+    {
+      "title": "Find"
+    },
+    {
+      "title": "Fix"
+    }
+  ],
+  "logs": [
+    "2 races found",
+    "both patched"
+  ],
+  "result": {
+    "patched": 2,
+    "green": true
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Find"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Fix"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "find:auth-races",
+      "phaseIndex": 1,
+      "phaseTitle": "Find",
+      "agentId": "aaaa000000000001f",
+      "model": "claude-fable-5",
+      "state": "done",
+      "queuedAt": 1754049900000,
+      "startedAt": 1754049901000,
+      "lastProgressAt": 1754050020000,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Find auth races…",
+      "resultPreview": "{\"races\":2…",
+      "tokens": 140,
+      "toolCalls": 1,
+      "durationMs": 119000
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "fix:auth-races (retry 1)",
+      "phaseIndex": 2,
+      "phaseTitle": "Fix",
+      "agentId": "aaaa000000000003f",
+      "model": "claude-fable-5",
+      "state": "done",
+      "queuedAt": 1754050020000,
+      "startedAt": 1754050021000,
+      "lastProgressAt": 1754050260000,
+      "attempt": 2,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "Fix the races…",
+      "resultPreview": "Patched both…",
+      "tokens": 270,
+      "toolCalls": 2,
+      "durationMs": 239000
+    }
+  ]
+}

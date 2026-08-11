@@ -1,0 +1,5 @@
+{"type":"started","key":"v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","agentId":"aaaa000000000001f"}
+{"type":"started","key":"v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","agentId":"aaaa000000000002f"}
+{"type":"result","key":"v2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","agentId":"aaaa000000000001f","result":{"races":2,"files":["src/auth/session.ts","src/auth/redirect.ts"]}}
+{"type":"started","key":"v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","agentId":"aaaa000000000003f"}
+{"type":"result","key":"v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","agentId":"aaaa000000000003f","result":"Patched both races; tests green."}
