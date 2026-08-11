@@ -93,6 +93,7 @@ export function App() {
           selection={selection}
           onSelect={setSelection}
           follow={follow && live}
+          live={live}
           onUserPan={() => setFollow(false)}
         />
         <Inspector

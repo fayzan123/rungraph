@@ -122,6 +122,12 @@ function DetailBody({ detail }) {
     case 'tool':
       return (
         <>
+          {detail.context && (
+            <>
+              <div class="microlabel section-label">why</div>
+              <pre>{detail.context}</pre>
+            </>
+          )}
           <div class="microlabel section-label">{detail.calls.length} call{detail.calls.length === 1 ? '' : 's'}</div>
           {detail.calls.map((c, i) => (
             <div class="tool-call" key={i}>

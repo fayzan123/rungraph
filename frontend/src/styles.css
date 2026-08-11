@@ -204,28 +204,68 @@ button.ghost[data-on="true"] {
     var(--bg-canvas);
   overflow: hidden;
 }
-.canvas-wrap svg { display: block; width: 100%; height: 100%; cursor: grab; }
-.canvas-wrap svg:active { cursor: grabbing; }
+/* direct child only — the minimap svg sizes itself via width/height attrs */
+.canvas-wrap > svg { display: block; width: 100%; height: 100%; cursor: grab; user-select: none; -webkit-user-select: none; }
+.canvas-wrap > svg:active { cursor: grabbing; }
 
-.canvas-hud {
+/* fit button docks above the minimap, bottom-right */
+.canvas-dock {
   position: absolute;
   right: 12px;
   bottom: 12px;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
-.banner {
+.canvas-dock .ghost { background: var(--bg-panel); }
+
+/* ---------- minimap ---------- */
+.minimap {
+  display: block;
+  background: color-mix(in oklch, var(--bg-panel) 90%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: none;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.minimap .mm-node { fill: var(--ink-faint); }
+.minimap .mm-node[data-kind="turn"] { fill: var(--ink-dim); }
+.minimap .mm-node[data-kind="agent"] { fill: var(--sage); }
+.minimap .mm-node[data-kind="workflow"] { fill: var(--violet); }
+.minimap .mm-node[data-kind="human"] { fill: var(--amber); }
+.minimap .mm-group {
+  fill: none;
+  stroke: oklch(0.35 0.03 300 / 0.5);
+}
+.minimap .mm-beacon { fill: var(--clay); }
+.minimap .mm-view {
+  fill: oklch(0.79 0.13 78 / 0.08);
+  stroke: var(--amber);
+  cursor: grab;
+}
+.banners {
   position: absolute;
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 70%;
+}
+.banner {
   background: color-mix(in oklch, var(--amber) 14%, var(--bg-raised));
   border: 1px solid color-mix(in oklch, var(--amber) 40%, transparent);
   color: var(--ink);
   border-radius: 7px;
   padding: 5px 12px;
   font-size: 12px;
-  max-width: 70%;
+  max-width: 100%;
 }
 .canvas-empty {
   position: absolute;
