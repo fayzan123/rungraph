@@ -45,6 +45,21 @@ describe('HTTP API', () => {
     expect(body.kind).toBe(node.kind);
   });
 
+  it('tool detail carries optional "why" context, absent when no narration', async () => {
+    const g = (await get(`/api/graph/${encodeURIComponent(SESSION_RUN_ID)}`)).body;
+    const grep = g.nodes.find((n) => n.label.startsWith('Grep'));
+    const withWhy = await get(
+      `/api/detail/${encodeURIComponent(grep.id)}?run=${encodeURIComponent(SESSION_RUN_ID)}`,
+    );
+    expect(withWhy.status).toBe(200);
+    expect(withWhy.body.context).toContain('checking the wait pattern');
+    const read = g.nodes.find((n) => n.label.startsWith('Read'));
+    const noWhy = await get(
+      `/api/detail/${encodeURIComponent(read.id)}?run=${encodeURIComponent(SESSION_RUN_ID)}`,
+    );
+    expect(noWhy.body.context).toBeUndefined();
+  });
+
   it('404s an unknown run', async () => {
     const { status } = await get('/api/graph/claude-code:nope');
     expect(status).toBe(404);

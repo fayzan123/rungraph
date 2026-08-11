@@ -96,6 +96,28 @@ async function main() {
   const edit1 = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0003', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fx0003', name: 'Edit', input: { file_path: `${CWD}/tests/login.spec.ts`, old_string: 'await page.click', new_string: 'await page.waitForURL(/dash/); await page.click' }, caller: { type: 'direct' } }, 'tool_use') });
   L.push(edit1);
   L.push(envelope(S1, edit1.uuid, { type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: edit1.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0003', content: 'Edited tests/login.spec.ts' }] }, toolUseResult: { filePath: `${CWD}/tests/login.spec.ts`, oldString: 'await page.click', newString: 'await page.waitForURL(/dash/); await page.click', originalFile: '', replaceAll: false, structuredPatch: [], userModified: false } }));
+  // narration then a Grep — the narration becomes the group's "why" context.
+  // One streamed API response = one message.id + requestId across both lines
+  // (usage repeats verbatim; only the final line carries the stop_reason).
+  const narrMsg = assistantMsg('claude-fable-5', { type: 'text', text: 'Edit is in — checking the wait pattern actually landed before rerunning CI.' }, null, 50);
+  const narr = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0010', message: narrMsg });
+  L.push(narr);
+  const grep1 = envelope(S1, narr.uuid, { type: 'assistant', requestId: 'req_fx0010', message: { ...narrMsg, content: [{ type: 'tool_use', id: 'toolu_fx0011', name: 'Grep', input: { pattern: 'waitForURL', path: `${CWD}/tests` }, caller: { type: 'direct' } }], stop_reason: 'tool_use' } });
+  L.push(grep1);
+  L.push(envelope(S1, grep1.uuid, { type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: grep1.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0011', content: 'tests/login.spec.ts:12: await page.waitForURL(/dash/);' }] }, toolUseResult: { mode: 'content', numFiles: 1, filenames: ['tests/login.spec.ts'], numLines: 1 } }));
+  // Read (no narration in between — context must NOT leak onto this group)
+  const read1 = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0012', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fx0012', name: 'Read', input: { file_path: `${CWD}/tests/login.spec.ts` }, caller: { type: 'direct' } }, 'tool_use') });
+  L.push(read1);
+  L.push(envelope(S1, read1.uuid, { type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: read1.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0012', content: 'await page.waitForURL(/dash/); await page.click …' }] }, toolUseResult: { type: 'text', file: { filePath: `${CWD}/tests/login.spec.ts`, content: 'await page.waitForURL(/dash/); await page.click …', numLines: 40, startLine: 1, totalLines: 40 } } }));
+  // Bash with no description — label falls back to the command
+  const bash3 = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0013', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fx0013', name: 'Bash', input: { command: 'npm run lint' }, caller: { type: 'direct' } }, 'tool_use') });
+  L.push(bash3);
+  L.push(envelope(S1, bash3.uuid, { type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: bash3.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0013', content: 'lint clean' }] }, toolUseResult: { stdout: 'lint clean', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } }));
+  // a tool this rungraph version has no label rule for — plain-name fallback
+  const hyper = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0014', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fx0014', name: 'Hypervisor', input: { vm: 'ci-sandbox', op: 'checkpoint' }, caller: { type: 'direct' } }, 'tool_use') });
+  L.push(hyper);
+  L.push(envelope(S1, hyper.uuid, { type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: hyper.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0014', content: 'checkpoint saved' }] }, toolUseResult: { op: 'checkpoint', ok: true } }));
+
   const done1 = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0004', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Fixed: the test raced the auth redirect. Added an explicit wait.' }, 'end_turn', 80) });
   L.push(done1);
   L.push(envelope(S1, done1.uuid, { type: 'system', subtype: 'turn_duration', durationMs: 45000, messageCount: 8, isMeta: false }));
@@ -128,6 +150,14 @@ async function main() {
   const wrap = envelope(S1, L.at(-3).uuid, { type: 'assistant', requestId: 'req_fx0009', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Workflow launched; audit found 2 races. Will fold both into the Fix phase.' }, 'end_turn', 60) });
   L.push(wrap);
   L.push(envelope(S1, wrap.uuid, { type: 'system', subtype: 'turn_duration', durationMs: 30000, messageCount: 12, isMeta: false }));
+
+  // continuation WITHOUT a new human prompt: the workflow notification lands
+  // as a user string line, then a tool call — the previous turn's sign-off
+  // text must NOT leak into this group's "why" context
+  L.push(envelope(S1, L.at(-2).uuid, { type: 'user', message: { role: 'user', content: `<task-notification>\n<task-id>wfx001</task-id>\n<tool-use-id>toolu_fxW001</tool-use-id>\n<status>completed</status>\n<summary>Workflow "auth-hardening" completed</summary>\n<result>{"patched":2,"green":true}</result>\n</task-notification>` } }));
+  const bashGit = envelope(S1, L.at(-1).uuid, { type: 'assistant', requestId: 'req_fx0015', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fx0015', name: 'Bash', input: { command: 'git log --oneline -1', description: 'Confirm hardening commit' }, caller: { type: 'direct' } }, 'tool_use') });
+  L.push(bashGit);
+  L.push(envelope(S1, bashGit.uuid, { type: 'user', sourceToolAssistantUUID: bashGit.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fx0015', content: 'a1b2c3d fix: auth race hardening' }] }, toolUseResult: { stdout: 'a1b2c3d fix: auth race hardening', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } }));
 
   // a future line type the parser must skip + count, never crash on
   L.push({ type: 'holo-recap', sessionId: S1, payload: { verdict: 'from the future' } });

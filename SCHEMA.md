@@ -93,13 +93,17 @@ calls are **detail payloads**, fetched lazily per node:
 ```jsonc
 { "kind": "turn",     "prompt": "…", "responseText": "…" }
 { "kind": "agent",    "prompt": "…", "result": "…", "transcript": [{ "role", "text", "toolName?" }] }
-{ "kind": "tool",     "name": "…", "calls": [{ "input", "output", "isError", "durationMs?" }] }
+{ "kind": "tool",     "name": "…", "context": "…?", "calls": [{ "input", "output", "isError", "durationMs?" }] }
 { "kind": "workflow", "returnValue": "…" }
 { "kind": "human",    "context": "…", "answer": "…" }
 ```
 
 Detail payload strings are pre-truncated server-side to keep responses small;
 they are display artifacts, not a data-fidelity contract.
+
+`tool.context` (optional, additive in irVersion 1): the assistant's narration
+emitted immediately before the group's first call — the "why" behind the tool
+use. Absent when there was no narration; consumers must tolerate absence.
 
 ## HTTP API (localhost only)
 

@@ -1,5 +1,7 @@
 /** Shared helpers for the claude-code adapter. Format knowledge only. */
 
+import { snippet } from '../../ir.js';
+
 /** Line types we understand in MAIN session files. Anything else → unrecognized. */
 export const KNOWN_MAIN_TYPES = new Set([
   'user',
@@ -97,6 +99,32 @@ export function parseTaskNotification(text) {
     summary: t('summary'),
     result: t('result'),
   };
+}
+
+/**
+ * Descriptive label for a tool-group node, synthesized from the call's input:
+ * "Bash · npm test", "Read · session.ts", "Grep · waitForURL". Unknown tools
+ * or any synthesis failure fall back to the plain tool name (never-blank-screen).
+ */
+export function toolNodeLabel(name, input, max = 40) {
+  try {
+    let hint;
+    if (name === 'Bash') hint = input.description || input.command;
+    else if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'NotebookEdit')
+      hint = baseName(input.file_path);
+    else if (name === 'Grep' || name === 'Glob') hint = input.pattern;
+    else if (name === 'WebFetch') hint = new URL(input.url).hostname;
+    else if (name === 'WebSearch') hint = input.query;
+    if (typeof hint !== 'string' || !hint.trim()) return name;
+    return snippet(`${name} · ${hint}`, max);
+  } catch {
+    return name;
+  }
+}
+
+function baseName(p) {
+  if (typeof p !== 'string') return undefined;
+  return p.split(/[\\/]/).filter(Boolean).pop();
 }
 
 /** Was a kill human-initiated, per the notification summary phrasing? */

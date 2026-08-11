@@ -10,6 +10,7 @@ import {
   isPromptLine,
   promptLabel,
   parseTaskNotification,
+  toolNodeLabel,
   UsageTally,
   cap,
   stripAnsi,
@@ -143,6 +144,8 @@ class GraphBuilder {
     this.sessionUsage = new UsageTally();
     this.toolCallCount = 0;
     this.lastHumanNodeId = null;
+    this.toolNames = new Map(); // tool node id → plain tool name (labels are descriptive)
+    this.narration = null; // assistant text since the last tool call, this turn
   }
 
   node(n) {
@@ -185,6 +188,7 @@ class GraphBuilder {
 
   startTurn(obj, idx) {
     this.closeTurn();
+    this.narration = null;
     const id = `t:${obj.uuid}`;
     const label = snippet(promptLabel(obj)) || '(empty prompt)';
     const n = this.node({
@@ -406,8 +410,11 @@ class GraphBuilder {
     const block = Array.isArray(msg.content) ? msg.content[0] : null;
     if (!block) return;
 
-    if (block.type === 'text' && this.turn && typeof block.text === 'string') {
-      this.turn.responseText += (this.turn.responseText ? '\n\n' : '') + block.text;
+    if (block.type === 'text' && typeof block.text === 'string') {
+      if (this.turn) {
+        this.turn.responseText += (this.turn.responseText ? '\n\n' : '') + block.text;
+      }
+      if (block.text.trim()) this.narration = block.text;
     }
 
     if (block.type !== 'tool_use') return;
@@ -445,8 +452,10 @@ class GraphBuilder {
       rec.kind = 'question';
     } else {
       // Consecutive same-tool calls collapse into one node (anti-hairball).
+      // Labels are descriptive ("Bash · npm test"), so match on the recorded
+      // plain tool name, not the label.
       const tip = this.g.nodes.find((n) => n.id === this.chainTip);
-      if (tip && tip.kind === 'tool' && tip.label === block.name) {
+      if (tip && tip.kind === 'tool' && this.toolNames.get(tip.id) === block.name) {
         tip.callCount += 1;
         rec.nodeId = tip.id;
       } else {
@@ -454,14 +463,24 @@ class GraphBuilder {
         this.node({
           id,
           kind: 'tool',
-          label: block.name,
+          label: toolNodeLabel(block.name, block.input),
           status: 'running',
           callCount: 1,
           errorCount: 0,
           startedAt: obj.timestamp,
           hasDetail: true,
         });
-        if (this.collect) this.details.set(id, { kind: 'tool', name: block.name, calls: [] });
+        this.toolNames.set(id, block.name);
+        if (this.collect) {
+          // "why" context: the assistant narration immediately before this
+          // group's first call ("Now I'll run the tests to check X").
+          this.details.set(id, {
+            kind: 'tool',
+            name: block.name,
+            ...(this.narration ? { context: cap(this.narration, 2000) } : {}),
+            calls: [],
+          });
+        }
         this.chain(id);
         rec.nodeId = id;
       }
@@ -475,6 +494,9 @@ class GraphBuilder {
         });
       }
     }
+    // Any tool call consumes the pending narration — it was "immediately
+    // before" only the very next call.
+    this.narration = null;
     this.pendingToolUse.set(block.id, rec);
   }
 
@@ -487,6 +509,10 @@ class GraphBuilder {
 
   closeTurn() {
     if (!this.turn) return;
+    // Narration is "same turn" by definition — a turn's sign-off text must
+    // not become the why-context of a continuation tool call (e.g. after a
+    // task notification arrives without a new human prompt).
+    this.narration = null;
     const t = this.turn;
     const tokens = t.usage.outputOnlyTotals();
     if (tokens.input + tokens.output > 0) t.node.tokens = tokens;

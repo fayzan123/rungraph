@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
+import { toolNodeLabel } from '../src/adapters/claude-code/helpers.js';
 import { pinFixtureMtimes, FIXTURE_ROOT, SESSION_RUN_ID, WORKFLOW_RUN_ID, EMPTY_RUN_ID } from './helpers.js';
 
 let refs;
@@ -58,7 +59,50 @@ describe('parse: session', () => {
     const bash = ir.nodes.find((n) => n.kind === 'tool' && n.label.startsWith('Bash'));
     expect(bash.callCount).toBe(2);
     expect(bash.errorCount).toBe(1);
-    expect(bash.label).toBe('Bash ×2');
+    // aggregated label keeps the first call's summary + ×N
+    expect(bash.label).toBe('Bash · Run the login test ×2');
+  });
+
+  it('synthesizes descriptive tool labels from call inputs', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const labels = ir.nodes.filter((n) => n.kind === 'tool').map((n) => n.label);
+    expect(labels).toContain('Edit · login.spec.ts'); // basename of file_path
+    expect(labels).toContain('Grep · waitForURL'); // pattern
+    expect(labels).toContain('Read · login.spec.ts');
+    expect(labels).toContain('Bash · npm run lint'); // no description → command
+    expect(labels).toContain('Hypervisor'); // unknown tool → plain name
+  });
+
+  it('toolNodeLabel truncates and never throws on hostile input', () => {
+    expect(toolNodeLabel('Bash', { command: 'x'.repeat(200) }).length).toBeLessThanOrEqual(40);
+    expect(toolNodeLabel('WebFetch', { url: 'https://docs.example.com/a/b' })).toBe(
+      'WebFetch · docs.example.com',
+    );
+    expect(toolNodeLabel('WebFetch', { url: ':::not a url' })).toBe('WebFetch');
+    expect(toolNodeLabel('Bash', null)).toBe('Bash');
+    expect(toolNodeLabel('Read', { file_path: 42 })).toBe('Read');
+    expect(toolNodeLabel('Mystery', { anything: true })).toBe('Mystery');
+  });
+
+  it('attaches "why" context only to the group right after narration', async () => {
+    const { ir, details } = await parse(ref(SESSION_RUN_ID), { collectDetails: true });
+    const grep = ir.nodes.find((n) => n.label.startsWith('Grep'));
+    expect(details.get(grep.id).context).toContain('checking the wait pattern');
+    // first Bash group is preceded by thinking, not narration text
+    const bash = ir.nodes.find((n) => n.label.startsWith('Bash ·'));
+    expect(details.get(bash.id).context).toBeUndefined();
+    // the Read right after the Grep must not inherit the consumed narration
+    const read = ir.nodes.find((n) => n.label.startsWith('Read'));
+    expect(details.get(read.id).context).toBeUndefined();
+  });
+
+  it('does not leak a turn sign-off into post-notification continuation tools', async () => {
+    const { ir, details } = await parse(ref(SESSION_RUN_ID), { collectDetails: true });
+    // this Bash runs after a task-notification, with no new human prompt —
+    // the previous turn's closing text is not its "why"
+    const git = ir.nodes.find((n) => n.label === 'Bash · Confirm hardening commit');
+    expect(git).toBeDefined();
+    expect(details.get(git.id).context).toBeUndefined();
   });
 
   it('links the async agent with status from its notification + transcript', async () => {
