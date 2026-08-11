@@ -141,7 +141,9 @@ Requires Node ≥ 20.
 - **Codex adapter** — the IR and adapter interface are already vendor-neutral.
 - **`rungraph mcp`** — the HTTP endpoints map 1:1 onto MCP tools
   (`list_runs`, `get_graph`, `get_detail`, `open_visualization`).
-- Deliberately out for now: search, run comparison, cost estimates.
+- **Search** — find a run or a node by text.
+- **Run comparison** — diff two runs of the same task.
+- **Cost estimates** — turn per-node token counts into dollars.
 
 ## License
 
