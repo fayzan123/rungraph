@@ -184,6 +184,11 @@ against `files[]` once Phase 2 lands. Produces a `FocusSet` with `source: 'find'
 This exists because sometimes the user just wants to locate a string, and that should not require an
 agent, a network call, or a subprocess.
 
+The matcher lives in `src/find.js` as a pure `matchNodes(ir, query) → nodeIds` with **no Node
+builtins**, so the frontend bundle can import it directly and filter locally without a round trip
+per keystroke. The same function backs the `find_nodes` MCP tool in Phase 4 (§7) — one matcher, so
+the human's find and the agent's find can never disagree.
+
 Find does **not** auto-pan the viewport (it would thrash while typing). Agent-sourced focus does —
 see §7.
 
@@ -244,14 +249,50 @@ on every delta. Implementation must measure on a large (500+ node) live run rath
 |---|---|
 | `list_runs` | `GET /api/index` |
 | `get_graph(runId)` | `GET /api/graph/:runId` |
+| `find_nodes(runId, query)` | `GET /api/find/:runId?q=` (new) |
 | `get_detail(runId, nodeId)` | `GET /api/detail/:nodeId?run=` |
 | `focus_nodes(runId, nodeIds, label, reason)` | `POST /api/focus` (new) |
+| `get_current_view()` | `GET /api/view` (new) |
 | `open_visualization(runId?)` | opens the browser |
 
-**The loop:** the user asks in their Claude Code terminal → Claude calls `get_graph` / `get_detail`,
-which now carry `signals` and `files` → Claude answers **in the terminal** → Claude calls
-`focus_nodes` → the server broadcasts on the SSE channel that already exists → the open dashboard
-lights up.
+**The loop:** the user asks in their Claude Code terminal → Claude calls `find_nodes` / `get_graph` /
+`get_detail`, which now carry `signals` and `files` → Claude answers **in the terminal** → Claude
+calls `focus_nodes` → the server broadcasts on the SSE channel that already exists → the open
+dashboard lights up.
+
+### How node selection actually works
+
+There is no retrieval algorithm here, and the spec should not imply one. The IR lands in Claude's
+context as a structured document; Claude reasons over it the same way it reasons over a file it just
+read, and returns node ids.
+
+The primitive that makes this exact rather than fuzzy is **node id stability**, which `SCHEMA.md`
+already guarantees for live-tail merging. Claude quotes ids back, the server resolves them, and no
+fuzzy matching appears anywhere in the loop. The model does the semantic work; the addressing stays
+exact.
+
+The consequence is that **the IR's expressiveness is the bottleneck, not the query layer.**
+`signals[]` and `files[]` are what let Claude answer well instead of guessing from labels — so
+Phases 1 and 2 are load-bearing for Phase 4's answer quality, not merely its prerequisites.
+
+### `find_nodes` — narrowing before pulling
+
+`get_graph` on a large run is expensive: a 500-node graph is plausibly 40–50k tokens dropped into
+the user's session to answer one question. `find_nodes(runId, query)` filters server-side and
+returns only matching nodes, so Claude can narrow before pulling detail.
+
+**It is the same matcher the Phase 1 text find uses.** `src/find.js` exports a pure
+`matchNodes(ir, query) → nodeIds` with no Node builtins, imported by both `server.js` (for the
+endpoint) and the frontend bundle (which filters locally, avoiding a round trip per keystroke).
+One implementation, two consumers — the same pattern as `FocusSet` and `deriveSignals`, and for the
+same reason: the agent and the human must not disagree about what matches.
+
+### `get_current_view` — resolving "this run"
+
+Without it, "this run" is ambiguous unless the user pastes a runId. The server already tracks SSE
+clients per run, so `GET /api/view` returns `{ runs: [{ runId, clientCount }] }` — what the open
+dashboards are actually showing. Empty array when no browser is connected, which is also how Claude
+learns not to bother calling `focus_nodes`.
 
 **Focus channel.** `POST /api/focus` accepts `{ runId, nodeIds, label, reason }` and broadcasts
 `{ type: 'focus', ... }` to that run's SSE clients. Agent-sourced focus **does** pan/zoom the
@@ -348,8 +389,12 @@ Following the existing fixture-driven approach:
   no file path asserts the field is absent, not empty. The existing subagent fixture asserts its
   `agent` node carries the files edited inside the subagent, since that path is the easiest to
   regress and the most costly to miss.
+- `tests/find.test.js` — `matchNodes` over fixtures: label hits, `files[]` hits, empty query returns
+  nothing (not everything), and no Node builtins are imported so the frontend bundle can consume it.
 - `tests/server.test.js` — `POST /api/focus` reaches connected SSE clients; a POST for a run with no
-  clients succeeds silently; malformed bodies return 400 without killing the server.
+  clients succeeds silently; malformed bodies return 400 without killing the server. `GET /api/find`
+  returns the same ids `matchNodes` returns directly. `GET /api/view` reports connected runs and an
+  empty array when nothing is watching.
 - Frontend stays manual + demo per CLAUDE.md, except the pure focus-filtering helpers, which
   unit-test alongside `viewmath`.
 
@@ -357,13 +402,18 @@ Following the existing fixture-driven approach:
 
 | phase | ships | depends on |
 |---|---|---|
-| 1 | `src/signals.js`, focus state in canvas, signal strip, text find | — |
+| 1 | `src/signals.js`, `src/find.js`, focus state in canvas, signal strip, text find | — |
 | 2 | `files[]` extraction, files list in inspector, click-to-focus | 1 |
 | 3 | signals on live deltas, strip escalation | 1 |
-| 4 | `rungraph mcp`, `POST /api/focus`, agent-driven focus | 1 |
+| 4 | `rungraph mcp` (incl. `find_nodes`, `get_current_view`), `POST /api/focus`, agent-driven focus | 1, 2 |
 
 Phase 1 is releasable alone and carries most of the value. Phase 4 is cheap *because* Phase 1 builds
-the focus mechanism it needs.
+the focus mechanism and the matcher it needs — it contributes little new logic of its own, mostly
+transport.
+
+Phase 4 now depends on Phase 2 as well. Not to compile — `find_nodes` and `focus_nodes` work without
+`files[]` — but for answer quality: without file attribution Claude is matching on node labels alone,
+which is the difference between "the retry loop on `token.js`" and "some Edit node failed."
 
 ## Open questions for implementation
 
@@ -373,3 +423,8 @@ the focus mechanism it needs.
    reachable is a detail for the frontend pass.
 3. **`--install` ergonomics** — whether `rungraph mcp --install` writes user-level or project-level
    MCP config, and what it does when an entry already exists.
+4. **`get_graph` size on large runs** — `find_nodes` gives Claude a way to narrow, but nothing
+   *stops* it calling `get_graph` on a 500-node run and spending 40–50k tokens. Whether the tool
+   needs a compact projection (ids, labels, kinds, signals — no timings or token counts) or simply a
+   tool description steering toward `find_nodes` first should be decided by measuring a real large
+   run, not up front.
