@@ -11,6 +11,7 @@ import { filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.j
  */
 export function Inspector({
   graph,
+  open: paneOpen = true,
   runId,
   project,
   selection,
@@ -21,7 +22,7 @@ export function Inspector({
   onFocusSignal,
   onFocusFile,
 }) {
-  const open = Boolean(graph);
+  const open = Boolean(graph) && paneOpen;
   return (
     <aside class="inspector" data-open={String(open)}>
       {open && (

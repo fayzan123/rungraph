@@ -291,7 +291,7 @@ const TOOLS = [
     name: 'get_current_view',
     title: 'What the dashboard is showing',
     description:
-      'Report which runs the user currently has open in a rungraph dashboard, with how many browser tabs are watching each. Use it to resolve "this run" without asking the user to paste a runId, and to learn whether focus_nodes is worth calling at all — an empty runs list means no browser is connected.',
+      'Report which runs the user currently has open in a rungraph dashboard, with how many browser tabs are watching each and when each was opened. Runs come back MOST RECENTLY OPENED FIRST, so runs[0] is what the user means by "this run" when they have several tabs. Use it to resolve "this run" without asking them to paste a runId, and to learn whether focus_nodes is worth calling at all — an empty runs list means no browser is connected.',
     inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
     run: getCurrentView,
   },

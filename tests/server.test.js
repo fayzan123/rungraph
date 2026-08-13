@@ -176,7 +176,9 @@ describe('the focus channel', () => {
     const watch = await openWatch(SESSION_RUN_ID);
     try {
       const view = await get('/api/view');
-      expect(view.body.runs).toEqual([{ runId: SESSION_RUN_ID, clientCount: 1 }]);
+      expect(view.body.runs).toHaveLength(1);
+      expect(view.body.runs[0]).toMatchObject({ runId: SESSION_RUN_ID, clientCount: 1 });
+      expect(Date.parse(view.body.runs[0].connectedAt)).toBeGreaterThan(0);
 
       const { status, body } = await post('/api/focus', {
         runId: SESSION_RUN_ID,
@@ -250,6 +252,20 @@ describe('the focus channel', () => {
     );
     expect(status).toBe(200);
   });
+
+  // With two tabs on two runs, "this run" was a coin flip: Map order is
+  // insertion order, so the default answer was the tab open the LONGEST.
+  it('GET /api/view reports the most recently opened run first', async () => {
+    const first = await openWatch(WORKFLOW_RUN_ID);
+    const second = await openWatch(SESSION_RUN_ID);
+    try {
+      const { body } = await get('/api/view');
+      expect(body.runs.map((r) => r.runId)).toEqual([SESSION_RUN_ID, WORKFLOW_RUN_ID]);
+    } finally {
+      await first.close();
+      await second.close();
+    }
+  }, 20000);
 
   it('GET /api/focus is a 405, not a silent 404', async () => {
     const res = await fetch(server.url + '/api/focus');

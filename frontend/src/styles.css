@@ -140,8 +140,20 @@ button.ghost[data-on="true"] {
 .main {
   display: grid;
   /* Floor the picker: below ~208px the project labels and run titles stop being readable. */
-  grid-template-columns: min(296px, max(208px, 28vw)) minmax(0, 1fr) auto;
+  --picker-w: min(296px, max(208px, 28vw));
+  grid-template-columns: var(--picker-w) minmax(0, 1fr) auto;
   min-height: 0;
+  transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Collapsed panes give the graph the whole window. The grid column goes to
+   zero rather than the pane being hidden, so the canvas actually reclaims it. */
+.main[data-left="false"] { --picker-w: 0px; }
+.main[data-left="false"] .picker { border-right: none; }
+
+.pane-toggle {
+  flex: none;
+  padding: 3px 8px;
+  line-height: 1;
 }
 
 /* ---------- picker ---------- */

@@ -181,8 +181,17 @@ async function apiFind(res, state, runId, q) {
  */
 function apiView(res, state) {
   const runs = [...state.watches.entries()]
-    .map(([runId, w]) => ({ runId, clientCount: w.clients.size }))
-    .filter((r) => r.clientCount > 0);
+    .map(([runId, w]) => ({
+      runId,
+      clientCount: w.clients.size,
+      connectedAt: new Date(w.lastConnectedAt).toISOString(),
+    }))
+    .filter((r) => r.clientCount > 0)
+    // Most recently opened first. With two tabs on two runs, "this run" is
+    // otherwise a coin flip — Map order is insertion order, so the default
+    // answer was the tab that had been open the LONGEST, which is the opposite
+    // of what someone means when they say "this run".
+    .sort((a, b) => (a.connectedAt < b.connectedAt ? 1 : -1));
   sendJson(res, 200, { runs });
 }
 
@@ -315,7 +324,7 @@ async function apiWatch(req, res, state, runId) {
 
   let entry = state.watches.get(runId);
   if (!entry) {
-    entry = { watcher: null, clients: new Set(), lastIR: null };
+    entry = { watcher: null, clients: new Set(), lastIR: null, lastConnectedAt: 0 };
     state.watches.set(runId, entry);
     const adapter = ADAPTERS.find((a) => a.name === ref.adapter);
     entry.watcher = watchRun(ref, adapter, {
@@ -332,6 +341,7 @@ async function apiWatch(req, res, state, runId) {
   }
 
   entry.clients.add(res);
+  entry.lastConnectedAt = Date.now();
   if (entry.lastIR) {
     res.write(`data: ${JSON.stringify({ type: 'snapshot', graph: entry.lastIR })}\n\n`);
   }

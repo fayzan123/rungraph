@@ -31,6 +31,7 @@ export function App() {
   const [query, setQuery] = useState('');
   const [note, setNote] = useState(null); // transient, strip-sized; never a banner
   const [escalated, setEscalated] = useState(false);
+  const [panes, setPanes] = useState(loadPanes);
   const seenHigh = useRef(new Set()); // `high` signal ids the user has looked at
   const primed = useRef(false); // has this run's baseline been taken yet
   const graphRef = useRef(null); // the SSE closure outlives every graph it sees
@@ -183,9 +184,36 @@ export function App() {
     setFocus(focusFromFind(graph, q)); // local filter — no round trip per keystroke
   };
 
+  const togglePane = (side) => setPanes((cur) => savePanes({ ...cur, [side]: !cur[side] }));
+
+  // "[" and "]" collapse the panes either side of the graph. Registered here
+  // rather than in the canvas because they must work with no run loaded, and
+  // must not fire while the find box has the caret.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.key === '[') togglePane('left');
+      else if (e.key === ']') togglePane('right');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div class="app">
       <header class="header">
+        <button
+          class="ghost pane-toggle"
+          data-on={String(panes.left)}
+          onClick={() => togglePane('left')}
+          title="runs list  ( [ )"
+          aria-label="toggle the runs list"
+          aria-pressed={String(panes.left)}
+        >
+          ▤
+        </button>
         <span class="brand"><b>run</b>graph</span>
         <span class="run-title">
           {graph ? (
@@ -210,8 +238,20 @@ export function App() {
             {follow ? 'following' : 'follow'}
           </button>
         )}
+        {graph && (
+          <button
+            class="ghost pane-toggle"
+            data-on={String(panes.right)}
+            onClick={() => togglePane('right')}
+            title="run details  ( ] )"
+            aria-label="toggle the run details pane"
+            aria-pressed={String(panes.right)}
+          >
+            ▥
+          </button>
+        )}
       </header>
-      <div class="main">
+      <div class="main" data-left={String(panes.left)} data-right={String(panes.right)}>
         <Picker index={index} runId={runId} onSelect={setRunId} />
         <div class="center">
           <Strip
@@ -250,11 +290,12 @@ export function App() {
               // walks the graph instead of typing.
               setFindSeq((n) => n + 1);
             }}
-            inspectorOpen={Boolean(graph)}
+            inspectorOpen={Boolean(graph) && panes.right}
           />
         </div>
         <Inspector
           graph={graph}
+          open={panes.right}
           runId={runId}
           project={project}
           selection={selection}
@@ -271,6 +312,31 @@ export function App() {
       </div>
     </div>
   );
+}
+
+const PANES_KEY = 'rungraph.panes';
+
+/**
+ * Both side panes collapse. The right one especially: it is open for the whole
+ * life of a loaded run now, so on a laptop it is a permanent tax on the graph
+ * rather than an occasional one — and the graph is the thing people came for.
+ */
+function loadPanes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANES_KEY) ?? 'null');
+    return { left: raw?.left !== false, right: raw?.right !== false };
+  } catch {
+    return { left: true, right: true };
+  }
+}
+
+function savePanes(panes) {
+  try {
+    localStorage.setItem(PANES_KEY, JSON.stringify(panes));
+  } catch {
+    /* storage unavailable — collapsing still works for this session */
+  }
+  return panes;
 }
 
 const GROUPS_KEY = 'rungraph.projectGroups';
