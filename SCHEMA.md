@@ -11,9 +11,14 @@ appear only inside namespaced `ext` bags.
   "meta": { … },
   "nodes": [ … ],
   "edges": [ … ],
-  "groups": [ … ]
+  "groups": [ … ],
+  "signals": [ … ]
 }
 ```
+
+`signals` (and `nodes[].files`) are **additive in `irVersion` 1** — the same way
+`tool.context` was added. Consumers must tolerate their absence: older graphs
+and adapters that cannot supply them simply omit both.
 
 ## meta
 
@@ -43,7 +48,18 @@ Common fields:
 | `tokens` | `{ input, output }` (optional) | |
 | `group` | string (optional) | Id of the `groups[]` entry (e.g. workflow phase) containing this node. |
 | `hasDetail` | boolean (optional) | `true` → `GET /api/detail/:nodeId?run=<runId>` returns a lazy detail payload. |
+| `files` | string[] (optional) | **File attribution** — paths this node touched. `tool` and `agent` nodes only; **absent**, never `[]`, when nothing was touched. |
 | `ext` | object (optional) | Provider extras (namespaced). |
+
+`files` are stored exactly as the adapter observed them (absolute, as the
+provider records them); displaying them relative to a project root is the
+consumer's job — IR `meta` does not carry a project path. A `tool` node
+collapses several calls, so its `files` is the de-duplicated union across the
+group. An `agent` node's `files` is the union of everything touched anywhere in
+that agent's own transcript: a subagent's tool calls never become tool nodes, so
+without this a large fraction of real edits would be invisible. `workflow` nodes
+are not enumerated — they drill into their own graph via `runRef`, which carries
+its own attribution.
 
 Kind-specific fields:
 
@@ -82,6 +98,42 @@ Kind-specific fields:
 | `id` | string | Referenced by `nodes[].group`. |
 | `label` | string | e.g. a workflow phase title. |
 
+## signals
+
+Derived, never parsed: `signals` is a pure function of the rest of the IR
+(`deriveSignals(ir)`), computed wherever an IR is produced for a consumer — the
+CLI, the server's parse cache, and every live-tail rebuild. It is top-level
+because a signal references a *set* of nodes and therefore cannot live on one.
+
+| field | type | meaning |
+|---|---|---|
+| `id` | string | Unique within the run, **stable across re-parses** (derived from node ids, not a counter) — consumers diff id sets to spot what is newly wrong. |
+| `kind` | `"retry-storm"` \| `"unresolved-error"` \| `"intervention"` \| `"outlier"` \| `"course-change"` | |
+| `severity` | `"high"` \| `"info"` | Only `high` earns a badge on the canvas. |
+| `nodeIds` | string[] | Never empty; every id exists in `nodes`. |
+| `label` | string | Chip text, e.g. `"6 failed Edit calls"`. |
+| `reason` | string | One sentence on why it matters, concrete about these nodes. |
+
+| kind | fires when | severity |
+|---|---|---|
+| `retry-storm` | a tool node's `errorCount >= 3`, or consecutive same-tool nodes in a lane each carrying errors | high |
+| `unresolved-error` | a tool node failed and is the last of its tool in its lane — nothing came back to fix it | high |
+| `intervention` | any `human` node, grouped by `interventionKind` | `denial`/`interrupt` → high; `answer` → info |
+| `outlier` | `tokens` or `durationMs` ≥ 3× the run's median **and** above an absolute floor | info |
+| `course-change` | an edge already carries `reason`, promoted onto its target node | info |
+
+A "lane" is the `sequence`-edge chain a node belongs to — the session backbone,
+or one agent's own chain.
+
+The governing rule is **precision over recall**: a false flag costs more than a
+missed one, because the moment the markers stop being trustworthy the user is
+back to reading the whole graph. Hence `course-change` promotes existing
+lineage only (no speculative inference), `outlier` is list-only (in a large
+session the biggest node is usually just the biggest node), and **a clean run
+produces zero signals**. Ordering is `high` before `info`, then by position in
+the run. Signals are an enhancement, never a render dependency: if derivation
+fails, the field is `[]` and the graph draws normally.
+
 ## Level of detail
 
 The graph carries only what the default canvas needs: turns, agents, grouped
@@ -111,11 +163,49 @@ use. Absent when there was no narration; consumers must tolerate absence.
 |---|---|
 | `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active }] }` |
 | `GET /api/graph/:runId` | the Graph IR above |
+| `GET /api/find/:runId?q=` | `{ runId, query, matched, nodeIds, nodes }` — plain substring over node labels and `files` |
 | `GET /api/detail/:nodeId?run=:runId` | a detail payload |
-| `GET /api/watch/:runId` | SSE stream: `{type:"snapshot", graph}` first, then `{type:"delta", meta, nodes, edges, groups, removedNodeIds, removedEdgeIds}` (merge by id) |
+| `GET /api/view` | `{ "runs": [{ runId, clientCount }] }` — what the open dashboards are showing; `[]` when no browser is connected |
+| `GET /api/watch/:runId` | SSE stream: `{type:"snapshot", graph}` first, then `{type:"delta", meta, nodes, edges, groups, signals, removedNodeIds, removedEdgeIds}` (merge by id; `signals` replaces wholesale) and `{type:"focus", runId, nodeIds, label, reason}` |
+| `POST /api/focus` | `{ runId, nodeIds, label, reason }` → broadcasts a `focus` frame; replies `{ ok, runId, clientCount, url }` |
 
-The server binds `127.0.0.1` only. These endpoints map 1:1 onto the planned
-MCP tools (`list_runs`, `get_graph`, `get_detail`, `open_visualization`).
+The server binds `127.0.0.1` only. `POST /api/focus` is its one write endpoint:
+it accepts node ids and two display strings, its only effect is which nodes a
+local browser tab highlights, and it reads no files and mutates nothing on disk.
+Any local process that could reach it can already read the transcripts directly.
+Requests carrying a non-localhost `Origin` are rejected, so a page the user
+happens to be browsing cannot drive their dashboard.
+
+`GET /api/find` exists so an agent can narrow before pulling: a 500-node graph
+is plausibly 40–50k tokens dropped into a session to answer one question. The
+frontend does not call it — it imports the same matcher and filters locally,
+avoiding a round trip per keystroke. One matcher, two consumers, so the human's
+find and the agent's find cannot disagree.
+
+## MCP (`rungraph mcp`)
+
+The endpoints above map 1:1 onto the MCP tools, which is why `rungraph mcp` is
+transport and almost no new logic:
+
+| tool | maps to |
+|---|---|
+| `list_runs` | `GET /api/index` |
+| `get_graph(runId, detail?)` | `GET /api/graph/:runId` (`detail:"compact"` by default — ids, labels, kinds, files, signals; `"full"` adds timings and token counts) |
+| `find_nodes(runId, query)` | `GET /api/find/:runId?q=` |
+| `get_detail(runId, nodeId)` | `GET /api/detail/:nodeId?run=` |
+| `focus_nodes(runId, nodeIds, label, reason)` | `POST /api/focus` |
+| `get_current_view()` | `GET /api/view` |
+| `open_visualization(runId?)` | opens the browser |
+
+The read-only tools work with no server running — they parse from disk — so
+asking an agent about a run never requires the dashboard to be open. Only the
+focus and view tools need `serve`; without it they say the highlight was
+skipped rather than failing. `serve` publishes `{ port, pid, startedAt }` to a
+well-known file in the OS temp directory for discovery, and readers confirm
+liveness with a real request before trusting it, which is also how a stale file
+from a crashed process is handled.
+
+Register it once with `rungraph mcp --install`.
 
 ## Versioning
 

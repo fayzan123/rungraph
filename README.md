@@ -48,6 +48,65 @@ structure so a 4,000-line transcript becomes something you can actually read:
 - **Tokens, durations, and models** annotate nodes; whole-run totals in the
   header.
 
+## What went wrong
+
+A graph that renders everything with equal weight points at nothing: a
+two-second file read and a forty-minute retry spiral look identical. So
+rungraph has an opinion. It derives **signals** from the run and puts them in a
+strip above the canvas — and on a clean run that strip costs zero height,
+because a marker you can't trust is worse than no marker.
+
+| | fires when |
+|---|---|
+| ⟳ **retry storm** | the same tool kept failing in one place — `Edit` fails, the agent reads the file, `Edit` fails again |
+| ⚠ **unresolved error** | something failed and nothing ever came back to fix it |
+| ✋ **intervention** | you denied a permission, interrupted a turn, or answered a question |
+| ◆ **outlier** | a step that cost far more tokens or wall-clock than the rest of the run |
+| ⚑ **course change** | the run's own recorded lineage for why it changed direction |
+
+Click a signal and the graph **focuses**: those nodes light up, everything else
+dims to a quarter — dimmed, never hidden, so the shape you already memorized
+stays put. `Esc` or a click on empty canvas clears it.
+
+The same focus mechanism backs everything else that points at nodes:
+
+- **Find** (`/`) — plain substring over node labels *and the files each node
+  touched*. No model, no network, no subprocess; it filters in the browser.
+- **Files** — tool and agent nodes carry the paths they touched, including work
+  done **inside subagents**, which is where a lot of real editing happens. The
+  inspector lists every file the run touched with a count; click one to see
+  exactly which steps touched it.
+- **Live escalation** — signals are re-derived on every live-tail update. Go do
+  something else while the agent works; the strip goes loud only when something
+  new has actually gone wrong.
+
+## Ask your agent about a run
+
+The dashboard is for you; the MCP server is for your agent. They are two ends of
+one loop, not two products.
+
+```
+npx rungraph mcp --install     # one time
+```
+
+Then, in Claude Code: *"which edits in my last run failed?"* Claude calls
+`find_nodes` / `get_graph` / `get_detail`, **answers in your terminal** — your
+model, your session, fully inspectable — and then calls `focus_nodes`, and the
+dashboard you have open lights up the nodes it just described.
+
+Nothing is pinned, prompted, or proxied: rungraph contributes the graph, not the
+conversation. The read-only tools work with no server running at all.
+
+| tool | does |
+|---|---|
+| `list_runs` | the run index |
+| `get_graph` | one run's graph, compact by default (signals + files included) |
+| `find_nodes` | narrow before you pull — a big graph is 20k+ tokens |
+| `get_detail` | the actual error text behind one node |
+| `focus_nodes` | light up the open dashboard |
+| `get_current_view` | what the dashboard is showing right now |
+| `open_visualization` | open the browser on a run |
+
 ## Getting around
 
 Navigation is Figma-style, built for the tall, skinny graphs real runs
@@ -62,7 +121,8 @@ produce:
 | Double-click node | Zoom to 100%, centered |
 | `j` / `k` (or `↓` / `↑`) | Walk nodes in run order, inspector follows |
 | `f` | Fit the whole graph |
-| `Esc` | Deselect |
+| `/` | Find by label or file |
+| `Esc` | Deselect and clear the focus |
 
 A **minimap** (bottom-right) shows the whole run as a strip with a draggable
 viewport — errors glow as red beacons; click one to jump straight to the
@@ -84,14 +144,24 @@ npx rungraph list --json
 npx rungraph graph 'claude-code:…:5822df8b-…' --json
 # The full Graph IR for that run on stdout:
 # {"irVersion":1,"meta":{"runId":"…","kind":"session","title":"…","totals":{"tokens":184230,"toolCalls":57,"agents":4},…},
-#  "nodes":[{"id":"…","kind":"agent","label":"Investigate flaky test","status":"completed","tokens":{…}},…],
+#  "nodes":[{"id":"…","kind":"agent","label":"Investigate flaky test","status":"completed",
+#            "files":["/home/you/dev/app/src/auth/token.js"],"tokens":{…}},…],
 #  "edges":[{"kind":"spawn","from":"…","to":"…","label":"Investigate why auth.spec.ts flakes"},…],
-#  "groups":[…]}
+#  "groups":[…],
+#  "signals":[{"kind":"retry-storm","severity":"high","nodeIds":["…"],"label":"6 failed Edit calls",
+#              "reason":"Edit failed 6× across 3 consecutive steps on token.js, …"}]}
 # → an agent can read its own past runs: what it spawned, what failed, where the human said no.
+
+npx rungraph find 'claude-code:…:5822df8b-…' token.js --json
+# {"matched":4,"nodeIds":[…],"nodes":[…]}
+# → narrow first. A big graph is 20k+ tokens of context to answer one question.
 
 npx rungraph serve --no-open
 # {"url":"http://127.0.0.1:4321"}   (server stays in foreground; same data over HTTP + SSE live tail)
 ```
+
+The same surface is available as MCP tools — see "Ask your agent about a run"
+above, or `rungraph mcp --install`.
 
 The IR is versioned and documented in [SCHEMA.md](SCHEMA.md). It is
 vendor-neutral: Claude Code is the first adapter (sessions, subagents, and
@@ -126,12 +196,15 @@ It is built to survive real transcripts:
 ## CLI reference
 
 ```
-rungraph                     scan, serve, open browser (human default)
-rungraph list [--json]       run index, newest first
-rungraph graph <runId>       Graph IR for one run (JSON on stdout)
-rungraph serve [--no-open]   start server; prints {"url": …}
-  --project <path>           only runs for this project directory
-  --port <n>                 preferred port (auto-increments if taken)
+rungraph                       scan, serve, open browser (human default)
+rungraph list [--json]         run index, newest first
+rungraph graph <runId>         Graph IR for one run (JSON on stdout)
+rungraph find <runId> <query>  nodes whose label or files match a substring
+rungraph serve [--no-open]     start server; prints {"url": …}
+rungraph mcp [--install]       MCP server on stdio; --install registers it once
+  --project <path>             only runs for this project directory
+  --port <n>                   preferred port (auto-increments if taken)
+  --scope <s>                  mcp --install: user (default) | project | local
 ```
 
 Requires Node ≥ 20.
@@ -139,9 +212,8 @@ Requires Node ≥ 20.
 ## Roadmap
 
 - **Codex adapter** — the IR and adapter interface are already vendor-neutral.
-- **`rungraph mcp`** — the HTTP endpoints map 1:1 onto MCP tools
-  (`list_runs`, `get_graph`, `get_detail`, `open_visualization`).
-- **Search** — find a run or a node by text.
+- **Cross-run questions** — file attribution lives in each run's IR, so asking
+  "what else touched this file?" across runs needs iteration, not a migration.
 - **Run comparison** — diff two runs of the same task.
 - **Cost estimates** — turn per-node token counts into dollars.
 
