@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { layoutGraph, edgePath } from './layout.js';
+import { badgedNodeIds } from './focus.js';
 import {
   zoomAtPoint,
   normalizeWheel,
   wheelZoomFactor,
   fitView,
+  fitNodes,
   initialView,
   centerOn,
   minimapFrame,
@@ -24,7 +26,20 @@ const KIND_TAGS = {
 const DRAG_THRESHOLD = 4; // px of total movement before a press becomes a pan
 const DOUBLE_TAP_MS = 400;
 
-export function Canvas({ graph, error, selection, onSelect, follow, live, onUserPan }) {
+export function Canvas({
+  graph,
+  error,
+  selection,
+  onSelect,
+  follow,
+  live,
+  onUserPan,
+  focus,
+  focusSeq,
+  onClearFocus,
+  onOpenFind,
+  inspectorOpen,
+}) {
   const [layout, setLayout] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
   const [view, setView] = useState({ tx: 40, ty: 30, scale: 1 });
@@ -37,7 +52,9 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
   const prevHeight = useRef(0);
   const prevRunId = useRef(null);
   const prevInspectorOpen = useRef(false);
+  const pannedSeq = useRef(0); // focusSeq the viewport has already moved for
   const placedLive = useRef(false); // the `live` value the initial view used
+  const placedWidth = useRef(0); // canvas width the initial view was framed for
   const userMoved = useRef(false); // any deliberate pan/zoom this run
 
   const userTouched = () => {
@@ -90,7 +107,15 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
     if (isNewRun) {
       setView(initialView(layout, b, live));
       placedLive.current = live;
+      placedWidth.current = b.width;
       userMoved.current = false;
+    } else if (!userMoved.current && Math.abs(b.width - placedWidth.current) > 24) {
+      // elk lays out in ~20ms while the inspector slides open over 180ms, so
+      // the first frame is measured against a canvas that has not finished
+      // shrinking and the graph settles off-centre. Re-frame once the width
+      // stops moving — but never after the user has taken the view themselves.
+      setView(initialView(layout, b, placedLive.current));
+      placedWidth.current = b.width;
     } else if (live && !placedLive.current && !userMoved.current) {
       // Deep-linked run: the graph can lay out before the index scan reveals
       // it is live. Re-anchor to the latest activity once we know — but only
@@ -104,17 +129,22 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
       }));
     }
     prevHeight.current = layout.height;
-  }, [layout, follow, live]);
+    // `box` is in the deps so the re-frame above actually sees the canvas
+    // settle — the ResizeObserver is what reports the inspector finishing.
+  }, [layout, follow, live, box]);
 
   // The inspector sliding open shrinks the canvas — shift the view by half
-  // the lost width so the graph stays centered instead of hiding.
+  // the lost width so the graph stays centered instead of hiding. Keyed on the
+  // pane's own open state, not on `selection`: the inspector now stays open for
+  // the run overview, so keying on the selection would nudge the view sideways
+  // on every single node click.
   useEffect(() => {
-    const open = Boolean(selection);
+    const open = Boolean(inspectorOpen);
     if (open === prevInspectorOpen.current) return;
     prevInspectorOpen.current = open;
-    const w = Math.min(384, window.innerWidth * 0.46);
+    const w = Math.min(384, window.innerWidth * 0.3); // == --inspector-w in styles.css
     setView((v) => ({ ...v, tx: v.tx + (open ? -w / 2 : w / 2) }));
-  }, [selection]);
+  }, [inspectorOpen]);
 
   // Figma-style wheel: two-finger scroll pans, pinch (ctrlKey) and
   // cmd+scroll zoom at the cursor. Plain mouse-wheel deltas are normalized.
@@ -190,6 +220,7 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
       onSelect({ type: 'edge', id: edgeId });
     } else {
       onSelect(null); // true empty space still deselects
+      onClearFocus?.(); // …and drops the focus, on the same gesture
     }
   };
 
@@ -225,7 +256,11 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
   }, [graph]);
 
   // Keyboard walk-through: j/k or ↓/↑ step chronologically (IR array order),
-  // f fits, Esc deselects. No-ops without a graph or with focus in an input.
+  // f fits, / opens find, Esc deselects and clears focus. No-ops without a
+  // graph or with focus in an input.
+  //
+  // "/" lives here rather than in App so there is exactly one keyboard map and
+  // one activeElement guard — the strip's find input must swallow "/" as text.
   useEffect(() => {
     const onKey = (e) => {
       if (!graph || !layout) return;
@@ -233,8 +268,15 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable))
         return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'Escape') return onSelect(null);
+      if (e.key === 'Escape') {
+        onSelect(null);
+        return onClearFocus?.();
+      }
       if (e.key === 'f') return fit();
+      if (e.key === '/') {
+        e.preventDefault(); // Firefox quick-find would eat the keystroke
+        return onOpenFind?.();
+      }
       const dir =
         e.key === 'ArrowDown' || e.key === 'j' ? 1 : e.key === 'ArrowUp' || e.key === 'k' ? -1 : 0;
       if (!dir || orderedNodes.length === 0) return;
@@ -253,6 +295,38 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [graph, layout, selection, orderedNodes]);
+
+  // Members light up, everything else dims — the set is built once per focus
+  // rather than per node. `null` (not an empty Set) means "no focus at all", so
+  // an agent focus that matched nothing still dims the graph and says so, while
+  // a run with no focus renders exactly as it did before this feature existed.
+  const focusIds = useMemo(() => (focus ? new Set(focus.nodeIds) : null), [focus]);
+  const badged = useMemo(() => badgedNodeIds(graph), [graph]);
+
+  // Agent-sourced focus moves the viewport: the user asked the question in
+  // their terminal and is looking at it, so the graph should already have moved
+  // by the time they glance over. Signal/find/file focus never moves it — find
+  // would thrash the view on every keystroke.
+  //
+  // focusSeq only advances on a fresh frame off the SSE channel, so this fires
+  // once per answer, not on every re-render; keying the ref (rather than the
+  // deps) also lets a focus that beat the layout pan as soon as the layout lands.
+  useEffect(() => {
+    if (focusSeq === pannedSeq.current) return;
+    if (focus?.source !== 'agent') {
+      pannedSeq.current = focusSeq;
+      return;
+    }
+    if (!layout || !wrapRef.current) return;
+    const rects = focus.nodeIds.map((id) => layout.nodes.get(id)).filter(Boolean);
+    const b = wrapRef.current.getBoundingClientRect();
+    const next = fitNodes(rects, { width: b.width, height: b.height });
+    pannedSeq.current = focusSeq;
+    if (!next) return;
+    userTouched();
+    setView(next);
+    onUserPan?.(); // an answer the user asked for outranks auto-follow
+  }, [focusSeq, focus, layout]);
 
   if (!graph) {
     return (
@@ -309,6 +383,8 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
                   edge={e}
                   pts={pts}
                   selected={selection?.type === 'edge' && selection.id === e.id}
+                  // an edge stays bright only if it connects two focused nodes
+                  dim={Boolean(focusIds) && !(focusIds.has(e.from) && focusIds.has(e.to))}
                 />
               );
             })}
@@ -316,12 +392,16 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
             graph.nodes.map((n) => {
               const pos = layout.nodes.get(n.id);
               if (!pos) return null;
+              const focused = focusIds ? focusIds.has(n.id) : false;
               return (
                 <NodeView
                   key={n.id}
                   node={n}
                   pos={pos}
                   selected={selection?.type === 'node' && selection.id === n.id}
+                  focused={focused}
+                  dim={Boolean(focusIds) && !focused}
+                  badge={badged.has(n.id)}
                 />
               );
             })}
@@ -340,13 +420,21 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
         )}
       </div>
       <div class="canvas-dock">
-        <button class="ghost" onClick={fit}>fit</button>
+        <div class="dock-row">
+          {/* find has no permanent home in the strip (a clean run must cost zero
+              height), so this button and "/" are how it is reached. */}
+          <button class="ghost" onClick={() => onOpenFind?.()} title="find in this run  ( / )">
+            find
+          </button>
+          <button class="ghost" onClick={fit}>fit</button>
+        </div>
         {showMinimap && (
           <Minimap
             graph={graph}
             layout={layout}
             view={view}
             box={box}
+            focusIds={focusIds}
             onDragState={setMmDragging}
             onJump={(cx, cy) => {
               userTouched();
@@ -368,7 +456,7 @@ export function Canvas({ graph, error, selection, onSelect, follow, live, onUser
  * Whole-graph overview strip: kind-colored node rects (no edges — noise at
  * this scale), error beacons, and a draggable bright viewport rect.
  */
-function Minimap({ graph, layout, view, box, onJump, onSelectNode, onDragState }) {
+function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onDragState }) {
   const frame = minimapFrame(layout.width, layout.height);
   const vr = viewportRect(view, box);
   const dragRef = useRef(null);
@@ -456,6 +544,9 @@ function Minimap({ graph, layout, view, box, onJump, onSelectNode, onDragState }
               class="mm-node"
               key={n.id}
               data-kind={n.kind}
+              // a focus off-screen must still be findable — the minimap is the
+              // only place the whole run is visible at once
+              data-focused={String(Boolean(focusIds?.has(n.id)))}
               x={pos.x}
               y={pos.y}
               width={Math.max(minNode, pos.w)}
@@ -490,7 +581,7 @@ function Minimap({ graph, layout, view, box, onJump, onSelectNode, onDragState }
   );
 }
 
-function NodeView({ node, pos, selected }) {
+function NodeView({ node, pos, selected, focused, dim, badge }) {
   const meta = nodeMeta(node);
   const clip = `clip-${node.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   return (
@@ -499,9 +590,16 @@ function NodeView({ node, pos, selected }) {
       data-kind={node.kind}
       data-status={node.status}
       data-selected={String(selected)}
+      data-focused={String(Boolean(focused))}
+      // dimmed, never removed: hiding collapses the layout and destroys the
+      // spatial memory the graph exists to build
+      data-dim={String(Boolean(dim))}
       data-node-id={node.id}
       transform={`translate(${pos.x} ${pos.y})`}
     >
+      {focused && (
+        <rect class="ring" x="-3" y="-3" width={pos.w + 6} height={pos.h + 6} rx="11" />
+      )}
       <rect class="body" width={pos.w} height={pos.h} rx="8" />
       <rect class="status" x="0" y="6" width="3" height={pos.h - 12} rx="1.5" />
       <clipPath id={clip}>
@@ -517,6 +615,14 @@ function NodeView({ node, pos, selected }) {
           <text class="meta" x="12" y={pos.h - 8}>{meta}</text>
         )}
       </g>
+      {/* `high` signals only. In a large session the biggest node is usually
+          just the biggest node, so `info` never earns a mark on the canvas. */}
+      {badge && (
+        <g class="signal-badge" aria-hidden="true">
+          <circle cx={pos.w - 4} cy="4" r="5" />
+          <text x={pos.w - 4} y="7">!</text>
+        </g>
+      )}
       <title>{node.label}</title>
     </g>
   );
@@ -544,13 +650,14 @@ export function fmtDuration(ms) {
   return `${ms}ms`;
 }
 
-function EdgeView({ edge, pts, selected }) {
+function EdgeView({ edge, pts, selected, dim }) {
   const d = edgePath(pts);
   const mid = pts[Math.floor(pts.length / 2)];
   return (
     <g
       class={`edge${edge.reason ? ' has-reason' : ''}`}
       data-kind={edge.kind}
+      data-dim={String(Boolean(dim))}
       data-edge-id={edge.id}
     >
       <path d={d} marker-end={edge.kind !== 'sequence' ? 'url(#arrow)' : undefined} />

@@ -79,6 +79,42 @@ export function centerOn(scale, cx, cy, box) {
 }
 
 /**
+ * View that frames a set of laid-out node rects — the agent-sourced focus
+ * gesture. Unlike find (which would thrash while typing), an answer from the
+ * user's terminal has been asked for, so the graph should already have moved
+ * by the time they glance over.
+ *
+ * Zooming *in* past `maxScale` on a single small node reads as a glitch, so the
+ * scale is capped; an empty set leaves the view alone (returns null).
+ *
+ * @param {Array<{x:number,y:number,w:number,h:number}>} rects
+ * @param {{width:number,height:number}} box
+ */
+export function fitNodes(rects, box, pad = 90, maxScale = 1.1) {
+  if (!rects || rects.length === 0 || !box) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const r of rects) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w);
+    maxY = Math.max(maxY, r.y + r.h);
+  }
+  if (!Number.isFinite(minX)) return null;
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  // Padding has to give way on a narrow canvas. A fixed margin can exceed the
+  // viewport itself once the inspector is open on a small window, which leaves
+  // a sliver of usable width and floors the scale — the graph flies away
+  // instead of coming into focus.
+  const padX = Math.min(pad, box.width * 0.15);
+  const padY = Math.min(pad, box.height * 0.15);
+  const scale = clampScale(
+    Math.min(maxScale, (box.width - padX * 2) / w, (box.height - padY * 2) / h),
+  );
+  return centerOn(scale, minX + w / 2, minY + h / 2, box);
+}
+
+/**
  * Minimap frame: scale + pixel size that fits the whole layout inside
  * maxW × maxH, aspect preserved.
  */

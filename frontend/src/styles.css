@@ -27,6 +27,13 @@
 
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* The inspector is open for the whole life of a loaded run now (it answers
+     "what's in this run" when nothing is selected), so on a narrow window it is
+     a permanent tax on the canvas rather than an occasional one. 30vw is a no-op
+     at 1280px and wider — it only gives ground where the graph would otherwise
+     be squeezed to a sliver. Kept in sync with canvas.jsx's width compensation. */
+  --inspector-w: min(384px, 30vw);
 }
 
 * { box-sizing: border-box; }
@@ -132,7 +139,8 @@ button.ghost[data-on="true"] {
 /* ---------- main columns ---------- */
 .main {
   display: grid;
-  grid-template-columns: min(296px, 28vw) minmax(0, 1fr) auto;
+  /* Floor the picker: below ~208px the project labels and run titles stop being readable. */
+  grid-template-columns: min(296px, max(208px, 28vw)) minmax(0, 1fr) auto;
   min-height: 0;
 }
 
@@ -148,6 +156,68 @@ button.ghost[data-on="true"] {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+}
+.picker .project-toggle {
+  width: 100%;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 12px 7px 8px;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  border-radius: 5px;
+  transition: background 100ms ease-out;
+}
+.picker .project-toggle:hover { background: var(--bg-raised); }
+.picker .project-toggle:hover .microlabel { color: var(--ink-dim); }
+.picker .project-toggle .microlabel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  text-align: left;
+}
+/* The head absorbs essentially all the shrink, so the pinned tail only gives way once the
+   head is gone — and then clips rather than colliding with the count. */
+.picker .project-toggle .head {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker .project-toggle .tail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.picker .project-toggle .chev {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  color: var(--ink-faint);
+  /* right-pointing triangle, rotated to point down when the group is open */
+  clip-path: polygon(28% 12%, 78% 50%, 28% 88%);
+  transition: transform 140ms ease-out;
+}
+.picker .project-group[data-open="true"] .chev { transform: rotate(90deg); }
+.picker .project-toggle .count {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px; /* keeps a pinned label tail from reading as part of the count */
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+.picker .project-toggle .count .live { color: var(--amber); font-size: 8px; }
+/* Collapsed group holding the open run: keep the selection visible on the header. */
+.picker .project-group[data-open="false"][data-holds-selection="true"] .microlabel {
+  color: var(--amber);
 }
 .run-item {
   display: block;
@@ -195,10 +265,135 @@ button.ghost[data-on="true"] {
   color: var(--amber);
 }
 
+/* ---------- centre column: strip over canvas ---------- */
+.center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Instrumentation, not a toolbar: one hairline-bottomed line of mono, absent
+   entirely when the run is clean. */
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  user-select: none;
+}
+/* The chips scroll sideways when they outgrow the column; find never moves. */
+.strip .chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.strip .chips::-webkit-scrollbar { display: none; }
+/* Pinned like .find, not a flex item in the scroller: this is the §9 “those
+   nodes are gone” line, so it is the last thing that may lose the width fight. */
+.strip .note {
+  flex: none;
+  max-width: 42ch;
+  color: var(--amber);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Chips keep their full label and let the row scroll: a label crushed to an
+   ellipsis says nothing, and saying nothing is what the strip exists to fix. */
+.strip .chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 26ch;
+  font: inherit;
+  color: var(--ink-dim);
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out;
+}
+.strip .chip .glyph { flex: none; font-size: 12px; line-height: 1; }
+.strip .chip .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strip .chip[data-severity="high"] {
+  color: var(--clay);
+  border-color: color-mix(in oklch, var(--clay) 48%, transparent);
+}
+.strip .chip:hover { color: var(--ink); border-color: var(--ink-faint); }
+.strip .chip[data-on="true"] {
+  color: var(--amber);
+  border-color: color-mix(in oklch, var(--amber) 55%, transparent);
+  background: color-mix(in oklch, var(--amber) 12%, transparent);
+}
+
+.strip .find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding-left: 8px;
+}
+.strip .find input {
+  flex: 0 1 auto;
+  min-width: 8ch;
+  width: 200px;
+  font: inherit;
+  font-family: var(--mono);
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 3px 9px;
+}
+.strip .find input::placeholder { color: var(--ink-faint); }
+.strip .find input:focus {
+  outline: none;
+  border-color: color-mix(in oklch, var(--amber) 55%, transparent);
+}
+.strip .find .count { flex: none; }
+
+/* Phase 3 escalation: a NEW high signal on a live run. Loud once, then ambient
+   again the moment the user clicks a chip or presses Esc. */
+.strip[data-alert="true"] {
+  background: color-mix(in oklch, var(--amber) 8%, var(--bg-panel));
+  border-bottom-color: color-mix(in oklch, var(--amber) 55%, transparent);
+  box-shadow: inset 0 -1px 14px color-mix(in oklch, var(--amber) 16%, transparent);
+  animation: strip-alert 900ms ease-out 1;
+}
+@keyframes strip-alert {
+  0% { background: color-mix(in oklch, var(--amber) 28%, var(--bg-panel)); }
+  100% { background: color-mix(in oklch, var(--amber) 8%, var(--bg-panel)); }
+}
+
 /* ---------- canvas ---------- */
 .canvas-wrap {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   background:
     radial-gradient(circle at 1px 1px, oklch(0.24 0.014 62 / 0.55) 1px, transparent 0) 0 0 / 22px 22px,
     var(--bg-canvas);
@@ -219,6 +414,7 @@ button.ghost[data-on="true"] {
   gap: 8px;
 }
 .canvas-dock .ghost { background: var(--bg-panel); }
+.canvas-dock .dock-row { display: flex; gap: 8px; }
 
 /* ---------- minimap ---------- */
 .minimap {
@@ -237,6 +433,15 @@ button.ghost[data-on="true"] {
 .minimap .mm-node[data-kind="agent"] { fill: var(--sage); }
 .minimap .mm-node[data-kind="workflow"] { fill: var(--violet); }
 .minimap .mm-node[data-kind="human"] { fill: var(--amber); }
+/* After the kind rules on purpose: a focused node reads as focused first. The
+   non-scaling stroke blooms it past the 2px floor, so a focus that is off-screen
+   in the main view is still findable here. */
+.minimap .mm-node[data-focused="true"] {
+  fill: var(--amber);
+  stroke: var(--amber);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
 .minimap .mm-group {
   fill: none;
   stroke: oklch(0.35 0.03 300 / 0.5);
@@ -279,7 +484,30 @@ button.ghost[data-on="true"] {
 .canvas-empty .glyph { font-size: 26px; color: var(--ink-faint); font-family: var(--mono); }
 
 /* ---------- SVG nodes ---------- */
-.node { cursor: pointer; }
+.node { cursor: pointer; transition: opacity 160ms ease-out; }
+
+/* Focus: members ring and stay lit, everyone else recedes. Dimming — never
+   hiding — keeps the layout, and with it the user's spatial memory of the run. */
+.node[data-dim="true"], .edge[data-dim="true"] { opacity: 0.25; }
+.node .ring {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1.6;
+  stroke-opacity: 0.85;
+}
+.node .signal-badge circle {
+  fill: var(--clay);
+  stroke: var(--bg-canvas);
+  stroke-width: 1.5;
+}
+.node .signal-badge text {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  fill: var(--bg);
+  text-anchor: middle;
+}
+
 .node rect.body {
   fill: var(--bg-raised);
   stroke: var(--hairline);
@@ -322,6 +550,7 @@ button.ghost[data-on="true"] {
 .node[data-kind="human"] text.kindtag { fill: color-mix(in oklch, var(--amber) 75%, var(--ink-faint)); }
 
 /* ---------- SVG edges ---------- */
+.edge { transition: opacity 160ms ease-out; }
 .edge path {
   fill: none;
   stroke: var(--hairline);
@@ -362,11 +591,11 @@ button.ghost[data-on="true"] {
   transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .inspector[data-open="true"] {
-  width: min(384px, 46vw);
+  width: var(--inspector-w);
   border-left-color: var(--hairline-soft);
 }
 .inspector-inner {
-  width: min(384px, 46vw);
+  width: var(--inspector-w);
   height: 100%;
   overflow-y: auto;
   padding: 14px 16px 40px;
@@ -432,6 +661,72 @@ button.ghost[data-on="true"] {
 .tool-call .head .err { color: var(--clay); }
 .tool-call .head .ok { color: var(--sage); }
 .inspector .loading { color: var(--ink-faint); font-family: var(--mono); padding: 14px 0; }
+
+/* Ranked lists — focused nodes, signals, files. Every row is a real button so
+   the whole triage path is keyboard reachable. */
+.inspector .rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px 0 14px;
+}
+.inspector .row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.inspector .row:hover { background: var(--bg-raised); color: var(--ink); }
+.inspector .row .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspector .row .glyph { flex: none; color: var(--ink-faint); }
+.inspector .row .n { flex: none; color: var(--ink-faint); }
+.inspector .row .n.err { color: var(--clay); }
+.inspector .row .tag {
+  flex: none;
+  width: 54px;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.inspector .row[data-severity="high"] .glyph { color: var(--clay); }
+.inspector .row[data-on="true"] {
+  background: color-mix(in oklch, var(--amber) 9%, transparent);
+  border-left-color: var(--amber);
+  color: var(--ink);
+}
+.inspector .focus-reason {
+  margin: 2px 0 6px;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+.inspector .agent-hint {
+  margin: 26px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline-soft);
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.inspector .agent-hint code { font-family: var(--mono); color: var(--amber-dim); }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
