@@ -652,6 +652,158 @@ export async function installMcp(opts = {}) {
   return 1; // the already-registered case returned above
 }
 
+/* -------------------------------------------------------------------- check */
+
+/**
+ * `rungraph mcp --check` — "is this actually working?"
+ *
+ * The question the author of this tool could not answer about his own machine,
+ * which is a fair sign nobody else could either. Four checks, each with the one
+ * next step that fixes it, and an end-to-end handshake rather than a guess: it
+ * spawns the real MCP server over real stdio and asks it for its tool list.
+ *
+ * @returns {Promise<number>} 0 when the loop is usable, 1 when something needs doing
+ */
+export async function checkMcp(opts = {}) {
+  const checks = [];
+  const push = (name, ok, detail, fix) => checks.push({ name, ok, detail, ...(fix ? { fix } : {}) });
+
+  // 1. Are there runs to ask about at all?
+  let runCount = 0;
+  try {
+    runCount = (await scan({ project: opts.project })).runs.length;
+  } catch {
+    /* reported as zero below */
+  }
+  push(
+    'runs on disk',
+    runCount > 0,
+    runCount > 0 ? `${runCount} run${runCount === 1 ? '' : 's'} found` : 'no runs found',
+    'Run a coding-agent session, then try again — rungraph reads transcripts already on disk.',
+  );
+
+  // 2. Does the MCP server itself start and speak the protocol?
+  const handshake = await selfHandshake();
+  push(
+    'mcp server',
+    handshake.ok,
+    handshake.ok ? `answers over stdio, ${handshake.tools} tools` : handshake.error,
+    'This is a bug in rungraph itself — please report it.',
+  );
+
+  // 3. Is it registered with Claude Code?
+  const registered = await isRegistered();
+  push(
+    'registered with claude',
+    registered.ok,
+    registered.detail,
+    'Run `rungraph mcp --install`, then restart Claude Code.',
+  );
+
+  // 4. Is a dashboard server up? Optional — read-only tools work without it.
+  const server = await liveServerUrl();
+  push(
+    'dashboard server',
+    Boolean(server),
+    server ? `serving on ${server}` : 'not running (optional — only focus_nodes needs it)',
+    'Run `rungraph` in a terminal to start it and open the dashboard.',
+  );
+
+  const essential = checks.filter((c) => c.name !== 'dashboard server');
+  const ok = essential.every((c) => c.ok);
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify({ ok, checks }) + '\n');
+    return ok ? 0 : 1;
+  }
+
+  for (const c of checks) {
+    process.stdout.write(`${c.ok ? '✔' : '✖'} ${c.name.padEnd(24)} ${c.detail}\n`);
+  }
+  const todo = checks.filter((c) => !c.ok && c.fix);
+  if (todo.length) {
+    process.stdout.write('\n');
+    for (const c of todo) process.stdout.write(`  → ${c.fix}\n`);
+  }
+  if (ok) {
+    process.stdout.write(
+      '\nAsk Claude Code, in a project with runs:\n' +
+        '  "what went wrong in my last run?"\n' +
+        '  "which steps touched <a file you edited>?"\n',
+    );
+  }
+  return ok ? 0 : 1;
+}
+
+/** Start our own MCP server over real stdio and ask it for its tools. */
+function selfHandshake(timeoutMs = 10000) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(process.execPath, [BIN_PATH, 'mcp'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch (err) {
+      return resolve({ ok: false, error: String(err?.message ?? err) });
+    }
+    let buf = '';
+    let tools = 0;
+    const done = (result) => {
+      clearTimeout(timer);
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      resolve(result);
+    };
+    const timer = setTimeout(() => done({ ok: false, error: 'no response over stdio' }), timeoutMs);
+    child.on('error', (err) => done({ ok: false, error: err.message }));
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => {
+      buf += d;
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          return done({ ok: false, error: 'wrote something that was not JSON-RPC to stdout' });
+        }
+        if (msg.id === 1) child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
+        if (msg.id === 2) {
+          tools = msg.result?.tools?.length ?? 0;
+          return done(tools > 0 ? { ok: true, tools } : { ok: false, error: 'listed no tools' });
+        }
+      }
+    });
+    child.stdin.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'rungraph-check', version: VERSION } },
+      }) + '\n',
+    );
+  });
+}
+
+/** Ask the `claude` CLI whether we are in its MCP config. */
+async function isRegistered() {
+  const res = await runClaude(['mcp', 'list']);
+  if (res.spawnError) {
+    return { ok: false, detail: 'the `claude` CLI is not on PATH' };
+  }
+  const out = `${res.stdout}\n${res.stderr}`;
+  if (!/^\s*rungraph:/m.test(out)) return { ok: false, detail: 'not registered' };
+  const line = out.split('\n').find((l) => /^\s*rungraph:/.test(l)) ?? '';
+  // `claude mcp list` health-checks as it goes, so its own verdict is better
+  // evidence than ours.
+  const failed = /✗|failed/i.test(line);
+  return { ok: !failed, detail: failed ? 'registered, but claude cannot connect to it' : 'registered and connected' };
+}
+
 /** Run `claude`, capturing output. A missing binary is a result, not a throw. */
 function runClaude(args) {
   return new Promise((resolve) => {

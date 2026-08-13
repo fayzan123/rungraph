@@ -305,6 +305,29 @@ describe('MCP tools (server running)', () => {
   }, 20000);
 });
 
+describe('rungraph mcp --check', () => {
+  // The question the tool could not previously answer about itself. The
+  // registration and dashboard checks depend on the machine, so this asserts
+  // the shape and the one check that is entirely ours: that the MCP server
+  // starts, speaks JSON-RPC over real stdio, and lists its tools.
+  it('reports every check, and proves the server answers over stdio', async () => {
+    const r = await exec('node', [BIN, 'mcp', '--check', '--json'], { env }).catch((e) => e);
+    const report = JSON.parse(r.stdout);
+    expect(report.checks.map((c) => c.name)).toEqual([
+      'runs on disk',
+      'mcp server',
+      'registered with claude',
+      'dashboard server',
+    ]);
+    const server = report.checks.find((c) => c.name === 'mcp server');
+    expect(server.ok).toBe(true);
+    expect(server.detail).toContain('7 tools');
+    expect(report.checks.find((c) => c.name === 'runs on disk')).toMatchObject({ ok: true });
+    // every failing check hands back the one next step that fixes it
+    for (const c of report.checks) if (!c.ok) expect(c.fix.length).toBeGreaterThan(10);
+  }, 90000);
+});
+
 describe('rungraph mcp --install', () => {
   // The success path shells out to `claude mcp add`, which would edit the
   // developer's real MCP config — so only the guarded path is exercised here.

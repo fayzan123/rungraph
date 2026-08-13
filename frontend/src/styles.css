@@ -745,15 +745,45 @@ button.ghost[data-on="true"] {
   color: var(--ink-dim);
   font-size: 12px;
 }
-.inspector .agent-hint {
+/* The other half of the loop. Quiet enough to ignore, specific enough to try. */
+.inspector .ask {
   margin: 26px 0 0;
-  padding-top: 12px;
+  padding-top: 4px;
   border-top: 1px solid var(--hairline-soft);
+}
+.inspector .ask .ok { color: var(--sage); }
+.inspector .ask .row { align-items: flex-start; }
+/* A question is prose, not a label: it wraps instead of ellipsising, and a
+   file path inside it breaks rather than truncating the sentence. */
+.inspector .ask .row .grow {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+/* A glyph, not the word "copy": the pane is ~250px on a laptop and a text
+   affordance costs enough width to wrap the question to one word per line. */
+.inspector .ask .row .n {
+  flex: none;
+  width: 1.2em;
+  text-align: right;
   color: var(--ink-faint);
+}
+.inspector .ask .row:hover .n { color: var(--amber); }
+.inspector .ask .setup code {
+  font-family: var(--mono);
+  color: var(--amber-dim);
+  font-size: 11px;
+}
+.inspector .ask .foot {
+  margin: 8px 2px 0;
+  color: var(--ink-faint);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--ui);
   font-size: 11px;
   line-height: 1.6;
 }
-.inspector .agent-hint code { font-family: var(--mono); color: var(--amber-dim); }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 9px; height: 9px; }

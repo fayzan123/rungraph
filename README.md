@@ -86,8 +86,13 @@ The dashboard is for you; the MCP server is for your agent. They are two ends of
 one loop, not two products.
 
 ```
-npx rungraph mcp --install     # one time
+npx rungraph mcp --install     # one time, then restart Claude Code
+npx rungraph mcp --check       # is it working? prints exactly what to fix
 ```
+
+You don't have to guess what to ask, either: the dashboard writes the
+questions for you, from the run you're looking at — *"why did the Edit on
+token.js keep failing?"* — with a copy button. Paste one into Claude Code.
 
 Then, in Claude Code: *"which edits in my last run failed?"* Claude calls
 `find_nodes` / `get_graph` / `get_detail`, **answers in your terminal** — your
@@ -202,6 +207,7 @@ rungraph graph <runId>         Graph IR for one run (JSON on stdout)
 rungraph find <runId> <query>  nodes whose label or files match a substring
 rungraph serve [--no-open]     start server; prints {"url": …}
 rungraph mcp [--install]       MCP server on stdio; --install registers it once
+rungraph mcp --check           verify the agent side end to end
   --project <path>             only runs for this project directory
   --port <n>                   preferred port (auto-increments if taken)
   --scope <s>                  mcp --install: user (default) | project | local

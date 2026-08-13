@@ -22,6 +22,7 @@ USAGE
   rungraph find <runId> <query>  Print nodes whose label or files match a substring.
   rungraph serve [--no-open]     Start the server without/with opening a browser.
   rungraph mcp [--install]       Run the MCP server on stdio (--install registers it once).
+  rungraph mcp --check           Is the agent side set up and working? Prints what to fix.
 
 OPTIONS
   --json             Machine output: compact JSON on stdout (logs stay on stderr).
@@ -29,6 +30,7 @@ OPTIONS
   --port <n>         Preferred port (default 4321; auto-increments if taken).
   --no-open          serve: do not open a browser; the URL is always printed.
   --install          mcp: register rungraph with Claude Code, then exit.
+  --check            mcp: verify the agent side end to end, then exit.
   --scope <s>        mcp --install: user (default) | project | local.
   -h, --help         This help.
   -v, --version      Version.
@@ -63,6 +65,7 @@ export async function main(argv) {
         port: { type: 'string' },
         'no-open': { type: 'boolean', default: false },
         install: { type: 'boolean', default: false },
+        check: { type: 'boolean', default: false },
         scope: { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
@@ -89,6 +92,7 @@ export async function main(argv) {
     port: args.values.port ? Number(args.values.port) : undefined,
     open: command !== 'serve' || !args.values['no-open'],
     install: args.values.install,
+    check: args.values.check,
     scope: args.values.scope,
   };
   if (opts.port !== undefined && (!Number.isInteger(opts.port) || opts.port < 0 || opts.port > 65535)) {
@@ -191,8 +195,10 @@ async function cmdFind(runId, query, opts) {
 }
 
 async function cmdMcp(opts) {
-  const { runMcp, installMcp } = await import('./mcp.js');
-  return opts.install ? installMcp(opts) : runMcp(opts);
+  const { runMcp, installMcp, checkMcp } = await import('./mcp.js');
+  if (opts.install) return installMcp(opts);
+  if (opts.check) return checkMcp(opts);
+  return runMcp(opts);
 }
 
 async function cmdServe(opts) {

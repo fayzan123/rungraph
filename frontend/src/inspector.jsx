@@ -3,6 +3,7 @@ import { fetchDetail } from './api.js';
 import { fmtTokens, fmtDuration } from './canvas.jsx';
 import { SIGNAL_GLYPHS } from './strip.jsx';
 import { filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
+import { suggestQuestions } from './suggest.js';
 
 /**
  * The right pane answers "what is in this run" whenever nothing is selected and
@@ -133,14 +134,76 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
         </>
       )}
 
-      {/* A user who only ever opens the dashboard would never find the agent
-          side of the loop. One quiet line, no pitch. */}
-      <p class="agent-hint">
-        ask your agent about this run — run <code>npx rungraph mcp --install</code> once,
-        then ask Claude Code in this project.
-      </p>
+      <AskYourAgent graph={graph} project={project} />
     </>
   );
+}
+
+/**
+ * The other half of the loop, taught by demonstration.
+ *
+ * A user who only ever opens the dashboard has no way to discover that their
+ * own agent can answer questions about what they are looking at — and telling
+ * them so in a sentence does not help, because they still would not know what
+ * to ask. So the questions are generated from the run on screen: copy one,
+ * paste it into Claude Code, and the graph lights up with the answer.
+ *
+ * The setup line disappears once an agent has actually driven this dashboard,
+ * because at that point it is noise.
+ */
+function AskYourAgent({ graph, project }) {
+  const questions = useMemo(() => suggestQuestions(graph, project), [graph, project]);
+  const [copied, setCopied] = useState(null);
+  const connected = agentHasConnected();
+
+  const copy = (text, key) => {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(key);
+        setTimeout(() => setCopied((c) => (c === key ? null : c)), 1600);
+      },
+      () => setCopied('failed'),
+    );
+  };
+
+  return (
+    <div class="ask">
+      <div class="microlabel section-label">
+        ask your agent{connected && <span class="ok" title="an agent has driven this dashboard"> · connected</span>}
+      </div>
+      {!connected && (
+        <button class="row setup" onClick={() => copy(INSTALL_CMD, 'install')} title="copy">
+          <span class="grow"><code>{INSTALL_CMD}</code></span>
+          <span class="n">{copied === 'install' ? '✓' : '⧉'}</span>
+        </button>
+      )}
+      {questions.map((q) => (
+        <button class="row" key={q.text} onClick={() => copy(q.text, q.text)} title="copy this question">
+          <span class="grow">{q.text}</span>
+          <span class="n">{copied === q.text ? '✓' : '⧉'}</span>
+        </button>
+      ))}
+      <p class="microlabel foot">
+        {connected
+          ? 'paste one into Claude Code — the answer lands in your terminal, the graph lights up here'
+          : 'run the command once, restart Claude Code, then paste a question into it'}
+      </p>
+    </div>
+  );
+}
+
+const INSTALL_CMD = 'npx rungraph mcp --install';
+
+/**
+ * Has an agent ever focused this dashboard? Set by App on the first agent
+ * focus. Only used to decide whether the setup line still earns its space.
+ */
+function agentHasConnected() {
+  try {
+    return localStorage.getItem('rungraph.agentSeen') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function SignalRow({ signal, focus, onFocusSignal }) {

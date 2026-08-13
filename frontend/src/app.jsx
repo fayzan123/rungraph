@@ -132,6 +132,13 @@ export function App() {
     const p = pendingFocus.current;
     if (!p || !g || g.meta?.runId !== p.runId) return;
     pendingFocus.current = null;
+    // An agent has driven this dashboard at least once, so the inspector can
+    // stop showing setup instructions to someone who is clearly set up.
+    try {
+      localStorage.setItem('rungraph.agentSeen', '1');
+    } catch {
+      /* storage unavailable — the hint simply keeps showing */
+    }
     // Ids can be quoted from a graph read moments ago. If none of them are
     // here, dimming the entire canvas is worse than doing nothing.
     const pruned = pruneFocus(p.focus, g);
