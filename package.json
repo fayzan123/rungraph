@@ -1,6 +1,6 @@
 {
   "name": "rungraph",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "See your agent runs as a graph. Zero-setup, agent-first visualizer for AI coding-agent sessions and workflow runs.",
   "keywords": [
     "claude-code",
@@ -25,7 +25,8 @@
     "bin",
     "src",
     "dist",
-    "SCHEMA.md"
+    "SCHEMA.md",
+    "docs/GUIDE.md"
   ],
   "scripts": {
     "build": "node scripts/build-frontend.mjs",

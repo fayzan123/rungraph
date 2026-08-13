@@ -21,6 +21,10 @@ That's the whole quickstart. It scans `~/.claude/projects`, starts a local
 server, and opens your browser. Pick a run — including one that's **running
 right now**: the graph grows live as the agent works (file watching only).
 
+**New here?** [docs/GUIDE.md](docs/GUIDE.md) walks through the whole thing —
+reading the graph, what each signal means, wiring it to your own agent, and what
+to do when something looks broken.
+
 ## What you see
 
 Agent sessions stopped being conversations a while ago. They're *runs*: an
