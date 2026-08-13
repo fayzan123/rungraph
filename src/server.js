@@ -11,6 +11,12 @@ const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const HOST = '127.0.0.1'; // privacy: never bind anything else
 const MAX_PORT_TRIES = 50;
 const MAX_BODY_BYTES = 256 * 1024; // focus payloads are ids and two short strings
+/**
+ * How long an agent's focus waits for a browser to come and collect it.
+ * This is what lets the answer land in a tab that did not exist when the
+ * question was asked — and it closes the race where the POST beats the page.
+ */
+const FOCUS_TTL_MS = 5 * 60 * 1000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -37,6 +43,8 @@ export async function startServer(opts = {}) {
     parseCache: new Map(),
     // runId → { watcher, clients: Set<res>, lastIR }
     watches: new Map(),
+    // runId → { frame, at } — the last agent focus, waiting to be collected.
+    pendingFocus: new Map(),
   };
 
   const server = createServer((req, res) => {
@@ -226,6 +234,8 @@ async function apiFocus(req, res, state) {
     return sendJson(res, 400, { error: 'expected { runId: string, nodeIds: string[] }' });
   }
 
+  const entry = state.watches.get(runId);
+  const clientCount = entry?.clients.size ?? 0;
   const frame = {
     type: 'focus',
     runId,
@@ -233,18 +243,36 @@ async function apiFocus(req, res, state) {
     label: str(body.label, 120) || `${nodeIds.length} nodes`,
     reason: str(body.reason, 600),
     source: 'agent',
+    // A tab already on this run will handle it, so tabs on OTHER runs should
+    // stay where they are. Without this, asking about run B with two tabs open
+    // drags both of them onto B.
+    alreadyWatching: clientCount > 0,
   };
-  const entry = state.watches.get(runId);
-  const payload = `data: ${JSON.stringify(frame)}\n\n`;
-  for (const client of entry?.clients ?? []) client.write(payload);
 
-  // Zero clients is not an error: the POST succeeded, nobody was looking.
-  // Handing back the count is what lets the agent tell the user, in their
-  // terminal, that their dashboard is showing something else.
+  // Held ONLY when nobody is on this run yet — for the tab that is about to be
+  // opened, or the one about to switch here. If a tab is already showing the
+  // run it receives the frame directly below, and holding a copy would just
+  // re-fire the same answer at the next tab that happens to open.
+  if (clientCount === 0) state.pendingFocus.set(runId, { frame, at: Date.now() });
+
+  // Broadcast to EVERY client, not just this run's. A tab showing another run
+  // has to hear about the answer to be able to follow it there — the user just
+  // asked the question, so being told "here is a URL, go paste it" is the loop
+  // failing at the last inch.
+  const payload = `data: ${JSON.stringify(frame)}\n\n`;
+  let otherClients = 0;
+  for (const [id, w] of state.watches) {
+    for (const client of w.clients) client.write(payload);
+    if (id !== runId) otherClients += w.clients.size;
+  }
+
+  // Zero clients anywhere is not an error: the POST succeeded, nobody was
+  // looking. The counts are what let the agent decide whether to open a tab.
   sendJson(res, 200, {
     ok: true,
     runId,
-    clientCount: entry?.clients.size ?? 0,
+    clientCount,
+    otherClients,
     url: `${state.url}/?run=${encodeURIComponent(runId)}`,
   });
 }
@@ -344,6 +372,18 @@ async function apiWatch(req, res, state, runId) {
   entry.lastConnectedAt = Date.now();
   if (entry.lastIR) {
     res.write(`data: ${JSON.stringify({ type: 'snapshot', graph: entry.lastIR })}\n\n`);
+  }
+  // Replay a focus this run is still holding, so a tab that opened *because*
+  // an agent asked for it arrives already pointed at the answer. The client
+  // holds it until the matching graph is in hand, so ordering here is free.
+  const held = state.pendingFocus.get(runId);
+  if (held) {
+    // Delivered or expired, it is done either way: the answer has reached the
+    // browser it was waiting for.
+    state.pendingFocus.delete(runId);
+    if (Date.now() - held.at < FOCUS_TTL_MS) {
+      res.write(`data: ${JSON.stringify({ ...held.frame, replayed: true })}\n\n`);
+    }
   }
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
 

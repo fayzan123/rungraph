@@ -278,17 +278,22 @@ describe('MCP tools (server running)', () => {
     await server.close();
   });
 
+  // `open: false` matters here: without it this call would open a real browser
+  // window on the developer's machine every time the suite runs.
   it('finds the server through the port file and posts a focus', async () => {
     const { isError, payload } = await mcp.call('focus_nodes', {
       runId: SESSION_RUN_ID,
       nodeIds: ['a:toolu_fxA001'],
       label: '1 agent',
       reason: 'the audit',
+      open: false,
     });
     expect(isError).toBe(false);
     // Nobody is watching, so focused is false — but the POST reached the server
     // and handed back the url the agent should give the user.
     expect(payload.clientCount).toBe(0);
+    expect(payload.focused).toBe(false);
+    expect(payload.reason).toContain('not requested');
     expect(payload.url).toContain(`:${server.port}`);
     expect(payload.url).toContain('?run=');
   }, 20000);

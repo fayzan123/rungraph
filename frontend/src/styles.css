@@ -361,6 +361,21 @@ button.ghost[data-on="true"] {
   background: color-mix(in oklch, var(--amber) 12%, transparent);
 }
 
+/* The undo pill sits with find, pinned right — it must survive a crowded strip
+   for the same reason the note does. */
+.strip .chip.undo {
+  flex: none;
+  margin-left: 8px;
+  max-width: 34ch;
+  color: var(--amber);
+  border-color: color-mix(in oklch, var(--amber) 45%, transparent);
+}
+.strip .chip.undo .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .strip .find {
   display: flex;
   align-items: center;

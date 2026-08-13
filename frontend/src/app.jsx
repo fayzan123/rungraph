@@ -32,6 +32,8 @@ export function App() {
   const [note, setNote] = useState(null); // transient, strip-sized; never a banner
   const [escalated, setEscalated] = useState(false);
   const [panes, setPanes] = useState(loadPanes);
+  const [switchedFrom, setSwitchedFrom] = useState(null); // undo for an agent-driven run switch
+  const pendingFocus = useRef(null); // an agent's focus, waiting for its own graph
   const seenHigh = useRef(new Set()); // `high` signal ids the user has looked at
   const primed = useRef(false); // has this run's baseline been taken yet
   const graphRef = useRef(null); // the SSE closure outlives every graph it sees
@@ -73,16 +75,25 @@ export function App() {
         if (!alive) return;
         if (msg.type === 'focus') {
           // The agent answered in the user's terminal and asked the graph to
-          // light up. focusSeq is what tells the canvas this is a *new* answer
-          // and therefore worth moving the viewport for.
+          // light up. Stash it rather than applying it here: the answer may be
+          // about a run this tab has not loaded (or has not even switched to
+          // yet), and pruning against the wrong graph would throw it away.
           const f = focusFromAgent(msg);
           if (!f) return;
-          // Ids can be quoted from a graph read moments ago. If none of them
-          // are here, dimming the entire canvas is worse than doing nothing.
-          const pruned = graphRef.current ? pruneFocus(f, graphRef.current) : f;
-          if (!pruned) return setNote('your agent pointed at nodes not in this run');
-          setFocus(pruned);
-          setFocusSeq((n) => n + 1);
+          const target = msg.runId ?? runId;
+          if (target !== runId) {
+            // A tab already showing that run will take it; two tabs both
+            // lurching onto the same run is worse than one staying put.
+            if (msg.alreadyWatching) return;
+            // Otherwise follow the answer, and remember where we were so the
+            // user can get back with one click.
+            pendingFocus.current = { runId: target, focus: f };
+            setSwitchedFrom({ runId, title: graphRef.current?.meta?.title ?? null });
+            setRunId(target);
+            return;
+          }
+          pendingFocus.current = { runId: target, focus: f };
+          applyPendingFocus(graphRef.current);
           return;
         }
         setGraph((cur) => applyDelta(cur, msg));
@@ -110,6 +121,26 @@ export function App() {
   useEffect(() => {
     graphRef.current = graph;
   }, [graph]);
+
+  /**
+   * Apply an agent's focus once the graph it points into is actually loaded.
+   * Called both from the SSE handler (same run, graph already in hand) and from
+   * the effect below (after a run switch, or after a tab opened cold and the
+   * server replayed a focus it was holding).
+   */
+  const applyPendingFocus = (g) => {
+    const p = pendingFocus.current;
+    if (!p || !g || g.meta?.runId !== p.runId) return;
+    pendingFocus.current = null;
+    // Ids can be quoted from a graph read moments ago. If none of them are
+    // here, dimming the entire canvas is worse than doing nothing.
+    const pruned = pruneFocus(p.focus, g);
+    if (!pruned) return setNote('your agent pointed at nodes not in this run');
+    setFocus(pruned);
+    setFocusSeq((n) => n + 1); // only an agent's answer moves the viewport
+  };
+
+  useEffect(() => applyPendingFocus(graph), [graph]);
 
   // Reconcile the focus against the graph it points into, once per graph change.
   // A live delta can delete the nodes underneath a focus, and can grow the very
@@ -186,6 +217,19 @@ export function App() {
 
   const togglePane = (side) => setPanes((cur) => savePanes({ ...cur, [side]: !cur[side] }));
 
+  // Any run the user chooses themselves ends the "your agent moved you" offer —
+  // there is nothing to undo once they have navigated on their own.
+  const selectRun = (id) => {
+    setSwitchedFrom(null);
+    setRunId(id);
+  };
+
+  const undoSwitch = () => {
+    const back = switchedFrom;
+    setSwitchedFrom(null);
+    if (back?.runId) setRunId(back.runId);
+  };
+
   // "[" and "]" collapse the panes either side of the graph. Registered here
   // rather than in the canvas because they must work with no run loaded, and
   // must not fire while the find box has the caret.
@@ -252,13 +296,15 @@ export function App() {
         )}
       </header>
       <div class="main" data-left={String(panes.left)} data-right={String(panes.right)}>
-        <Picker index={index} runId={runId} onSelect={setRunId} />
+        <Picker index={index} runId={runId} onSelect={selectRun} />
         <div class="center">
           <Strip
             signals={graph?.signals}
             focus={focus}
             escalated={escalated}
             note={note}
+            switchedFrom={switchedFrom}
+            onUndoSwitch={undoSwitch}
             findOpen={findOpen}
             findSeq={findSeq}
             query={query}
@@ -301,7 +347,7 @@ export function App() {
           selection={selection}
           focus={focus}
           onClose={() => setSelection(null)}
-          onOpenRun={setRunId}
+          onOpenRun={selectRun}
           onSelectNode={(id) => setSelection({ type: 'node', id })}
           onFocusSignal={toggleSignal}
           onFocusFile={(path) => {

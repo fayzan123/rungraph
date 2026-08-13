@@ -273,7 +273,7 @@ const TOOLS = [
     name: 'focus_nodes',
     title: 'Highlight nodes in the dashboard',
     description:
-      'Light up a set of nodes in the user\'s open rungraph dashboard and pan the view to them. Call this AFTER you have answered in the terminal, so the graph shows what you just described — you answer, the canvas points. The highlight is a bonus, never the answer: if no server is running or no tab is open on that run, the call succeeds with focused:false and you simply mention the highlight was skipped (and hand over the url it returns).',
+      "Light up a set of nodes in the user's rungraph dashboard and pan the view to them. Call this AFTER you have answered in the terminal, so the graph shows what you just described — you answer, the canvas points. It takes the dashboard to the right run for them: a tab showing a different run follows the answer here (with one-click undo), and if nothing is open at all it opens a tab on this run. The highlight is a bonus, never the answer: with no server running the call still succeeds, with focused:false, and you simply mention the highlight was skipped.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -281,6 +281,11 @@ const TOOLS = [
         nodeIds: { type: 'array', items: { type: 'string' }, minItems: 1, description: 'The nodes your answer is about.' },
         label: { type: 'string', description: 'Short chip text, e.g. "6 failed edits".' },
         reason: { type: 'string', description: 'One line on why these nodes matter — shown in the inspector.' },
+        open: {
+          type: 'boolean',
+          description:
+            'Default true: if no dashboard is open at all, open one on this run. Pass false when the user has asked you not to open windows.',
+        },
       },
       required: ['runId', 'nodeIds', 'label', 'reason'],
       additionalProperties: false,
@@ -398,12 +403,40 @@ async function focusNodes(args) {
   }
 
   const clientCount = Number.isInteger(res.body?.clientCount) ? res.body.clientCount : 0;
-  const out = { focused: clientCount > 0, clientCount, url };
-  if (clientCount === 0) {
-    out.reason = 'the dashboard is not open on this run';
-    out.hint = 'Tell the user the highlight is waiting and give them this url.';
+  const otherClients = Number.isInteger(res.body?.otherClients) ? res.body.otherClients : 0;
+
+  // A tab already on this run lights up in place; a tab on a different run
+  // follows the answer here, and offers the user one click back.
+  if (clientCount > 0 || otherClients > 0) {
+    return {
+      focused: true,
+      clientCount,
+      switchedAnotherTab: clientCount === 0 && otherClients > 0,
+      url,
+    };
   }
-  return out;
+
+  // Nothing is open anywhere. The server holds the focus for a few minutes, so
+  // a tab opened now still arrives already pointed at the answer.
+  if (args.open === false) {
+    return {
+      focused: false,
+      clientCount: 0,
+      url,
+      reason: 'no dashboard is open, and opening one was not requested',
+      hint: 'Give the user this url — the highlight is waiting for them there.',
+    };
+  }
+  const opened = await openInBrowser(url);
+  return {
+    focused: opened,
+    clientCount: 0,
+    openedDashboard: opened,
+    url,
+    ...(opened
+      ? { hint: 'Say that you opened the dashboard on this run, so they know where to look.' }
+      : { reason: 'no dashboard was open and no browser could be opened', hint: 'Give the user this url.' }),
+  };
 }
 
 async function getCurrentView() {

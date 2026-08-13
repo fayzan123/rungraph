@@ -267,31 +267,84 @@ describe('the focus channel', () => {
     }
   }, 20000);
 
+  // Broadcast, not narrowcast: a tab showing another run has to hear about the
+  // answer to be able to follow it there. Being told "here is a url, go paste
+  // it" is the loop failing at the last inch.
+  it('POST /api/focus reaches a client watching a DIFFERENT run', async () => {
+    const elsewhere = await openWatch(WORKFLOW_RUN_ID);
+    try {
+      const { body } = await post('/api/focus', {
+        runId: SESSION_RUN_ID,
+        nodeIds: ['a:toolu_fxA001'],
+        label: 'the audit',
+        reason: 'because',
+      });
+      expect(body).toMatchObject({ ok: true, clientCount: 0, otherClients: 1 });
+
+      const frame = await elsewhere.waitFor((f) => f.type === 'focus' && !f.replayed);
+      expect(frame).toMatchObject({ runId: SESSION_RUN_ID, alreadyWatching: false });
+    } finally {
+      await elsewhere.close();
+    }
+  }, 20000);
+
+  // A tab already on the target run will handle it, so tabs on other runs must
+  // stay put — otherwise asking about run B drags every window onto B.
+  it('marks alreadyWatching when a tab is on the target run', async () => {
+    const onTarget = await openWatch(SESSION_RUN_ID);
+    try {
+      await post('/api/focus', { runId: SESSION_RUN_ID, nodeIds: ['a:toolu_fxA001'] });
+      const frame = await onTarget.waitFor((f) => f.type === 'focus' && !f.replayed);
+      expect(frame.alreadyWatching).toBe(true);
+    } finally {
+      await onTarget.close();
+    }
+  }, 20000);
+
+  // What makes a cold start work: the answer is held, so a tab opened *because*
+  // the agent asked for it arrives already pointed at it.
+  it('replays a held focus to a client that connects afterwards', async () => {
+    await post('/api/focus', {
+      runId: WORKFLOW_RUN_ID,
+      nodeIds: ['w:root'],
+      label: 'the workflow',
+      reason: 'held for a browser that had not arrived yet',
+    });
+    const late = await openWatch(WORKFLOW_RUN_ID);
+    try {
+      const frame = await late.waitFor((f) => f.type === 'focus');
+      expect(frame).toMatchObject({
+        runId: WORKFLOW_RUN_ID,
+        label: 'the workflow',
+        replayed: true,
+      });
+    } finally {
+      await late.close();
+    }
+  }, 20000);
+
   it('GET /api/focus is a 405, not a silent 404', async () => {
     const res = await fetch(server.url + '/api/focus');
     expect(res.status).toBe(405);
   });
 
+  // Deliberately not "the first frame is a snapshot": a client can legitimately
+  // receive a replayed focus before its snapshot, which is exactly why the
+  // frontend holds an agent focus until the matching graph is in hand.
   it('SSE watch delivers a snapshot', async () => {
-    const res = await fetch(
-      `${server.url}/api/watch/${encodeURIComponent(WORKFLOW_RUN_ID)}`,
-      { headers: { accept: 'text/event-stream' } },
-    );
+    const res = await fetch(`${server.url}/api/watch/${encodeURIComponent(WORKFLOW_RUN_ID)}`, {
+      headers: { accept: 'text/event-stream' },
+    });
     expect(res.headers.get('content-type')).toContain('text/event-stream');
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    const deadline = Date.now() + 8000;
-    while (!buf.includes('\n\n') && Date.now() < deadline) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
+    await res.body.cancel();
+
+    const watch = await openWatch(WORKFLOW_RUN_ID);
+    try {
+      const snapshot = await watch.waitFor((f) => f.type === 'snapshot', 8000);
+      expect(snapshot).toBeDefined();
+      expect(snapshot.graph.meta.runId).toBe(WORKFLOW_RUN_ID);
+    } finally {
+      await watch.close();
     }
-    await reader.cancel();
-    const frame = buf.split('\n\n').find((f) => f.startsWith('data: '));
-    expect(frame).toBeDefined();
-    const msg = JSON.parse(frame.slice(6));
-    expect(msg.type).toBe('snapshot');
-    expect(msg.graph.meta.runId).toBe(WORKFLOW_RUN_ID);
-  }, 15000);
+  }, 20000);
 });

@@ -32,6 +32,8 @@ export function Strip({
   focus,
   escalated,
   note,
+  switchedFrom,
+  onUndoSwitch,
   findOpen,
   findSeq,
   query,
@@ -50,7 +52,7 @@ export function Strip({
   }, [findOpen, findSeq]);
 
   const list = signals ?? [];
-  if (list.length === 0 && !findOpen && !note) return null;
+  if (list.length === 0 && !findOpen && !note && !switchedFrom) return null;
 
   const shown = list.slice(0, MAX_CHIPS);
   const rest = list.length - shown.length;
@@ -92,6 +94,14 @@ export function Strip({
           gone from this run") is the one thing on this line that must never be
           the thing that gets squeezed out. */}
       {note && <span class="note">{note}</span>}
+      {/* Your agent moved you here. One click back, so following an answer is
+          never a trap — the whole reason auto-switching is safe to do at all. */}
+      {switchedFrom && (
+        <button class="chip undo" onClick={() => onUndoSwitch?.()} title="return to the run you were on">
+          <span class="glyph" aria-hidden="true">⤺</span>
+          <span class="label">back to {switchedFrom.title || 'the previous run'}</span>
+        </button>
+      )}
       {findOpen && (
         <span class="find">
           <input
