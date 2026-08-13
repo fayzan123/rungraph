@@ -5,3 +5,6 @@ dist/
 coverage/
 .env
 .superpowers/
+
+# Launch drafts and personal notes — kept locally, never published.
+docs/launch/
