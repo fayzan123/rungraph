@@ -14,6 +14,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), 'projects');
 const PROJ = join(ROOT, '-home-dev-acme');
 const S1 = '11111111-1111-4111-8111-111111111111';
 const S2 = '22222222-2222-4222-8222-222222222222';
+const S3 = '33333333-3333-4333-8333-333333333333'; // clean run — the signals precision guard
+const S4 = '44444444-4444-4444-8444-444444444444'; // trouble run — one of every high signal
 const WF = 'wf_12345678-abc';
 const AGENT_FLAT = 'a123456789abcdef0'; // Agent-tool subagent
 const AGENT_W1 = 'aaaa000000000001f'; // workflow agent, phase Find
@@ -254,7 +256,87 @@ async function main() {
   ];
   await writeFile(join(PROJ, `${S2}.jsonl`), M.map((x) => JSON.stringify(x)).join('\n') + '\n');
 
+  await cleanSession();
+  await troubleSession();
+
   console.error('fixtures written to', ROOT);
+}
+
+/**
+ * Session 3 — a run where nothing went wrong: no tool errors, no human
+ * intervention, no decision lineage, nothing outsized. It exists to hold
+ * `deriveSignals` to zero. That assertion is the precision guard for the whole
+ * signal layer and the test most likely to catch threshold drift.
+ */
+async function cleanSession() {
+  const L = [];
+  const push = (extra) => {
+    const l = envelope(S3, L.at(-1)?.uuid ?? null, extra);
+    L.push(l);
+    return l;
+  };
+  L.push({ type: 'mode', mode: 'normal', sessionId: S3 });
+
+  const t1 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Add a CHANGELOG entry for the 0.2 release' } });
+  L.push({ type: 'ai-title', aiTitle: 'Add CHANGELOG entry', sessionId: S3 });
+  const read = push({ type: 'assistant', requestId: 'req_fxC001', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxC001', name: 'Read', input: { file_path: `${CWD}/CHANGELOG.md` }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: read.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxC001', content: '# Changelog\n\n## 0.1.2' }] }, toolUseResult: { type: 'text', file: { filePath: `${CWD}/CHANGELOG.md`, content: '# Changelog', numLines: 3, startLine: 1, totalLines: 3 } } });
+  const edit = push({ type: 'assistant', requestId: 'req_fxC002', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxC002', name: 'Edit', input: { file_path: `${CWD}/CHANGELOG.md`, old_string: '## 0.1.2', new_string: '## 0.2.0\n\n## 0.1.2' }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: edit.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxC002', content: 'Edited CHANGELOG.md' }] }, toolUseResult: { filePath: `${CWD}/CHANGELOG.md`, oldString: '## 0.1.2', newString: '## 0.2.0', originalFile: '', replaceAll: false, structuredPatch: [], userModified: false } });
+  const done = push({ type: 'assistant', requestId: 'req_fxC003', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Added the 0.2.0 heading above 0.1.2.' }, 'end_turn', 60) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 41000, messageCount: 4, isMeta: false });
+
+  const t2 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Now run the tests' } });
+  const bash = push({ type: 'assistant', requestId: 'req_fxC004', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxC004', name: 'Bash', input: { command: 'npm test', description: 'Run the suite' }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t2.promptId, sourceToolAssistantUUID: bash.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxC004', content: '31 passed' }] }, toolUseResult: { stdout: '31 passed', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
+  push({ type: 'assistant', requestId: 'req_fxC005', message: assistantMsg('claude-fable-5', { type: 'text', text: 'All 31 tests pass.' }, 'end_turn', 55) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 52000, messageCount: 3, isMeta: false });
+  void done;
+
+  await writeFile(join(PROJ, `${S3}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
+}
+
+/**
+ * Session 4 — one of every high-severity signal, end to end through the real
+ * adapter rather than a hand-built IR:
+ *   retry-storm       Edit fails 3× in a row on the same file (one collapsed node)
+ *   unresolved-error  the LAST Bash in the lane fails, after an earlier one passed
+ *   outlier           a 25-minute turn against a 60/90s median
+ */
+async function troubleSession() {
+  const L = [];
+  const push = (extra) => {
+    const l = envelope(S4, L.at(-1)?.uuid ?? null, extra);
+    L.push(l);
+    return l;
+  };
+  const TOKEN = `${CWD}/src/auth/token.js`;
+  L.push({ type: 'mode', mode: 'normal', sessionId: S4 });
+
+  const t1 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Move the token store onto the new refresh API' } });
+  L.push({ type: 'ai-title', aiTitle: 'Migrate token store', sessionId: S4 });
+  const okBash = push({ type: 'assistant', requestId: 'req_fxT001', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxT001', name: 'Bash', input: { command: 'npm test -- token', description: 'Baseline the token tests' }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: okBash.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxT001', content: '12 passed' }] }, toolUseResult: { stdout: '12 passed', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
+  // Three consecutive failing Edits collapse into ONE node: callCount 3, errorCount 3.
+  for (let i = 1; i <= 3; i++) {
+    const e = push({ type: 'assistant', requestId: `req_fxT10${i}`, message: assistantMsg('claude-fable-5', { type: 'tool_use', id: `toolu_fxT10${i}`, name: 'Edit', input: { file_path: TOKEN, old_string: 'refreshToken(', new_string: 'refresh(' }, caller: { type: 'direct' } }, 'tool_use') });
+    push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: e.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_fxT10${i}`, content: 'String to replace not found in file.', is_error: true }] }, toolUseResult: 'Error: String to replace not found in file.' });
+  }
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 60000, messageCount: 8, isMeta: false });
+
+  const t2 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Read the file first, then patch it' } });
+  const read = push({ type: 'assistant', requestId: 'req_fxT200', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxT200', name: 'Read', input: { file_path: TOKEN }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t2.promptId, sourceToolAssistantUUID: read.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxT200', content: 'export async function refresh_token() {}' }] }, toolUseResult: { type: 'text', file: { filePath: TOKEN, content: 'export async function refresh_token() {}', numLines: 40, startLine: 1, totalLines: 40 } } });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 90000, messageCount: 3, isMeta: false });
+
+  // A 25-minute turn against a 60s/90s median — outsized by any threshold.
+  const t3 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Ship it' } });
+  const badBash = push({ type: 'assistant', requestId: 'req_fxT300', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxT300', name: 'Bash', input: { command: 'npm run build', description: 'Build the bundle' }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t3.promptId, sourceToolAssistantUUID: badBash.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxT300', content: 'error TS2304: Cannot find name refresh_token', is_error: true }] }, toolUseResult: 'Error: Exit code 2' });
+  push({ type: 'assistant', requestId: 'req_fxT301', message: assistantMsg('claude-fable-5', { type: 'text', text: 'The build still fails on the renamed export.' }, 'end_turn', 70) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 1500000, messageCount: 4, isMeta: false });
+
+  await writeFile(join(PROJ, `${S4}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 await main();

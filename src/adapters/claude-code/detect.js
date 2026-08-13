@@ -43,7 +43,19 @@ export async function detect(rootDirs) {
       refs.push(...(await detectProject(projectDir)));
     }
   }
-  refs.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : -1));
+  // runId tiebreak: same-mtime runs (a pinned fixture tree, a restore) must
+  // still come back in one deterministic order.
+  refs.sort((a, b) =>
+    a.modifiedAt !== b.modifiedAt
+      ? a.modifiedAt < b.modifiedAt
+        ? 1
+        : -1
+      : a.runId < b.runId
+        ? -1
+        : a.runId > b.runId
+          ? 1
+          : 0,
+  );
   return refs;
 }
 

@@ -24,3 +24,12 @@ export const SESSION_RUN_ID =
 export const WORKFLOW_RUN_ID = `${SESSION_RUN_ID}:wf_12345678-abc`;
 export const EMPTY_RUN_ID =
   'claude-code:-home-dev-acme:22222222-2222-4222-8222-222222222222';
+/** A run where nothing went wrong — the signal layer's precision guard. */
+export const CLEAN_RUN_ID =
+  'claude-code:-home-dev-acme:33333333-3333-4333-8333-333333333333';
+/** One of every high-severity signal, end to end through the real adapter. */
+export const TROUBLE_RUN_ID =
+  'claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444';
+
+/** Every run the fixture tree contains (2 sessions + clean + trouble + 1 workflow). */
+export const FIXTURE_RUN_COUNT = 5;

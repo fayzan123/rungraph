@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
 import { toolNodeLabel } from '../src/adapters/claude-code/helpers.js';
-import { pinFixtureMtimes, FIXTURE_ROOT, SESSION_RUN_ID, WORKFLOW_RUN_ID, EMPTY_RUN_ID } from './helpers.js';
+import { filePathsFromToolInput, mergeFiles } from '../src/adapters/claude-code/files.js';
+import { pinFixtureMtimes, FIXTURE_ROOT, SESSION_RUN_ID, WORKFLOW_RUN_ID, EMPTY_RUN_ID, TROUBLE_RUN_ID } from './helpers.js';
 
 let refs;
 beforeAll(async () => {
@@ -130,6 +131,78 @@ describe('parse: session', () => {
     const { ir } = await parse(ref(EMPTY_RUN_ID));
     expect(ir.nodes).toHaveLength(0);
     expect(ir.meta.unrecognizedLineCount).toBe(0);
+  });
+});
+
+describe('file attribution', () => {
+  it('puts the touched paths on tool nodes', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const edit = ir.nodes.find((n) => n.label.startsWith('Edit · login'));
+    expect(edit.files).toEqual(['/home/dev/acme/tests/login.spec.ts']);
+  });
+
+  it('unions a collapsed group and de-duplicates', async () => {
+    const { ir } = await parse(ref(TROUBLE_RUN_ID));
+    const edit = ir.nodes.find((n) => n.label.startsWith('Edit'));
+    expect(edit.callCount).toBe(3); // three calls collapsed into one node…
+    expect(edit.files).toEqual(['/home/dev/acme/src/auth/token.js']); // …one path
+  });
+
+  it('omits the field entirely when a tool touched no file', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const bash = ir.nodes.find((n) => n.label.startsWith('Bash'));
+    // Absent, not [] — consumers are told to tolerate absence, and an empty
+    // array would make "this node touched nothing" indistinguishable from
+    // "this adapter cannot say".
+    expect('files' in bash).toBe(false);
+    expect(ir.nodes.find((n) => n.label === 'Hypervisor').files).toBeUndefined();
+  });
+
+  // The path most likely to regress and most costly to miss: a subagent's tool
+  // calls never become tool nodes, so without this every edit made inside an
+  // agent is invisible to the files lane.
+  it('an agent node carries the files edited inside its own transcript', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const agent = ir.nodes.find((n) => n.kind === 'agent');
+    expect(agent.files).toEqual(['/home/dev/acme/src/auth/session.ts']);
+  });
+
+  it('agent nodes in a workflow drill-in graph carry them too', async () => {
+    const { ir } = await parse(ref(WORKFLOW_RUN_ID));
+    // These workflow agents only call StructuredOutput, so they touch nothing —
+    // and must therefore say nothing rather than claiming an empty list.
+    for (const n of ir.nodes.filter((x) => x.kind === 'agent')) {
+      expect(n.files).toBeUndefined();
+    }
+  });
+
+  it('is identical whether or not detail payloads were collected', async () => {
+    // The server caches a detail-collecting parse and the CLI does not; a
+    // divergence here is a silent agent/human mismatch about what was touched.
+    const plain = (await parse(ref(SESSION_RUN_ID))).ir;
+    const rich = (await parse(ref(SESSION_RUN_ID), { collectDetails: true })).ir;
+    expect(plain.nodes.map((n) => n.files)).toEqual(rich.nodes.map((n) => n.files));
+  });
+
+  it('filePathsFromToolInput reads path keys and refuses everything else', () => {
+    expect(filePathsFromToolInput('Edit', { file_path: '/a/b.js' })).toEqual(['/a/b.js']);
+    expect(filePathsFromToolInput('NotebookEdit', { notebook_path: '/a/n.ipynb' })).toEqual(['/a/n.ipynb']);
+    expect(filePathsFromToolInput('mcp__x__write', { file_path: '/a/c.js' })).toEqual(['/a/c.js']);
+    // A search root is a directory, not a file that was touched; shell is guesswork.
+    expect(filePathsFromToolInput('Grep', { pattern: 'x', path: '/a' })).toEqual([]);
+    expect(filePathsFromToolInput('Bash', { command: 'rm /a/b.js' })).toEqual([]);
+    // hostile input never throws
+    expect(filePathsFromToolInput('Edit', null)).toEqual([]);
+    expect(filePathsFromToolInput('Edit', { file_path: 42 })).toEqual([]);
+    expect(filePathsFromToolInput('Edit', { file_path: '  ' })).toEqual([]);
+    expect(filePathsFromToolInput('Edit', { file_path: 'a\nb' })).toEqual([]);
+    expect(filePathsFromToolInput('Edit', { file_path: 'x'.repeat(600) })).toEqual([]);
+  });
+
+  it('mergeFiles unions in first-seen order and caps', () => {
+    expect(mergeFiles(['a', 'b'], ['b', 'c'])).toEqual(['a', 'b', 'c']);
+    expect(mergeFiles(undefined, ['a'])).toEqual(['a']);
+    expect(mergeFiles(['a', 'b', 'c'], ['d'], 2)).toEqual(['a', 'b']);
   });
 });
 

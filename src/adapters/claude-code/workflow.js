@@ -11,6 +11,7 @@ import {
   msBetween,
   WORKFLOW_QUIET_MS,
 } from './helpers.js';
+import { filePathsFromToolInput, mergeFiles } from './files.js';
 
 /**
  * Run manifest written at <project>/<sessionId>/workflows/<wfId>.json when the
@@ -163,6 +164,9 @@ export async function parseWorkflowRun(ref, opts = {}) {
     node.durationMs = prog?.durationMs ?? parsed?.durationMs;
     if (parsed && parsed.tokens.input + parsed.tokens.output > 0) node.tokens = parsed.tokens;
     else if (prog?.tokens) node.tokens = { input: 0, output: prog.tokens };
+    // Same reason as session subagents: the work happened inside the agent's
+    // own transcript, so the drill-in graph must carry it too.
+    if (parsed?.files.length) node.files = parsed.files;
     if (!st) node.ext = { transcriptMissing: true };
     g.nodes.push(node);
 
@@ -258,6 +262,7 @@ export async function parseAgentFile(file, { collectTranscript = false } = {}) {
     prompt: undefined,
     finalText: null,
     transcript: [],
+    files: [],
     toolCalls: 0,
     unrecognized: 0,
   };
@@ -318,6 +323,11 @@ export async function parseAgentFile(file, { collectTranscript = false } = {}) {
         if (collectTranscript) push(out.transcript, { role: 'assistant', text: cap(block.text, 1500) });
       } else if (block.type === 'tool_use') {
         out.toolCalls++;
+        // Unconditional, NOT gated on collectTranscript: the server caches a
+        // detail-collecting parse and the CLI does not, so a difference here
+        // would be a silent agent/human mismatch about what was touched.
+        const paths = filePathsFromToolInput(block.name, block.input);
+        if (paths.length) out.files = mergeFiles(out.files, paths);
         if (block.name === 'StructuredOutput') {
           out.finalText = JSON.stringify(block.input, null, 2);
         }

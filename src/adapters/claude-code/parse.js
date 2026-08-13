@@ -3,6 +3,7 @@ import { emptyGraph, snippet } from '../../ir.js';
 import { readJsonLines, statOrNull } from '../../util.js';
 import { parseWorkflowRun, readManifest, parseAgentFile } from './workflow.js';
 import { runStats } from './detect.js';
+import { filePathsFromToolInput, mergeFiles } from './files.js';
 import {
   KNOWN_MAIN_TYPES,
   INTERRUPT_TEXTS,
@@ -145,6 +146,7 @@ class GraphBuilder {
     this.toolCallCount = 0;
     this.lastHumanNodeId = null;
     this.toolNames = new Map(); // tool node id → plain tool name (labels are descriptive)
+    this.toolFiles = new Map(); // tool node id → union of paths its calls touched
     this.narration = null; // assistant text since the last tool call, this turn
   }
 
@@ -484,6 +486,13 @@ class GraphBuilder {
         this.chain(id);
         rec.nodeId = id;
       }
+      // Files are attributed at CALL time, so a later denial still leaves the
+      // path on the node — the user cares what the edit was aimed at, and the
+      // group's union is what makes a collapsed "Edit ×7" answerable.
+      const paths = filePathsFromToolInput(block.name, block.input);
+      if (paths.length) {
+        this.toolFiles.set(rec.nodeId, mergeFiles(this.toolFiles.get(rec.nodeId), paths));
+      }
       if (this.collect) {
         this.details.get(rec.nodeId)?.calls.push({
           toolUseId: block.id,
@@ -546,6 +555,9 @@ class GraphBuilder {
       if (n.kind === 'tool' && (n.errorCount ?? 0) > 0 && n.errorCount >= n.callCount)
         n.status = 'error';
       if (n.kind === 'tool' && n.callCount > 1) n.label = `${n.label} ×${n.callCount}`;
+      // Absent, never [], when nothing was touched — consumers tolerate absence.
+      const files = this.toolFiles.get(n.id);
+      if (files?.length) n.files = files;
     }
   }
 
@@ -638,6 +650,9 @@ async function materializeAgent(spawn, ctx) {
     if (parsed.startedAt) node.startedAt = parsed.startedAt;
     if (parsed.durationMs != null && node.durationMs == null) node.durationMs = parsed.durationMs;
     if (parsed.model && !node.model) node.model = parsed.model;
+    // A subagent's tool calls never become tool nodes, so without this the
+    // files lane would silently miss everything edited inside subagents.
+    if (parsed.files.length) node.files = parsed.files;
     terminal ??= parsed.terminal;
     detail.transcript = parsed.transcript;
     resultText ??= parsed.finalText;

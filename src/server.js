@@ -4,10 +4,13 @@ import { join, normalize, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scan, toIndexEntry, ADAPTERS } from './scanner.js';
 import { watchRun, diffGraphs } from './watcher.js';
+import { attachSignals } from './signals.js';
+import { matchNodes } from './find.js';
 
 const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const HOST = '127.0.0.1'; // privacy: never bind anything else
 const MAX_PORT_TRIES = 50;
+const MAX_BODY_BYTES = 256 * 1024; // focus payloads are ids and two short strings
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -45,6 +48,8 @@ export async function startServer(opts = {}) {
 
   const port = await listenWithRetry(server, opts.preferredPort ?? 4321);
   const url = `http://${HOST}:${port}`;
+  state.url = url;
+  state.port = port;
 
   return {
     url,
@@ -85,11 +90,18 @@ async function handle(req, res, state) {
   const url = new URL(req.url, 'http://localhost');
   const path = url.pathname;
 
+  if (path === '/api/focus') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+    return apiFocus(req, res, state);
+  }
   if (path === '/api/index') return apiIndex(res, state);
+  if (path === '/api/view') return apiView(res, state);
 
   let m;
   if ((m = path.match(/^\/api\/graph\/(.+)$/)))
     return apiGraph(res, state, decodeURIComponent(m[1]));
+  if ((m = path.match(/^\/api\/find\/(.+)$/)))
+    return apiFind(res, state, decodeURIComponent(m[1]), url.searchParams.get('q'));
   if ((m = path.match(/^\/api\/detail\/(.+)$/)))
     return apiDetail(res, state, decodeURIComponent(m[1]), url.searchParams.get('run'));
   if ((m = path.match(/^\/api\/watch\/(.+)$/)))
@@ -120,6 +132,9 @@ async function parseCached(state, ref) {
   const hit = state.parseCache.get(ref.runId);
   if (hit && hit.key === key) return hit;
   const { ir, details } = await adapter.parse(ref, { collectDetails: true });
+  // Signals are derived once, here, so the graph the browser draws and the
+  // graph an agent reads over MCP can never disagree about what is wrong.
+  attachSignals(ir);
   const entry = { key, ir, details };
   state.parseCache.set(ref.runId, entry);
   if (state.parseCache.size > 8) {
@@ -134,6 +149,148 @@ async function apiGraph(res, state, runId) {
   if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
   const { ir } = await parseCached(state, ref);
   sendJson(res, 200, ir);
+}
+
+/**
+ * Server-side narrowing for the `find_nodes` MCP tool: a 500-node graph is
+ * plausibly 40–50k tokens dropped into the user's session to answer one
+ * question, so an agent needs a way to filter before it pulls.
+ *
+ * The frontend does NOT call this — it imports the same matcher and filters
+ * locally, avoiding a round trip per keystroke. One matcher, two consumers.
+ */
+async function apiFind(res, state, runId, q) {
+  const ref = await resolveRun(state, runId);
+  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  const { ir } = await parseCached(state, ref);
+  const nodeIds = matchNodes(ir, q ?? '');
+  const want = new Set(nodeIds);
+  sendJson(res, 200, {
+    runId,
+    query: q ?? '',
+    matched: nodeIds.length,
+    nodeIds,
+    nodes: ir.nodes.filter((n) => want.has(n.id)),
+  });
+}
+
+/**
+ * What the open dashboards are actually showing. Without it "this run" is
+ * ambiguous unless the user pastes a runId — and an empty array is how an
+ * agent learns not to bother calling POST /api/focus at all.
+ */
+function apiView(res, state) {
+  const runs = [...state.watches.entries()]
+    .map(([runId, w]) => ({ runId, clientCount: w.clients.size }))
+    .filter((r) => r.clientCount > 0);
+  sendJson(res, 200, { runs });
+}
+
+/**
+ * The focus channel — and the server's first write endpoint.
+ *
+ * It accepts node ids and two display strings, and its only effect is which
+ * nodes a local browser tab highlights: it reads no new files and mutates
+ * nothing on disk. Any local process that could reach it can already read
+ * ~/.claude/projects directly, so it grants no capability that did not exist.
+ *
+ * The Origin check is the one thing that is NOT already true of the filesystem:
+ * a random page in the user's browser can POST to localhost, and should not be
+ * able to drive their dashboard.
+ */
+async function apiFocus(req, res, state) {
+  const origin = req.headers.origin;
+  if (origin && !isLocalOrigin(origin, state.port)) {
+    return sendJson(res, 403, { error: 'cross-origin focus rejected' });
+  }
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: String(err.message ?? err) });
+  }
+  const runId = typeof body?.runId === 'string' ? body.runId : null;
+  const nodeIds = Array.isArray(body?.nodeIds)
+    ? body.nodeIds.filter((x) => typeof x === 'string')
+    : null;
+  if (!runId || !nodeIds) {
+    return sendJson(res, 400, { error: 'expected { runId: string, nodeIds: string[] }' });
+  }
+
+  const frame = {
+    type: 'focus',
+    runId,
+    nodeIds,
+    label: str(body.label, 120) || `${nodeIds.length} nodes`,
+    reason: str(body.reason, 600),
+    source: 'agent',
+  };
+  const entry = state.watches.get(runId);
+  const payload = `data: ${JSON.stringify(frame)}\n\n`;
+  for (const client of entry?.clients ?? []) client.write(payload);
+
+  // Zero clients is not an error: the POST succeeded, nobody was looking.
+  // Handing back the count is what lets the agent tell the user, in their
+  // terminal, that their dashboard is showing something else.
+  sendJson(res, 200, {
+    ok: true,
+    runId,
+    clientCount: entry?.clients.size ?? 0,
+    url: `${state.url}/?run=${encodeURIComponent(runId)}`,
+  });
+}
+
+function isLocalOrigin(origin, port) {
+  try {
+    const u = new URL(origin);
+    const localHost = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]';
+    return localHost && (!port || u.port === String(port));
+  } catch {
+    return false;
+  }
+}
+
+function str(v, max) {
+  return typeof v === 'string' ? v.slice(0, max) : '';
+}
+
+/**
+ * Read a bounded JSON body. Past `max` we stop *buffering* but keep draining,
+ * so the client's write completes and it reads our 400 — destroying the socket
+ * mid-write hands it a connection reset instead of the explanation. Past a hard
+ * multiple of the cap it is no longer an honest oversized request and the
+ * socket goes.
+ */
+function readJsonBody(req, max = MAX_BODY_BYTES) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    let overflow = false;
+    let chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) {
+        overflow = true;
+        chunks = [];
+        if (size > max * 8) {
+          reject(new Error('body too large'));
+          req.destroy();
+        }
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('error', reject);
+    req.on('end', () => {
+      if (overflow) return reject(new Error('body too large'));
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error('malformed JSON body'));
+      }
+    });
+  });
 }
 
 async function apiDetail(res, state, nodeId, runId) {

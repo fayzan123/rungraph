@@ -41,8 +41,19 @@ export async function scan(opts = {}) {
       return adapter?.matchesProject?.(r, p) ?? false;
     });
   }
-  runs.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : -1));
+  runs.sort(byRecency);
   return { runs };
+}
+
+/**
+ * Newest first, runId as the tiebreak. The tiebreak matters: runs that were
+ * written in the same second (or restored from a backup) would otherwise land
+ * in whatever order the sort happened to produce, making the index — and the
+ * fixture snapshots — non-deterministic.
+ */
+function byRecency(a, b) {
+  if (a.modifiedAt !== b.modifiedAt) return a.modifiedAt < b.modifiedAt ? 1 : -1;
+  return a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0;
 }
 
 /** Serializable picker/index entry derived from a RunRef. */

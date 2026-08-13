@@ -32,6 +32,9 @@
  * @property {'answer'|'denial'|'interrupt'} [interventionKind]  human nodes.
  * @property {string} [group]       id of the group (phase) this node belongs to.
  * @property {boolean} [hasDetail]  true if /api/detail can expand this node.
+ * @property {string[]} [files]     tool/agent nodes: paths this node touched, as the
+ *                                  adapter observed them. Absent — never [] — when
+ *                                  nothing was touched.
  * @property {Object} [ext]         namespaced provider extras.
  *
  * @typedef {Object} IREdge
@@ -59,12 +62,23 @@
  * @property {number} unrecognizedLineCount
  * @property {Object} [ext]
  *
+ * @typedef {Object} IRSignal
+ * @property {string} id            Stable across re-parses (derived from node ids).
+ * @property {'retry-storm'|'unresolved-error'|'intervention'|'outlier'|'course-change'} kind
+ * @property {'high'|'info'} severity
+ * @property {string[]} nodeIds     Never empty. Signals reference node SETS, which is
+ *                                  why they live here and not on individual nodes.
+ * @property {string} label
+ * @property {string} reason
+ *
  * @typedef {Object} GraphIR
  * @property {1} irVersion
  * @property {IRMeta} meta
  * @property {IRNode[]} nodes
  * @property {IREdge[]} edges
  * @property {IRGroup[]} groups
+ * @property {IRSignal[]} [signals] Derived, not parsed — see signals.js. Additive in
+ *                                  irVersion 1; consumers must tolerate absence.
  */
 
 export const IR_VERSION = 1;

@@ -1,5 +1,6 @@
 import { watch } from 'node:fs';
 import { statOrNull } from './util.js';
+import { attachSignals } from './signals.js';
 
 /**
  * Watch one run's files and re-parse on change. This is the entire live-tail
@@ -59,6 +60,9 @@ export function watchRun(ref, adapter, { onGraph, onError, debounceMs = 300 }) {
     try {
       await arm(); // dirs (e.g. subagents/) may appear mid-run
       const { ir, details } = await adapter.parse(ref, { collectDetails: true });
+      // Re-derived on every rebuild: a live run's trouble is exactly the thing
+      // that changes while you are not looking. Pure pass over an in-memory IR.
+      attachSignals(ir);
       if (!closed) onGraph(ir, details);
     } catch (err) {
       onError?.(err);
@@ -95,6 +99,9 @@ export function diffGraphs(prev, next) {
     nodes: changed(prev.nodes, next.nodes),
     edges: changed(prev.edges, next.edges),
     groups: changed(prev.groups, next.groups),
+    // Signals ride along IN FULL rather than diffed — the array is small and
+    // the merge logic a diff would need is not worth the complexity.
+    signals: next.signals ?? [],
     removedNodeIds: removedIds(prev.nodes, next.nodes),
     removedEdgeIds: removedIds(prev.edges, next.edges),
   };
@@ -104,6 +111,10 @@ export function diffGraphs(prev, next) {
     delta.groups.length === 0 &&
     delta.removedNodeIds.length === 0 &&
     delta.removedEdgeIds.length === 0 &&
+    // A run where only the signal set moved IS a change — that is precisely
+    // the escalation moment Phase 3 exists to surface, so it must not be
+    // suppressed as "nothing happened".
+    JSON.stringify(prev.signals ?? []) === JSON.stringify(next.signals ?? []) &&
     JSON.stringify(prev.meta) === JSON.stringify(next.meta);
   return empty ? null : delta;
 }

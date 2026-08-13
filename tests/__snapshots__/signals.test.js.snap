@@ -1,0 +1,96 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`deriveSignals over the fixture corpus > matches the snapshot for every run 1`] = `
+{
+  "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111": [
+    {
+      "id": "sig:intervention:denial",
+      "kind": "intervention",
+      "label": "1 denial",
+      "nodeIds": [
+        "h:00000000-0000-4000-8000-000000000042",
+      ],
+      "reason": "1 denial in this run. Permission was refused, so the run had to abandon that approach mid-flight.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:course-change",
+      "kind": "course-change",
+      "label": "3 course changes",
+      "nodeIds": [
+        "g:toolu_fx0003",
+        "g:toolu_fxD001",
+        "t:00000000-0000-4000-8000-000000000045",
+      ],
+      "reason": "The run's own lineage explains these 3 steps: “after Bash error”, “answer: Explicit waits (Recommended)”, “after permission denial”.",
+      "severity": "info",
+    },
+    {
+      "id": "sig:intervention:answer",
+      "kind": "intervention",
+      "label": "1 answered question",
+      "nodeIds": [
+        "h:00000000-0000-4000-8000-000000000039",
+      ],
+      "reason": "1 answered question in this run. The run stopped to ask, and those answers steered everything after them.",
+      "severity": "info",
+    },
+  ],
+  "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111:wf_12345678-abc": [
+    {
+      "id": "sig:course-change",
+      "kind": "course-change",
+      "label": "1 course change",
+      "nodeIds": [
+        "a:aaaa000000000003f",
+      ],
+      "reason": "The run's own lineage explains this step: “retry after failure”.",
+      "severity": "info",
+    },
+  ],
+  "claude-code:-home-dev-acme:22222222-2222-4222-8222-222222222222": [],
+  "claude-code:-home-dev-acme:33333333-3333-4333-8333-333333333333": [],
+  "claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444": [
+    {
+      "id": "sig:retry-storm:g:toolu_fxT101",
+      "kind": "retry-storm",
+      "label": "3 failed Edit calls",
+      "nodeIds": [
+        "g:toolu_fxT101",
+      ],
+      "reason": "Edit failed 3× in a single step on token.js, so the run was retrying instead of making progress.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:unresolved-error:g:toolu_fxT300",
+      "kind": "unresolved-error",
+      "label": "unresolved Bash error",
+      "nodeIds": [
+        "g:toolu_fxT300",
+      ],
+      "reason": "The last Bash call in this lane failed and nothing came back to fix it.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:course-change",
+      "kind": "course-change",
+      "label": "1 course change",
+      "nodeIds": [
+        "t:00000000-0000-4000-8000-000000000115",
+      ],
+      "reason": "The run's own lineage explains this step: “after Edit error”.",
+      "severity": "info",
+    },
+    {
+      "id": "sig:outlier",
+      "kind": "outlier",
+      "label": "1 outsized step",
+      "nodeIds": [
+        "t:00000000-0000-4000-8000-000000000121",
+      ],
+      "reason": "“Ship it” is 17× the run's median runtime.",
+      "severity": "info",
+    },
+  ],
+}
+`;
