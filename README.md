@@ -2,9 +2,10 @@
 
 **See your agent runs as a graph.**
 
-![rungraph visualizing the live session that shipped it: open a run, walk nodes with the keyboard, read the "why" behind a tool call, jump via the minimap, fit the whole graph](https://raw.githubusercontent.com/fayzan123/rungraph/master/docs/rungraph-demo.gif)
+![rungraph triaging a live 192-node run: the signal strip flags an unresolved error, clicking it rings the failing node and dims the rest, clicking a file shows the six steps that touched it, and find matches on labels and file paths at once](https://raw.githubusercontent.com/fayzan123/rungraph/master/docs/rungraph-demo.gif)
 
-*That's rungraph watching the live session that built this feature — the graph grows as the agent works.*
+*That's rungraph watching the live session that built this feature — the strip
+says what went wrong, and one click lights up the nodes it means.*
 
 Your coding agent already wrote down everything it did. `rungraph` turns those
 transcripts into an interactive **directed agentic graph** — orchestrator,
