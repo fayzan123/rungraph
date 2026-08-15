@@ -83,10 +83,22 @@ A `.rungraph` file is gzipped JSON — `node:zlib`, so the zero-dependency rule 
   "exportedAt": "2026-08-15T18:02:11Z",
   "redaction": "full",              // 'full' | 'redact-secrets' | 'structure-only'
   "runs": [
-    { "runId": "…", "ir": { /* the run's full IR, detail payloads included */ } }
+    { "runId": "…", "ir": { /* the run's full IR, detail payloads included */ } },
+    { "runId": "…", "snapshot": "2026-08-15T18:02:11Z", "ir": { /* … */ } }
   ]
 }
 ```
+
+A run that appeared **live at export time** exports as-is — the parser tolerates mid-write
+truncation by design, so nothing new can crash — and carries a `snapshot` timestamp, surfaced in
+the recipient's provenance badge and in the export inventory. The mid-disaster "my agent is
+stuck, look at this" ask is one of sharing's best cases; refusing live runs would kill it over a
+heuristic (quiet windows) that cannot distinguish "running" from "stalled" anyway.
+
+**Bundle fidelity equals dashboard fidelity.** Detail payloads are capped at parse time (inputs
+3000 chars, outputs/prompts 8000) before they ever enter the IR, so a bundle shows the recipient
+exactly what the sender's own dashboard shows — and content beyond a cap cannot leak because it
+never existed in the exportable form. The caps also keep bundles bounded.
 
 **The bundle carries IR, not raw transcripts.** Three reasons, each load-bearing:
 
@@ -117,13 +129,15 @@ screen or a partial render that silently drops fields.
 ## 2. Export
 
 ```
-rungraph export <runId…> --out <file> [--as <name>] [--structure-only]
-                [--redact-secrets] [--allow-secrets] [--json]
+rungraph export <runId…> [--last <n>] --out <file> [--as <name>]
+                [--structure-only] [--redact-secrets] [--allow-secrets] [--json]
 ```
 
 Agent-first CLI rules apply: non-interactive, no prompts, inventory and logs to stderr, data to
 stdout (`--json` emits a machine-readable summary: output path, runs, counts, findings). Run ids
-come from `rungraph runs --json`, same as everywhere else. `--out` defaults to
+come from `rungraph list --json`, same as everywhere else; `--last <n>` selects the n most
+recent runs of the current project instead — the dominant human path ("export what I just did"),
+reusing the scanner's existing recency sort and project matching. `--out` defaults to
 `<project>-<date>.rungraph` in the current directory. Exit codes: 0 written, 1 blocked or
 failed, 2 usage.
 
@@ -178,7 +192,28 @@ every detail payload, and turn/human labels are replaced with generic positional
 decides every case. A structure-only bundle still answers "where was feature X built" — file
 paths and tool labels feed `find_nodes` — it just cannot answer "what approach did they take."
 
-## 3. `rungraph open` — ephemeral viewing
+The scan runs on **whatever actually leaves, at every redaction tier** — structure-only output
+included (paths and mechanical labels can carry tokens too, rarely but irreversibly).
+
+### Dashboard export — one implementation, two frontends
+
+Humans export from the dashboard too: the runs pane gains a selection mode — check off runs, hit
+Export — backed by `GET /api/export?runs=…&redaction=…`, which runs the **same export module**
+the CLI uses (eager detail, transitive `runRef`s, manifest, scan) and streams the finished
+bundle as a download. The browser's own downloader writes the file, so rungraph itself still
+writes nothing to disk.
+
+The consent surface must not fork: the dialog shows the same inventory before anything
+downloads, and a scan hit returns the findings instead of the file — rendered as the same block
+with the same three resolutions (redact / structure-only / allow), with identical defaults to
+the CLI. Two frontends teaching two privacy postures would be worse than either alone.
+
+The export dialog also carries the agent affordance — "or ask your agent:
+`rungraph export --last 2 --as Bilal`" — because the CLI *is* the agent's export surface; no MCP
+export tool is added, per the agent-first constraint. **A docs deliverable ships with this
+phase:** a Sharing section in the README walking both flows end to end — B's export (dashboard
+checkbox and agent incantation), the transfer ("send the file however you already send files"),
+and A's `rungraph open` plus asking their agent about the opened runs.
 
 ```
 rungraph open <bundle…> [--port <n>]
@@ -197,6 +232,9 @@ is what joins the two views for the agent.
   implications.
 - **Bundles are static.** No watcher, no live tail, liveness is always "complete." The SSE
   channel still runs for the focus loop, which works on bundle runs exactly as on local ones.
+- **Bundle-served runs refuse re-export** — `/api/export` on an `open` server answers "send the
+  original `.rungraph` file instead." Re-exporting would stamp fresh provenance over B's
+  (`sharedBy` laundering) and can only ever lose information relative to the file A already has.
 - **A corrupt or truncated bundle degrades, never crashes:** bad gzip or JSON produces a named
   error banner for that file; other bundles on the command line still serve. Unknown
   `bundleVersion`/`irVersion` follows §1's refusal rule.
@@ -277,6 +315,12 @@ band. If Codex distributions differ materially, the fix is chosen from measureme
 normalization versus vendor-scoped thresholds — not designed pre-emptively. Precision over
 recall is not waived for vendor two.
 
+**And it is not a ship blocker.** If calibration misses the bar at ship time, the adapter ships
+with signal derivation **suppressed for Codex-sourced runs** (the scanner knows each run's
+adapter; the gate is one check where signals attach) until thresholds meet it. Codex users get
+the graph, files, focus, MCP, and sharing on day one; the strip stays empty exactly as on a
+clean run. A graph without markers is still the product — markers that lie are not.
+
 ## 6. Deep links
 
 Focus state moves into the URL hash, as **another producer feeding the existing FocusSet
@@ -304,9 +348,14 @@ re-run.
 
 - **Restore:** on load the canvas restores selection and focus through the spine, and pans/zooms
   to the set (the agent-focus behavior — the user clicked a link; the view should have moved).
-- **Degradation:** unknown `runId` → a banner naming it, never a blank screen. Node ids missing
-  from the current graph → filter to known ids; if that empties the set, clear focus and say so
-  (the live-delta rule, reused).
+- **Degradation, registry-assisted:** on an unknown `runId` the dashboard asks its own server,
+  which consults the port registry (§4) and probes the other live servers via a new
+  `GET /api/locate/:runId`; if one owns the run, the banner upgrades to "this run is open on
+  :4322 — jump to it," otherwise it names the runId and stops. Never a blank screen. This is
+  what makes links survive the flagship share flow — A's own dashboard on 4321, B's bundle on
+  4322, B's link hitting the wrong one — and it fixes every cross-server link, not just bundle
+  ones. Node ids missing from the current graph → filter to known ids; if that empties the set,
+  clear focus and say so (the live-delta rule, reused).
 - **Producers:** a copy-link affordance on the current view, and `focus_nodes` returns the URL in
   its response so the agent can hand the user a pastable link for a PR or an issue.
 - **Durability, stated honestly:** links embed host and port. `serve` already prefers 4321 and
@@ -319,11 +368,19 @@ re-run.
 
 - **IR: unchanged.** `irVersion` stays 1; nothing in this layer adds IR fields.
 - **Bundle envelope** (§1) documented in `SCHEMA.md` alongside the IR it wraps.
-- **Index entries / `list_runs`:** optional `provenance: { sharedBy, bundle, exportedAt }`;
-  consumers must tolerate absence (every local run).
+- **Index entries / `list_runs`:** optional `provenance: { sharedBy, bundle, exportedAt,
+  snapshot? }`; consumers must tolerate absence (every local run).
 - **`focus_nodes` response:** gains `url`.
-- **CLI:** `export` and `open` subcommands, documented in `--help` and README, both `--json`-capable
-  per the agent-first rule.
+- **Server:** `GET /api/export` (bundle download; refuses on bundle-served runs and on scan
+  findings, returning the findings instead), `GET /api/locate/:runId` (registry-backed lookup
+  for the deep-link jump), and — on **every** request — a `Host`-header guard: anything other
+  than `127.0.0.1`/`localhost`/`[::1]` with the server's port gets a 403. The guard closes the
+  DNS-rebinding read that the existing GET endpoints allow today and is a hard prerequisite for
+  a browser-reachable endpoint that streams whole transcripts.
+- **Frontend:** selection mode + Export dialog in the runs pane; provenance/snapshot badge;
+  copy-link affordance.
+- **CLI:** `export` (with `--last`) and `open` subcommands, documented in `--help` and README,
+  both `--json`-capable per the agent-first rule, plus the README Sharing section (§2).
 
 ## 8. Error handling & degradation
 
@@ -333,7 +390,10 @@ re-run.
 | secrets scanner throws | fail closed: export blocks with the error — outbound artifacts default to "did not leave" |
 | corrupt / truncated bundle | named error banner for that file; other bundles still serve |
 | bundle with newer `bundleVersion`/`irVersion` | refuse with a named-versions upgrade message, never partial render |
-| deep link to unknown run | banner naming the runId; never blank |
+| dashboard export hits scan findings | dialog shows the findings and the three resolutions; no file leaves |
+| re-export of a bundle-served run | refused: "send the original `.rungraph` file instead" |
+| request with a non-local `Host` header | 403 on every endpoint |
+| deep link to unknown run | `/api/locate` consults the registry: owning server found → jump offer; otherwise banner naming the runId; never blank |
 | deep link node ids absent from graph | filter to known; if empty, clear focus and say so |
 | registry entry for a dead server | liveness probe fails → skipped, opportunistically deleted |
 | same runId on two live servers | route to the most recently started; identical IRs |
@@ -348,6 +408,10 @@ is stated in full:
 - **rungraph itself never touches a network.** Export writes a local file; the transfer channel
   is the user's own. The server still binds `127.0.0.1`; no new write endpoints exist (`open`
   reads files named on its command line; registry entries hold a port and a pid).
+- **Every request is `Host`-guarded** (§7), closing the DNS-rebinding read of transcript data
+  that binding alone never prevented. The existing `Origin` check on `POST /api/focus` stays;
+  the `Host` guard is the missing counterpart for reads, and `/api/export` does not ship
+  without it.
 - **Consent is structural**: export is an explicit command naming explicit runs, with the
   inventory printed every time and a hard stop on detected secrets.
 - **`sharedBy` is an unverified display string.** A bundle asserts, not proves, its sender —
@@ -362,7 +426,14 @@ Fixture-driven, per the house pattern:
 
 - **Bundle round-trip:** export fixture runs → open → served IR identical to the source (modulo
   provenance on index entries); snapshot. A bundle containing a workflow `runRef` proves
-  transitive inclusion by drilling into the workflow graph.
+  transitive inclusion by drilling into the workflow graph. A live-fixture export carries the
+  `snapshot` timestamp. `GET /api/export` produces a bundle IR-equal to the CLI's for the same
+  runs — the two-frontends-one-implementation guard — and returns findings, not a file, on a
+  scan hit; a bundle-served run refuses re-export.
+- **Host guard:** a request with a foreign `Host` gets 403 on a read endpoint and on
+  `/api/export`; local hosts in all three spellings pass.
+- **Locate:** with two live servers, `/api/locate/:runId` finds the owning server for a run the
+  asked server does not have; unknown everywhere → empty answer, banner path.
 - **Secrets scan:** a fixture per pattern kind blocks with exit 1 and correct locations;
   `--redact-secrets` output contains placeholders and nothing matching the pattern;
   `--allow-secrets` passes verbatim; **the clean corpus exports with zero findings** — the
@@ -388,15 +459,19 @@ Fixture-driven, per the house pattern:
 
 | phase | ships | depends on |
 |---|---|---|
-| 1 | bundle format, `export` (scan, redaction, inventory), `open`, provenance badge | — |
+| 1 | Host guard; bundle format; `export` (scan, redaction, inventory, `--last`); dashboard export; `open`; provenance badge; README Sharing section | — |
 | 2 | port registry, aggregated MCP routing | 1 (motivation; mechanically independent) |
-| 3 | Codex adapter: discovery report, then adapter + fixtures + yield measurement | — |
-| 4 | deep links: descriptor, restore, copy-link, `focus_nodes` URL | — |
+| 3 | Codex adapter: discovery report, then adapter + fixtures + yield measurement (suppression fallback per §5) | — |
+| 4 | deep links: descriptor, restore, copy-link, `focus_nodes` URL; `/api/locate` + jump | — (core); 2 (the jump) |
 
 Phase 1 is releasable alone: sharing works whenever the recipient runs one dashboard at a time,
-with the old last-writer port file as the interim MCP story. Phase 2 removes the one silent
-wrong-answer mode. Phases 3 and 4 are independent of both and of each other — parallelizable if
-wanted. The compounding order (bundles → aggregation → reach) is the recommended order.
+with the old last-writer port file as the documented interim — and that interim is genuinely
+degraded: with two dashboards up, the MCP answers about whichever server wrote the file last,
+and either's clean shutdown can strand the MCP until a restart. Acceptable only because phase 2
+follows immediately and single-dashboard users (everyone, during early adoption) never hit it.
+Phase 2 removes the one silent wrong-answer mode. Phases 3 and 4 are independent of both and of
+each other — parallelizable if wanted; only the deep-link jump waits for the registry. The
+compounding order (bundles → aggregation → reach) is the recommended order.
 
 ## Open questions for implementation
 
@@ -415,3 +490,6 @@ wanted. The compounding order (bundles → aggregation → reach) is the recomme
 6. **Codex liveness windows** — quiet-window constants were tuned for Claude Code's write
    cadence; Codex's cadence is discovery-report material and may need its own values via the
    adapter's existing liveness surface.
+7. **Export dialog UX** — selection-mode gestures, dialog layout, and how the three resolutions
+   render in the browser are frontend-pass details; the consent parity rule (§2) is the spec,
+   the pixels are not.
