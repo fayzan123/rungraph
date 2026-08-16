@@ -105,6 +105,17 @@ export function filesIndex(ir) {
 }
 
 /**
+ * Display name for an adapter id. One implementation, three consumers
+ * (picker, header, inspector) — a run must be called the same thing
+ * everywhere it appears. Unknown adapters pass through, so a future vendor
+ * shows up named rather than blank.
+ */
+export function adapterName(adapter) {
+  if (adapter === 'claude-code') return 'claude';
+  return typeof adapter === 'string' && adapter ? adapter : '';
+}
+
+/**
  * Display form of an absolute path. Paths are stored exactly as the adapter
  * observed them (absolute, as Claude Code records them); only the display is
  * relative to the run's project root, which comes from /api/index.

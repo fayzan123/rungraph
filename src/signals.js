@@ -149,16 +149,19 @@ function retryStorms(ordered, lane, refused) {
 }
 
 /**
- * A node that counts toward a storm: one where every collapsed call failed, or
- * one that failed `retryErrors` times by itself.
+ * A node that counts toward a storm: one where EVERY collapsed call failed.
  *
- * The `status === 'error'` gate is the precision guard, and it is load-bearing.
- * Real sessions are full of "Bash ×24" nodes carrying two failures among
- * twenty-two successes — a test loop working normally. Calling that a retry
- * storm would burn the user's trust on the first run they opened.
+ * The `status === 'error'` gate is the precision guard, and it is load-bearing
+ * — now proven on two corpora. Real Claude sessions are full of "Bash ×24"
+ * nodes carrying two failures among twenty-two successes — a test loop
+ * working normally. An earlier draft also admitted any node with ≥3 failures
+ * regardless of successes; that arm never fired on the Claude corpus (max
+ * real errorCount was 2, so it was uncalibrated territory) and on the Codex
+ * corpus — where collapsed Shell groups run to ×37 and ×57 calls — it flagged
+ * ordinary working loops like "×37 [3 errors]" as storms. Measured, removed.
  */
 function isStormNode(n) {
-  return errorsOf(n) > 0 && (n.status === 'error' || errorsOf(n) >= THRESHOLDS.retryErrors);
+  return errorsOf(n) > 0 && n.status === 'error';
 }
 
 function stormFrom(run) {

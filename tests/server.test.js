@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { request } from 'node:http';
 import { startServer } from '../src/server.js';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
 import { matchNodes } from '../src/find.js';
 import {
   pinFixtureMtimes,
   FIXTURE_ROOT,
+  CODEX_FIXTURE_ROOT,
   SESSION_RUN_ID,
   WORKFLOW_RUN_ID,
+  CLEAN_RUN_ID,
   TROUBLE_RUN_ID,
   FIXTURE_RUN_COUNT,
 } from './helpers.js';
@@ -15,10 +18,12 @@ let server;
 beforeAll(async () => {
   await pinFixtureMtimes();
   process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
+  process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
   server = await startServer({ preferredPort: 4599 });
 });
 afterAll(async () => {
   delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
+  delete process.env.RUNGRAPH_CODEX_SESSIONS;
   await server.close();
 });
 
@@ -162,6 +167,61 @@ describe('HTTP API', () => {
 
   it('GET /api/find 404s an unknown run', async () => {
     expect((await get('/api/find/claude-code:nope?q=x')).status).toBe(404);
+  });
+});
+
+describe('the Host guard', () => {
+  // fetch() will not let a caller forge Host, so speak raw http.
+  const withHost = (host, path = '/api/index') =>
+    new Promise((resolve, reject) => {
+      const req = request(
+        {
+          host: '127.0.0.1',
+          port: server.port,
+          path,
+          // null = send NO Host header at all (node adds one unless told not to)
+          setHost: false,
+          headers: host === null ? {} : { host },
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve(res.statusCode));
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+  // Binding 127.0.0.1 never prevented the DNS-rebinding read: a hostile page
+  // resolving its own domain to 127.0.0.1 arrives same-origin, and only the
+  // Host header betrays it.
+  it('rejects a foreign Host on a read endpoint', async () => {
+    expect(await withHost(`evil.example:${server.port}`)).toBe(403);
+    expect(await withHost('evil.example')).toBe(403);
+  });
+
+  it('rejects a foreign Host on /api/export', async () => {
+    expect(
+      await withHost(`evil.example:${server.port}`, `/api/export?runs=${encodeURIComponent(CLEAN_RUN_ID)}`),
+    ).toBe(403);
+  });
+
+  it('rejects a wrong-port and a missing Host', async () => {
+    expect(await withHost('127.0.0.1:1')).toBe(403);
+    // Node itself 400s a Host-less HTTP/1.1 request before our handler runs;
+    // our own guard would 403 it. Either way it never reaches a read.
+    expect([400, 403]).toContain(await withHost(null));
+  });
+
+  it('accepts all three local spellings', async () => {
+    expect(await withHost(`127.0.0.1:${server.port}`)).toBe(200);
+    expect(await withHost(`localhost:${server.port}`)).toBe(200);
+    expect(await withHost(`[::1]:${server.port}`)).toBe(200);
+    expect(await withHost('localhost')).toBe(200); // no port stated is fine
+  });
+
+  it('guards the static frontend too', async () => {
+    expect(await withHost('evil.example', '/')).toBe(403);
   });
 });
 

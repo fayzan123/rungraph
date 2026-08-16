@@ -113,9 +113,68 @@ conversation. The read-only tools work with no server running at all.
 | `get_graph` | one run's graph, compact by default (signals + files included) |
 | `find_nodes` | narrow before you pull — a big graph is 20k+ tokens |
 | `get_detail` | the actual error text behind one node |
-| `focus_nodes` | light up the open dashboard |
+| `focus_nodes` | light up the open dashboard; returns a pastable deep link |
 | `get_current_view` | what the dashboard is showing right now |
 | `open_visualization` | open the browser on a run |
+
+With more than one dashboard live — yours, plus a bundle someone sent you
+(below) — the MCP aggregates them: `list_runs` merges every server's runs,
+tagged with where they came from, and every other tool routes by run id to the
+dashboard actually showing that run.
+
+## Sharing a run
+
+A run can leave the machine — as a file, on your terms. Say Bilal's agent went
+sideways and you could help, or you want to show a colleague where a feature
+was actually built.
+
+**Bilal exports.** Either from the dashboard — *share…* in the runs pane, check
+off runs, review what's about to leave — or by asking his agent:
+
+```
+rungraph export --last 2 --as Bilal
+# rungraph: export inventory (full content):
+#   2 runs · 143 nodes · 12 of your prompts included
+#   files touched: 24
+# rungraph: wrote acme-2026-08-15.rungraph (412,882 bytes)
+```
+
+The inventory prints every time: people don't realize how much lives in a
+transcript, so the tool shows it before it leaves. And export **blocks** if it
+finds a high-confidence secret (AWS keys, GitHub/Slack/API tokens, private-key
+blocks — anchored patterns, calibrated for near-zero false positives), listing
+exactly where each one is. Resolve with `--redact-secrets` (placeholders,
+everything else verbatim), `--structure-only` (graph shape, tool names, files
+and timings — no prompts, no outputs), or `--allow-secrets` if they're fixture
+keys you've checked.
+
+**The file is the transfer.** Send the `.rungraph` over whatever you already
+trust — Slack, AirDrop, a repo. rungraph itself never touches a network.
+
+**You open it.**
+
+```
+npx rungraph open team-work.rungraph
+```
+
+That serves the bundle on its own ephemeral dashboard — nothing is copied
+anywhere; close the process and it's gone; keep the file to re-open it any
+time. Every run wears its provenance ("shared by Bilal · team-work.rungraph"),
+and the whole loop works on it: signals derive on *your* rungraph, and your own
+agent can be pointed at Bilal's runs — *"what went wrong in the bundle Bilal
+sent me?"* — right alongside your own.
+
+A bundle carries the vendor-neutral IR, so a Codex run exports and opens
+identically to a Claude Code one, and opening a bundle needs no adapters at
+all. `sharedBy` is a display string, not an identity — trust a bundle the way
+you trust the channel it arrived on.
+
+**Link to what you see.** *copy link* in the header captures the current view —
+run, selected node, focus — as a URL; `focus_nodes` returns the same kind of
+link, so your agent can hand you something pastable for a PR or an issue. Links
+re-execute their query on load (a find link re-finds, a signal link
+re-derives), and a link that lands on the wrong dashboard offers a one-click
+jump to the one that has the run.
 
 ## Getting around
 
@@ -174,13 +233,21 @@ The same surface is available as MCP tools — see "Ask your agent about a run"
 above, or `rungraph mcp --install`.
 
 The IR is versioned and documented in [SCHEMA.md](SCHEMA.md). It is
-vendor-neutral: Claude Code is the first adapter (sessions, subagents, and
-Workflow runs); a Codex adapter is next.
+vendor-neutral, with two adapters: Claude Code (sessions, subagents, and
+Workflow runs, under `~/.claude/projects`) and Codex CLI (rollout threads and
+their spawned subagent threads, under `~/.codex/sessions`). Everything
+downstream — including `.rungraph` bundles — carries only the IR.
 
 ## Privacy
 
-Everything is local. The server binds `127.0.0.1` only. rungraph makes no
-network requests, phones nothing home, and nothing ever leaves your machine.
+Everything is local. The server binds `127.0.0.1` only, and every request is
+Host-header-guarded, so a hostile web page can't DNS-rebind its way into your
+transcripts. rungraph makes no network requests and phones nothing home.
+
+Nothing leaves your machine unless you run `rungraph export` — an explicit
+command naming explicit runs, which prints an inventory of what's included
+every time and hard-stops on detected secrets. The transfer channel for the
+resulting file is yours, not rungraph's.
 
 ## How it works
 
@@ -211,10 +278,13 @@ rungraph list [--json]         run index, newest first
 rungraph graph <runId>         Graph IR for one run (JSON on stdout)
 rungraph find <runId> <query>  nodes whose label or files match a substring
 rungraph serve [--no-open]     start server; prints {"url": …}
+rungraph export <runId…>       write a shareable .rungraph bundle (see --help)
+rungraph open <bundle…>        serve bundle files, ephemerally
 rungraph mcp [--install]       MCP server on stdio; --install registers it once
 rungraph mcp --check           verify the agent side end to end
   --project <path>             only runs for this project directory
   --port <n>                   preferred port (auto-increments if taken)
+  --last <n>                   export: the n most recent runs of this project
   --scope <s>                  mcp --install: user (default) | project | local
 ```
 
@@ -222,7 +292,7 @@ Requires Node ≥ 20.
 
 ## Roadmap
 
-- **Codex adapter** — the IR and adapter interface are already vendor-neutral.
+- **Annotations** — mark nodes before exporting a bundle ("look here first").
 - **Cross-run questions** — file attribution lives in each run's IR, so asking
   "what else touched this file?" across runs needs iteration, not a migration.
 - **Run comparison** — diff two runs of the same task.

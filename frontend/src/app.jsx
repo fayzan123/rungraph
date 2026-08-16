@@ -3,7 +3,9 @@ import { fetchIndex, fetchGraph, watchGraph, applyDelta } from './api.js';
 import { Canvas } from './canvas.jsx';
 import { Inspector } from './inspector.jsx';
 import { Strip } from './strip.jsx';
+import { ExportDialog } from './export.jsx';
 import {
+  adapterName,
   focusFromAgent,
   focusFromFile,
   focusFromFind,
@@ -13,10 +15,15 @@ import {
   refocus,
   signalKey,
 } from './focus.js';
+import { buildFocusHash, descriptorFromFocus, parseFocusHash } from '../../src/deeplink.js';
 
 export function App() {
   const [index, setIndex] = useState(null);
-  const [runId, setRunId] = useState(() => new URLSearchParams(location.search).get('run'));
+  // A deep link (#run=…&sel=…&f=…) wins over the plain ?run= param: the hash
+  // carries focus state the search param cannot.
+  const [runId, setRunId] = useState(
+    () => parseFocusHash(location.hash)?.runId ?? new URLSearchParams(location.search).get('run'),
+  );
   const [graph, setGraph] = useState(null);
   const [graphError, setGraphError] = useState(null);
   const [selection, setSelection] = useState(null); // {type:'node'|'edge', id}
@@ -33,7 +40,10 @@ export function App() {
   const [escalated, setEscalated] = useState(false);
   const [panes, setPanes] = useState(loadPanes);
   const [switchedFrom, setSwitchedFrom] = useState(null); // undo for an agent-driven run switch
+  const [linkMiss, setLinkMiss] = useState(null); // deep link to a run this server lacks
+  const [linkSeq, setLinkSeq] = useState(0); // bumps when a deep link arrives without a reload
   const pendingFocus = useRef(null); // an agent's focus, waiting for its own graph
+  const pendingLink = useRef(parseFocusHash(location.hash)); // a deep link, waiting for its graph
   const seenHigh = useRef(new Set()); // `high` signal ids the user has looked at
   const primed = useRef(false); // has this run's baseline been taken yet
   const graphRef = useRef(null); // the SSE closure outlives every graph it sees
@@ -63,6 +73,7 @@ export function App() {
     setFindOpen(false);
     setQuery('');
     setNote(null);
+    setLinkMiss(null);
     setEscalated(false);
     seenHigh.current = new Set();
     primed.current = false;
@@ -102,6 +113,9 @@ export function App() {
     );
     const url = new URL(location.href);
     url.searchParams.set('run', runId);
+    // A consumed or bypassed deep link must not linger in the address bar —
+    // copying it there would hand someone a link to a run you already left.
+    if (parseFocusHash(url.hash)?.runId !== runId) url.hash = '';
     history.replaceState(null, '', url);
     return () => {
       alive = false;
@@ -148,6 +162,102 @@ export function App() {
   };
 
   useEffect(() => applyPendingFocus(graph), [graph]);
+
+  /**
+   * Deep-link restore: once the linked run's graph is in hand, replay the
+   * descriptor through the SAME producers a live click would use — find,
+   * signal and file descriptors re-execute (one matcher, one derivation, one
+   * attribution source, so a link and a fresh query can never disagree), and
+   * only agent-sourced sets are explicit ids. The view pans: the user clicked
+   * a link, so the view should have moved.
+   */
+  // A link pasted into an ALREADY-OPEN tab changes only the hash — no reload,
+  // no mount. Catching hashchange makes those links work too.
+  useEffect(() => {
+    const onHash = () => {
+      const link = parseFocusHash(location.hash);
+      if (!link) return;
+      pendingLink.current = link;
+      setSwitchedFrom(null);
+      setRunId(link.runId);
+      setLinkSeq((n) => n + 1); // same-run links re-apply without a graph change
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
+    const link = pendingLink.current;
+    if (!link || !graph || graph.meta?.runId !== link.runId) return;
+    pendingLink.current = null;
+    if (link.sel && graph.nodes.some((n) => n.id === link.sel)) {
+      setSelection({ type: 'node', id: link.sel });
+    }
+    const d = link.descriptor;
+    if (!d) return;
+    let f = null;
+    if (d.source === 'find') {
+      setFindOpen(true);
+      setQuery(d.query);
+      f = focusFromFind(graph, d.query);
+    } else if (d.source === 'signal') {
+      const sig = (graph.signals ?? []).find((s) => s.id === d.signalId);
+      f = sig ? focusFromSignal(sig) : null;
+      if (!sig) setNote('that signal is no longer derived for this run');
+    } else if (d.source === 'file') {
+      f = focusFromFile(graph, d.path, project);
+    } else if (d.source === 'agent') {
+      // Filter to known ids; if that empties the set, clear focus and say so
+      // (the live-delta rule, reused).
+      f = pruneFocus({ nodeIds: d.nodeIds, label: d.label || 'linked nodes', reason: d.reason, source: 'agent' }, graph);
+      if (!f) setNote('the linked nodes are gone from this run');
+    }
+    if (f) {
+      setFocus({ ...f, pan: true });
+      setFocusSeq((n) => n + 1);
+    }
+  }, [graph, linkSeq]);
+
+  // A deep link to a run this server does not have: ask our own server, which
+  // consults the port registry and probes the other live dashboards. Found →
+  // the banner upgrades to a jump offer; otherwise it names the runId and
+  // stops. Never a blank screen. Only a 404 means "not here" — a transient
+  // load failure must not claim a run is missing, and a run this very server
+  // owns (locate answers self:true) is a plain load error, not a miss.
+  useEffect(() => {
+    if (!graphError || !runId || !/\b404\b/.test(graphError)) return;
+    let alive = true;
+    fetch(`/api/locate/${encodeURIComponent(runId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        if (d.found && d.self) return; // it's here — the graph error stands on its own
+        setLinkMiss(d.found ? { runId, url: d.url } : { runId });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [graphError, runId]);
+
+  // The moment a graph loads, any miss banner is stale by definition.
+  useEffect(() => {
+    if (graph) setLinkMiss(null);
+  }, [graph]);
+
+  // Copy-link: the current view — run, selected node, focus — as a URL hash.
+  const copyLink = () => {
+    const hash = buildFocusHash({
+      runId,
+      sel: selection?.type === 'node' ? selection.id : undefined,
+      descriptor: descriptorFromFocus(focus),
+    });
+    const link = `${location.origin}/${hash}`;
+    navigator.clipboard?.writeText(link).then(
+      () => setNote('link copied — it restores this exact view'),
+      () => setNote(`could not copy — the link is ${link}`),
+    );
+  };
 
   // Reconcile the focus against the graph it points into, once per graph change.
   // A live delta can delete the nodes underneath a focus, and can grow the very
@@ -277,8 +387,26 @@ export function App() {
             'pick a run'
           )}
         </span>
+        {graph && (
+          <span class="adapter-tag" data-adapter={graph.meta.adapter} title={`reconstructed by the ${graph.meta.adapter} adapter`}>
+            {adapterName(graph.meta.adapter)}
+          </span>
+        )}
+        {currentRun?.provenance && (
+          <span
+            class="badge-shared"
+            title={`from ${currentRun.provenance.bundle}${currentRun.provenance.snapshot ? ' — exported while the run was live' : ''}`}
+          >
+            shared by {currentRun.provenance.sharedBy}
+          </span>
+        )}
         {live && connected && <span class="badge-live">live</span>}
         {runId && !connected && <span class="microlabel">reconnecting…</span>}
+        {graph && (
+          <button class="ghost" onClick={copyLink} title="copy a link that restores this exact view">
+            copy link
+          </button>
+        )}
         {live && (
           <button
             class="ghost"
@@ -305,6 +433,23 @@ export function App() {
       <div class="main" data-left={String(panes.left)} data-right={String(panes.right)}>
         <Picker index={index} runId={runId} onSelect={selectRun} />
         <div class="center">
+          {linkMiss && (
+            <div class="link-banner">
+              {linkMiss.url ? (
+                <>
+                  this run isn't on this dashboard — it's open on {linkMiss.url}
+                  <a
+                    class="jump"
+                    href={`${linkMiss.url}/${location.hash || `#run=${encodeURIComponent(linkMiss.runId)}`}`}
+                  >
+                    jump to it →
+                  </a>
+                </>
+              ) : (
+                <>no dashboard here serves run {linkMiss.runId} — was its bundle closed?</>
+              )}
+            </div>
+          )}
           <Strip
             signals={graph?.signals}
             focus={focus}
@@ -418,8 +563,28 @@ function saveGroupPrefs(prefs) {
 
 function Picker({ index, runId, onSelect }) {
   const [prefs, setPrefs] = useState(loadGroupPrefs);
+  // Share mode: check off runs, hit export. Backed by GET /api/export — the
+  // same export module the CLI uses, so the consent surface cannot fork.
+  const [selectMode, setSelectMode] = useState(false);
+  const [checked, setChecked] = useState(() => new Set());
+  const [exporting, setExporting] = useState(null); // the checked entries, frozen
 
   const selectedProject = index?.runs?.find((r) => r.runId === runId)?.project;
+  // A bundle viewer serves someone else's runs: re-export is refused there
+  // ("send the original file instead"), so the affordance does not appear.
+  const bundleMode = Boolean(index?.runs?.length) && index.runs.every((r) => r.provenance);
+  // Adapter tags appear exactly when there is a distinction to draw: a list
+  // that is all one vendor stays untagged (the strip's own rule — say
+  // nothing when there is nothing to say), a mixed list tags every run.
+  const multiAdapter = new Set((index?.runs ?? []).map((r) => r.adapter)).size > 1;
+
+  const toggleChecked = (id) =>
+    setChecked((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Reaching a run in a group you had closed (deep link, inspector jump) reveals it again.
   useEffect(() => {
@@ -439,6 +604,11 @@ function Picker({ index, runId, onSelect }) {
   if (!index.runs?.length) {
     return (
       <aside class="picker">
+        {index.errors?.map((e) => (
+          <div class="bundle-error" key={e.file} title={e.error}>
+            <b>{e.file}</b> — {e.error}
+          </div>
+        ))}
         <div class="empty">
           <p>No runs found.</p>
           <p>
@@ -453,8 +623,11 @@ function Picker({ index, runId, onSelect }) {
 
   const byProject = new Map();
   for (const r of index.runs) {
-    if (!byProject.has(r.project)) byProject.set(r.project, []);
-    byProject.get(r.project).push(r);
+    // Bundle-served runs group under their bundle file, not a project path —
+    // the file is what the user was handed.
+    const groupKey = r.provenance ? `📦 ${r.provenance.bundle}` : r.project;
+    if (!byProject.has(groupKey)) byProject.set(groupKey, []);
+    byProject.get(groupKey).push(r);
   }
 
   // Runs arrive newest-first, so the first group is the project worked in most recently.
@@ -466,6 +639,40 @@ function Picker({ index, runId, onSelect }) {
 
   return (
     <aside class="picker">
+      {/* A corrupt bundle degrades to a named banner; the others still serve. */}
+      {index.errors?.map((e) => (
+        <div class="bundle-error" key={e.file} title={e.error}>
+          <b>{e.file}</b> — {e.error}
+        </div>
+      ))}
+      {!bundleMode && (
+        <div class="picker-tools">
+          {selectMode ? (
+            <>
+              <button
+                class="ghost primary"
+                disabled={checked.size === 0}
+                onClick={() => setExporting(index.runs.filter((r) => checked.has(r.runId)))}
+              >
+                export {checked.size || ''} run{checked.size === 1 ? '' : 's'}…
+              </button>
+              <button
+                class="ghost"
+                onClick={() => {
+                  setSelectMode(false);
+                  setChecked(new Set());
+                }}
+              >
+                cancel
+              </button>
+            </>
+          ) : (
+            <button class="ghost" onClick={() => setSelectMode(true)} title="export runs as a shareable .rungraph bundle">
+              share…
+            </button>
+          )}
+        </div>
+      )}
       {[...byProject.entries()].map(([project, runs]) => {
         const open = prefs[project] ? prefs[project] === 'open' : openByDefault.has(project);
         const liveCount = runs.filter((r) => r.active).length;
@@ -497,17 +704,43 @@ function Picker({ index, runId, onSelect }) {
                   <button
                     key={r.runId}
                     class="run-item"
-                    data-selected={String(r.runId === runId)}
-                    onClick={() => onSelect(r.runId)}
+                    data-selected={String(!selectMode && r.runId === runId)}
+                    data-checked={String(selectMode && checked.has(r.runId))}
+                    onClick={() => (selectMode ? toggleChecked(r.runId) : onSelect(r.runId))}
                     title={r.runId}
                   >
-                    <div class="title">{r.title}</div>
+                    <div class="title">
+                      {selectMode && (
+                        <span class="check" aria-hidden="true">
+                          {checked.has(r.runId) ? '☑' : '☐'}
+                        </span>
+                      )}
+                      {r.title}
+                    </div>
                     <div class="sub">
+                      {multiAdapter && (
+                        <span class="adapter" data-adapter={r.adapter}>
+                          {adapterName(r.adapter)}
+                        </span>
+                      )}
                       <span class={`kind-${r.kind}`}>
                         {r.kind === 'workflow' ? 'wf' : 'session'}
                       </span>
                       <span>{timeAgo(r.modifiedAt)}</span>
                       {r.active && <span class="live">● live</span>}
+                      {r.provenance && (
+                        <span
+                          class="provenance"
+                          title={`${r.provenance.bundle} · exported ${r.provenance.exportedAt ?? ''}`}
+                        >
+                          shared by {r.provenance.sharedBy}
+                        </span>
+                      )}
+                      {r.provenance?.snapshot && (
+                        <span class="provenance snap" title={`exported while live, at ${r.provenance.snapshot}`}>
+                          snapshot
+                        </span>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -516,6 +749,16 @@ function Picker({ index, runId, onSelect }) {
           </div>
         );
       })}
+      {exporting && (
+        <ExportDialog
+          runs={exporting}
+          onClose={() => {
+            setExporting(null);
+            setSelectMode(false);
+            setChecked(new Set());
+          }}
+        />
+      )}
     </aside>
   );
 }

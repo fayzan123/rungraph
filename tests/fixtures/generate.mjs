@@ -16,6 +16,7 @@ const S1 = '11111111-1111-4111-8111-111111111111';
 const S2 = '22222222-2222-4222-8222-222222222222';
 const S3 = '33333333-3333-4333-8333-333333333333'; // clean run — the signals precision guard
 const S4 = '44444444-4444-4444-8444-444444444444'; // trouble run — one of every high signal
+const S5 = '55555555-5555-4555-8555-555555555555'; // secrets run — one of every scanner pattern
 const WF = 'wf_12345678-abc';
 const AGENT_FLAT = 'a123456789abcdef0'; // Agent-tool subagent
 const AGENT_W1 = 'aaaa000000000001f'; // workflow agent, phase Find
@@ -258,8 +259,219 @@ async function main() {
 
   await cleanSession();
   await troubleSession();
+  await secretsSession();
+  await codexFixtures();
 
   console.error('fixtures written to', ROOT);
+}
+
+/**
+ * Codex rollout fixtures, modeled 1:1 on the real `~/.codex/sessions` format
+ * (verified against the 74-rollout corpus, cli 0.78.0–0.144.4, discovery
+ * 2026-08-15): `{timestamp, type, payload}` envelopes, a task_started/
+ * task_complete turn spine, call_id-paired tool calls, patch_apply_end file
+ * records, and subagent threads as separate rollout files carrying
+ * fork-inherited parent history with ORIGINAL timestamps.
+ *
+ * Two runs: a CLEAN one (the Codex precision guard — zero signals) and a
+ * SUBAGENT one (cross-file lineage, an interrupt, a recovered tool error,
+ * and two unknown-line shapes the parser must skip and count).
+ */
+async function codexFixtures() {
+  const CODEX_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'codex');
+  await rm(CODEX_ROOT, { recursive: true, force: true });
+  const DAY = join(CODEX_ROOT, '2026', '08', '01');
+  await mkdir(DAY, { recursive: true });
+
+  const C1 = 'c1c1c1c1-0000-7000-8000-000000000001';
+  const C2P = 'c2c2c2c2-0000-7000-8000-000000000002';
+  const C2C = 'c2c2c2c2-0000-7000-8000-00000000c41d';
+  const C2G = 'c2c2c2c2-0000-7000-8000-00000000c42d'; // grandchild (depth 2)
+  const C3 = 'c3c3c3c3-0000-7000-8000-000000000003'; // old format (0.89, no task events)
+
+  let codexClock = Date.parse('2026-08-01T10:00:00.000Z');
+  const cts = (stepMs = 2000) => new Date((codexClock += stepMs)).toISOString();
+  const line = (type, payload, timestamp = cts()) => ({ timestamp, type, payload });
+  const usage = (input, output, cumIn, cumOut) => ({
+    info: {
+      total_token_usage: { input_tokens: cumIn, cached_input_tokens: 0, output_tokens: cumOut, reasoning_output_tokens: 0, total_tokens: cumIn + cumOut },
+      last_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: output, reasoning_output_tokens: 0, total_tokens: input + output },
+      model_context_window: 258400,
+    },
+    rate_limits: { limit_id: 'codex', primary: { used_percent: 1.0, window_minutes: 300, resets_at: 1754050000 } },
+  });
+  const meta = (id, extra = {}) => ({
+    id,
+    timestamp: new Date(codexClock).toISOString(),
+    cwd: CWD,
+    originator: 'codex_vscode',
+    cli_version: '0.144.4',
+    source: 'vscode',
+    thread_source: 'user',
+    model_provider: 'openai',
+    base_instructions: null,
+    git: { commit_hash: 'a1b2c3d', branch: 'main', repository_url: 'git@github.com:dev/acme.git' },
+    ...extra,
+  });
+  const turnCtx = (turnId) => ({
+    turn_id: turnId,
+    cwd: CWD,
+    model: 'gpt-5.5-codex',
+    effort: 'medium',
+    approval_policy: 'on-request',
+    sandbox_policy: { mode: 'workspace-write' },
+    summary: 'auto',
+  });
+
+  // ---------- C1: the Codex clean run ----------
+  const L1 = [];
+  L1.push(line('session_meta', meta(C1)));
+  L1.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c1a', model_context_window: 258400 }));
+  L1.push(line('turn_context', turnCtx('turn-c1a')));
+  // IDE-context wrapper: the typed text is the final section's body.
+  L1.push(line('event_msg', { type: 'user_message', message: '# Context from my IDE setup:\n\n## Active file: src/forms/signup.ts\n\n## My request for Codex:\nAdd input validation to the signup form', images: [], local_images: [], text_elements: [] }));
+  L1.push(line('response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# Context from my IDE setup:\n…duplicate the parser must skip…' }] }));
+  L1.push(line('response_item', { type: 'reasoning', summary: [{ type: 'summary_text', text: '**Scanning the form component**' }], content: null, encrypted_content: 'gAAAAABfixture' }));
+  L1.push(line('event_msg', { type: 'agent_message', message: 'Looking at the form component first.', phase: 'commentary', memory_citation: null }));
+  L1.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'rg -n "signup" src/', workdir: CWD, max_output_tokens: 8000, yield_time_ms: 30000 }), call_id: 'call_c1grep', metadata: { turn_id: 'turn-c1a' } }));
+  L1.push(line('response_item', { type: 'function_call_output', call_id: 'call_c1grep', output: 'Chunk ID: ab12cd\nWall time: 0.0513 seconds\nProcess exited with code 0\nOutput:\nsrc/forms/signup.ts:10: export function signup(' }));
+  L1.push(line('event_msg', { type: 'token_count', ...usage(9000, 300, 9000, 300) }));
+  const c1patch = 'const patch = "*** Begin Patch\\n*** Update File: /home/dev/acme/src/forms/signup.ts\\n@@\\n-  submit(email)\\n+  if (!email.includes(\\"@\\")) throw new Error(\\"invalid email\\");\\n+  submit(email)\\n*** End Patch";\nconst r = await tools.exec_command({ cmd: `apply_patch <<\'EOF\'\n${patch}\nEOF` });';
+  L1.push(line('response_item', { type: 'custom_tool_call', id: 'ctc_c1', status: 'completed', call_id: 'call_c1patch', name: 'exec', input: c1patch, internal_chat_message_metadata_passthrough: { turn_id: 'turn-c1a' } }));
+  // The dominant 0.144.x output shape is a REAL JSON array of content parts,
+  // not a string (corpus census: 3,727 of 4,379).
+  L1.push(line('response_item', { type: 'custom_tool_call_output', call_id: 'call_c1patch', output: [{ type: 'input_text', text: 'Script completed\nWall time 0.4 seconds\nOutput:\n' }, { type: 'input_text', text: 'Success. Updated the following files:\nM src/forms/signup.ts\n' }] }));
+  L1.push(line('event_msg', { type: 'patch_apply_end', call_id: 'exec-11111111-aaaa-4aaa-8aaa-111111111111', turn_id: 'turn-c1a', stdout: 'Success. Updated the following files:\nM src/forms/signup.ts\n', stderr: '', success: true, status: 'completed', changes: { [`${CWD}/src/forms/signup.ts`]: { type: 'update', unified_diff: '@@ -10,1 +10,2 @@\n-  submit(email)\n+  if (!email.includes("@")) throw new Error("invalid email");\n+  submit(email)', move_path: null } } }));
+  L1.push(line('event_msg', { type: 'token_count', ...usage(11000, 500, 20000, 800) }));
+  L1.push(line('event_msg', { type: 'agent_message', message: 'Validation added: the form now rejects addresses without an @.', phase: 'final_answer', memory_citation: null }));
+  L1.push(line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Validation added: the form now rejects addresses without an @.' }] }));
+  L1.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c1a', last_agent_message: 'Validation added: the form now rejects addresses without an @.', completed_at: new Date(codexClock).toISOString(), duration_ms: 42000, time_to_first_token_ms: 2800 }));
+  // turn 2: a quick clean check
+  L1.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c1b', model_context_window: 258400 }));
+  L1.push(line('turn_context', turnCtx('turn-c1b')));
+  L1.push(line('event_msg', { type: 'user_message', message: 'Run the form tests', images: [] }));
+  L1.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test -- signup', workdir: CWD }), call_id: 'call_c1test', metadata: { turn_id: 'turn-c1b' } }));
+  L1.push(line('response_item', { type: 'function_call_output', call_id: 'call_c1test', output: 'Chunk ID: ef34ab\nWall time: 4.2 seconds\nProcess exited with code 0\nOutput:\n8 passed' }));
+  L1.push(line('event_msg', { type: 'token_count', ...usage(6000, 200, 26000, 1000) }));
+  L1.push(line('event_msg', { type: 'agent_message', message: 'All 8 signup tests pass.', phase: 'final_answer', memory_citation: null }));
+  L1.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c1b', last_agent_message: 'All 8 signup tests pass.', completed_at: new Date(codexClock).toISOString(), duration_ms: 38000, time_to_first_token_ms: 2100 }));
+  await writeFile(join(DAY, `rollout-2026-08-01T10-00-00-${C1}.jsonl`), L1.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- C2: parent with a spawned subagent ----------
+  const L2 = [];
+  L2.push(line('session_meta', meta(C2P, { multi_agent_version: 'v2', session_id: C2P })));
+  L2.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c2a', model_context_window: 258400 }));
+  L2.push(line('turn_context', turnCtx('turn-c2a')));
+  const parentPromptTs = cts(); // the child's inherited copy reuses this instant
+  L2.push(line('event_msg', { type: 'user_message', message: 'Map the auth module, then fix the session bug', images: [] }, parentPromptTs));
+  L2.push(line('response_item', { type: 'function_call', name: 'spawn_agent', arguments: JSON.stringify({ task_name: 'auth_map', fork_turns: 'all', message: 'gAAAAABencryptedtaskpayload' }), call_id: 'call_c2spawn', metadata: { turn_id: 'turn-c2a' } }));
+  L2.push(line('event_msg', { type: 'sub_agent_activity', event_id: 'call_c2spawn', occurred_at_ms: codexClock, agent_thread_id: C2C, agent_path: '/root/auth_map', kind: 'started' }));
+  L2.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2spawn', output: '{"task_name":"/root/auth_map"}' }));
+  L2.push(line('response_item', { type: 'function_call', name: 'wait_agent', arguments: JSON.stringify({ targets: ['/root/auth_map'], timeout_ms: 60000 }), call_id: 'call_c2wait' }));
+  L2.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2wait', output: '{"message":"Wait completed.","timed_out":false}' }));
+  L2.push(line('inter_agent_communication_metadata', { trigger_turn: true }));
+  L2.push(line('response_item', { type: 'agent_message', author: '/root/auth_map', recipient: '/root', content: [{ type: 'input_text', text: 'Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/auth_map\nPayload:\nAuth map: token.js owns refresh; the session bug is the TTL reset in session.ts:41.' }] }));
+  L2.push(line('event_msg', { type: 'agent_message', message: 'The map is in — patching session.ts.', phase: 'commentary', memory_citation: null }));
+  L2.push(line('response_item', { type: 'custom_tool_call', id: 'ctc_c2', status: 'completed', call_id: 'call_c2patch', name: 'apply_patch', input: '*** Begin Patch\n*** Update File: src/auth/session.ts\n@@\n-const TTL = 60\n+const TTL = 600\n*** End Patch' }));
+  L2.push(line('response_item', { type: 'custom_tool_call_output', call_id: 'call_c2patch', output: JSON.stringify({ output: 'Success. Updated the following files:\nM src/auth/session.ts\n', metadata: { exit_code: 0, duration_seconds: 0.02 } }) }));
+  L2.push(line('event_msg', { type: 'patch_apply_end', call_id: 'call_c2patch', turn_id: 'turn-c2a', stdout: 'Success. Updated the following files:\nM src/auth/session.ts\n', stderr: '', success: true, status: 'completed', changes: { [`${CWD}/src/auth/session.ts`]: { type: 'update', unified_diff: '@@ -41,1 +41,1 @@\n-const TTL = 60\n+const TTL = 600', move_path: null } } }));
+  L2.push(line('event_msg', { type: 'token_count', ...usage(15000, 800, 15000, 800) }));
+  L2.push(line('event_msg', { type: 'turn_aborted', turn_id: 'turn-c2a', reason: 'interrupted' }));
+  L2.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c2b', model_context_window: 258400 }));
+  L2.push(line('turn_context', turnCtx('turn-c2b')));
+  L2.push(line('event_msg', { type: 'user_message', message: 'Just run the tests', images: [] }));
+  L2.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test -- session', workdir: CWD }), call_id: 'call_c2t1', metadata: { turn_id: 'turn-c2b' } }));
+  L2.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2t1', output: 'Chunk ID: 9f2e11\nWall time: 3.9 seconds\nProcess exited with code 1\nOutput:\nFAIL session.spec.ts — TTL still cached' }));
+  L2.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test -- session --clearCache', workdir: CWD }), call_id: 'call_c2t2', metadata: { turn_id: 'turn-c2b' } }));
+  L2.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2t2', output: 'Chunk ID: 9f2e12\nWall time: 4.4 seconds\nProcess exited with code 0\nOutput:\n12 passed' }));
+  L2.push(line('event_msg', { type: 'token_count', ...usage(9000, 400, 24000, 1200) }));
+  // Two future shapes the parser must skip + count, never crash on.
+  L2.push(line('holo-sync', { verdict: 'from the future' }));
+  L2.push(line('event_msg', { type: 'quantum_status', qubits: 8 }));
+  L2.push(line('event_msg', { type: 'agent_message', message: 'Tests pass after clearing the cache.', phase: 'final_answer', memory_citation: null }));
+  L2.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c2b', last_agent_message: 'Tests pass after clearing the cache.', completed_at: new Date(codexClock).toISOString(), duration_ms: 51000, time_to_first_token_ms: 2500 }));
+  await writeFile(join(DAY, `rollout-2026-08-01T11-00-00-${C2P}.jsonl`), L2.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- C2C: the subagent rollout, with fork-inherited history ----------
+  // Modeled on real 0.144.x children: the inherited block is RE-STAMPED at
+  // fork time (the parent's meta lands 1ms after line 1, its history a few ms
+  // later — a timestamp filter cannot cut it), sits between the second
+  // session_meta and the NEW_TASK delivery, and even contains the parent's
+  // own task_started/user_message/token_count lines.
+  const childStart = cts();
+  const stampMs = Date.parse(childStart);
+  const stamp = (deltaMs) => new Date(stampMs + deltaMs).toISOString();
+  const L3 = [];
+  L3.push(line('session_meta', {
+    ...meta(C2C, { session_id: C2P, parent_thread_id: C2P, forked_from_id: C2P }),
+    thread_source: 'subagent',
+    agent_nickname: 'Darwin',
+    agent_path: '/root/auth_map',
+    multi_agent_version: 'v2',
+    source: { subagent: { thread_spawn: { parent_thread_id: C2P, depth: 1, agent_path: '/root/auth_map', agent_nickname: 'Darwin', agent_role: null } } },
+  }, childStart));
+  // Fork-inherited parent records — re-stamped 1–4ms after line 1.
+  L3.push(line('session_meta', meta(C2P, { multi_agent_version: 'v2', session_id: C2P }), stamp(1)));
+  L3.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c2a', model_context_window: 258400 }, stamp(1)));
+  L3.push(line('event_msg', { type: 'user_message', message: 'Map the auth module, then fix the session bug', images: [] }, stamp(2)));
+  L3.push(line('event_msg', { type: 'token_count', ...usage(15000, 800, 15000, 800) }, stamp(3)));
+  // The child's own turn starts (still inside the fork burst)…
+  L3.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c2c1', model_context_window: 258400 }, stamp(9)));
+  L3.push(line('turn_context', turnCtx('turn-c2c1'), stamp(10)));
+  // …and its own story begins at the NEW_TASK delivery.
+  L3.push(line('inter_agent_communication_metadata', { trigger_turn: true }, stamp(1100)));
+  L3.push(line('response_item', { type: 'agent_message', author: '/root', recipient: '/root/auth_map', content: [{ type: 'input_text', text: 'Message Type: NEW_TASK\nTask name: /root/auth_map\nSender: /root\nPayload:\n' }, { type: 'encrypted_content', encrypted_content: 'gAAAAABencrypted' }] }, stamp(1101)));
+  L3.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'rg -n "session" src/auth/', workdir: CWD }), call_id: 'call_c2c_grep', metadata: { turn_id: 'turn-c2c1' } }));
+  L3.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2c_grep', output: 'Chunk ID: 77aa88\nWall time: 0.09 seconds\nProcess exited with code 0\nOutput:\nsrc/auth/session.ts:41: const TTL = 60' }));
+  // The child spawns its OWN subagent — a depth-2 grandchild in its own rollout.
+  L3.push(line('response_item', { type: 'function_call', name: 'spawn_agent', arguments: JSON.stringify({ task_name: 'token_check', fork_turns: 'all', message: 'gAAAAABgrandchildtask' }), call_id: 'call_c2g' }));
+  L3.push(line('event_msg', { type: 'sub_agent_activity', event_id: 'call_c2g', occurred_at_ms: codexClock, agent_thread_id: C2G, agent_path: '/root/auth_map/token_check', kind: 'started' }));
+  L3.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2g', output: '{"task_name":"/root/auth_map/token_check"}' }));
+  L3.push(line('event_msg', { type: 'patch_apply_end', call_id: 'exec-22222222-bbbb-4bbb-8bbb-222222222222', turn_id: 'turn-c2c1', stdout: 'Success. Updated the following files:\nA docs/auth-map.md\n', stderr: '', success: true, status: 'completed', changes: { [`${CWD}/docs/auth-map.md`]: { type: 'add', content: '# Auth map\n\ntoken.js owns refresh.' } } }));
+  L3.push(line('event_msg', { type: 'token_count', ...usage(5000, 400, 5000, 400) }));
+  L3.push(line('event_msg', { type: 'agent_message', message: 'Auth map: token.js owns refresh; the session bug is the TTL reset in session.ts:41.', phase: 'final_answer', memory_citation: null }));
+  L3.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c2c1', last_agent_message: 'Auth map: token.js owns refresh; the session bug is the TTL reset in session.ts:41.', completed_at: new Date(codexClock).toISOString(), duration_ms: 30000, time_to_first_token_ms: 1900 }));
+  await writeFile(join(DAY, `rollout-2026-08-01T11-01-00-${C2C}.jsonl`), L3.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- C2G: the grandchild rollout (depth 2) ----------
+  const L4 = [];
+  L4.push(line('session_meta', {
+    ...meta(C2G, { session_id: C2P, parent_thread_id: C2C, forked_from_id: C2C }),
+    thread_source: 'subagent',
+    agent_nickname: 'Bohr',
+    agent_path: '/root/auth_map/token_check',
+    multi_agent_version: 'v2',
+    source: { subagent: { thread_spawn: { parent_thread_id: C2C, depth: 2, agent_path: '/root/auth_map/token_check', agent_nickname: 'Bohr', agent_role: null } } },
+  }));
+  L4.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c2g1', model_context_window: 258400 }));
+  L4.push(line('turn_context', turnCtx('turn-c2g1')));
+  L4.push(line('inter_agent_communication_metadata', { trigger_turn: true }));
+  L4.push(line('response_item', { type: 'agent_message', author: '/root/auth_map', recipient: '/root/auth_map/token_check', content: [{ type: 'input_text', text: 'Message Type: NEW_TASK\nTask name: /root/auth_map/token_check\nSender: /root/auth_map\nPayload:\n' }] }));
+  L4.push(line('response_item', { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'rg -n "refresh" src/auth/token.js', workdir: CWD }), call_id: 'call_c2g_grep', metadata: { turn_id: 'turn-c2g1' } }));
+  L4.push(line('response_item', { type: 'function_call_output', call_id: 'call_c2g_grep', output: 'Chunk ID: 88bb99\nWall time: 0.05 seconds\nProcess exited with code 0\nOutput:\nsrc/auth/token.js:12: refresh()' }));
+  L4.push(line('event_msg', { type: 'token_count', ...usage(1000, 100, 1000, 100) }));
+  L4.push(line('event_msg', { type: 'agent_message', message: 'token.js refresh path is sound.', phase: 'final_answer', memory_citation: null }));
+  L4.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c2g1', last_agent_message: 'token.js refresh path is sound.', completed_at: new Date(codexClock).toISOString(), duration_ms: 12000, time_to_first_token_ms: 1400 }));
+  await writeFile(join(DAY, `rollout-2026-08-01T11-02-00-${C2G}.jsonl`), L4.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- C3: an old-format session (0.89 — no task events at all) ----------
+  // Turn boundaries are user_message ordering; the file ends at a response
+  // boundary, unmarked — which is this format's NORMAL clean ending.
+  const OLD_DAY = join(CODEX_ROOT, '2026', '07', '30');
+  await mkdir(OLD_DAY, { recursive: true });
+  const L5 = [];
+  L5.push(line('session_meta', { id: C3, timestamp: new Date(codexClock).toISOString(), cwd: CWD, originator: 'codex-tui', cli_version: '0.89.0', source: 'cli', model_provider: 'openai', base_instructions: null, git: { commit_hash: 'ffee11', branch: 'main', repository_url: 'git@github.com:dev/acme.git' } }));
+  L5.push(line('event_msg', { type: 'user_message', message: 'List the auth files', images: [] }));
+  L5.push(line('response_item', { type: 'function_call', name: 'shell_command', arguments: JSON.stringify({ command: 'ls src/auth', workdir: CWD }), call_id: 'call_c3ls' }));
+  L5.push(line('response_item', { type: 'function_call_output', call_id: 'call_c3ls', output: 'Exit code: 0\nWall time: 0.3 seconds\nTotal output lines: 3\nOutput:\nsession.ts\ntoken.js\nredirect.ts' }));
+  L5.push(line('event_msg', { type: 'token_count', ...usage(3000, 150, 3000, 150) }));
+  L5.push(line('event_msg', { type: 'agent_message', message: 'Three files: session.ts, token.js, redirect.ts.', memory_citation: null }));
+  L5.push(line('event_msg', { type: 'user_message', message: 'Which one owns refresh?', images: [] }));
+  L5.push(line('response_item', { type: 'function_call', name: 'shell_command', arguments: JSON.stringify({ command: 'grep -n refresh src/auth/token.js', workdir: CWD }), call_id: 'call_c3grep' }));
+  L5.push(line('response_item', { type: 'function_call_output', call_id: 'call_c3grep', output: 'Exit code: 0\nWall time: 0.2 seconds\nTotal output lines: 1\nOutput:\n12: export function refresh()' }));
+  L5.push(line('event_msg', { type: 'token_count', ...usage(2500, 120, 5500, 270) }));
+  L5.push(line('event_msg', { type: 'agent_message', message: 'token.js owns refresh (line 12).', memory_citation: null }));
+  await writeFile(join(OLD_DAY, `rollout-2026-07-30T09-00-00-${C3}.jsonl`), L5.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 /**
@@ -294,6 +506,52 @@ async function cleanSession() {
   void done;
 
   await writeFile(join(PROJ, `${S3}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
+}
+
+/**
+ * Session 5 — one of every secrets-scanner pattern kind, planted across the
+ * four places outgoing text lives: the user's prompt, a tool output, a tool
+ * input, and file content read back. Every value is OBVIOUSLY synthetic
+ * (FAKE/zero bodies) while still matching the shipped anchored patterns —
+ * `rungraph export` on this run must block with exit 1 and name every one.
+ */
+async function secretsSession() {
+  const L = [];
+  const push = (extra) => {
+    const l = envelope(S5, L.at(-1)?.uuid ?? null, extra);
+    L.push(l);
+    return l;
+  };
+  const F4 = 'FAKE';
+  const FAKE20 = F4.repeat(5);
+  const FAKE36 = F4.repeat(9);
+  const FAKE40 = F4.repeat(10);
+  L.push({ type: 'mode', mode: 'normal', sessionId: S5 });
+
+  // your prompt: AWS access key + GitHub classic token
+  const t1 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: `I leaked AKIA${F4.repeat(4)} and ghp_${FAKE36} in the logs — rotate both and scrub the repo` } });
+  L.push({ type: 'ai-title', aiTitle: 'Rotate leaked credentials', sessionId: S5 });
+
+  // Bash OUTPUT: an env dump with Slack, npm, Anthropic, OpenAI project keys.
+  // The Slack fake must NOT use digits for the workspace-id segment: GitHub
+  // push protection matches xox?-<digits>-… and blocks any push of this repo.
+  const bash = push({ type: 'assistant', requestId: 'req_fxS001', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxS001', name: 'Bash', input: { command: 'env | grep -i token', description: 'Find what else is exposed' }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: bash.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxS001', content: `SLACK_TOKEN=xoxb-FAKE-FAKE-${FAKE20}\nNPM_TOKEN=npm_${FAKE36}\nANTHROPIC_API_KEY=sk-ant-api03-${FAKE20}\nOPENAI_API_KEY=sk-proj-${FAKE20}` }] }, toolUseResult: { stdout: 'redacted-for-fixture', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
+
+  // Edit INPUT: Google + Stripe keys landing in a config file
+  const edit = push({ type: 'assistant', requestId: 'req_fxS002', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxS002', name: 'Edit', input: { file_path: `${CWD}/.env.local`, old_string: 'GOOGLE_KEY=', new_string: `GOOGLE_KEY=AIza${'0'.repeat(31)}FAKE\nSTRIPE_KEY=sk_live_${FAKE20}` }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: edit.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxS002', content: 'Edited .env.local' }] }, toolUseResult: { filePath: `${CWD}/.env.local`, oldString: 'GOOGLE_KEY=', newString: 'redacted-for-fixture', originalFile: '', replaceAll: false, structuredPatch: [], userModified: false } });
+
+  // Read OUTPUT: file content with the remaining kinds — PEM block, SendGrid,
+  // GitLab, fine-grained GitHub PAT, OpenAI legacy, AWS secret assignment
+  const read = push({ type: 'assistant', requestId: 'req_fxS003', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxS003', name: 'Read', input: { file_path: `${CWD}/ops/deploy.key` }, caller: { type: 'direct' } }, 'tool_use') });
+  const pem = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE40}\n-----END RSA PRIVATE KEY-----`;
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: read.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxS003', content: `${pem}\nSENDGRID=SG.${'A'.repeat(22)}.${'B'.repeat(43)}\nGITLAB=glpat-${FAKE20}\nGH_PAT=github_pat_${'0'.repeat(22)}\nLEGACY=sk-${'A'.repeat(20)}T3BlbkFJ${'B'.repeat(20)}\naws_secret_access_key = ${FAKE40}` }] }, toolUseResult: { type: 'text', file: { filePath: `${CWD}/ops/deploy.key`, content: 'redacted-for-fixture', numLines: 8, startLine: 1, totalLines: 8 } } });
+
+  push({ type: 'assistant', requestId: 'req_fxS004', message: assistantMsg('claude-fable-5', { type: 'text', text: 'All of these need rotation before anything else happens.' }, 'end_turn', 60) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 30000, messageCount: 7, isMeta: false });
+
+  await writeFile(join(PROJ, `${S5}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 /**

@@ -231,13 +231,37 @@ asking questions never requires the dashboard to be open.
 | a run shows a banner about unrecognized lines | your Claude Code is newer than your rungraph. The graph still renders; `npx rungraph@latest`. |
 | the graph is empty | that session has no turns yet (a headless or just-started run). |
 | port 4321 in use | it auto-increments; the printed URL is authoritative. |
+| a bundle file shows a red banner | it didn't decode (corrupt, or written by a newer rungraph — the banner says which). Other bundles still serve. |
+| "this run isn't on this dashboard" | the link points at another server — take the jump button, or re-open the bundle it came from. |
+| export refused on a bundle viewer | by design: send the original `.rungraph` file instead of re-exporting it. |
 
 Everything is local. The server binds `127.0.0.1` only, makes no network
 requests, and nothing leaves your machine.
 
 ---
 
-## 8. Driving it from a script
+## 8. Share a run
+
+**Send:** *share…* in the runs pane (check off runs, review the inventory,
+download), or `rungraph export --last 2 --as you`. Export always prints what's
+about to leave — runs, nodes, your prompts, files touched — and **blocks** on
+detected secrets, offering `--redact-secrets`, `--structure-only`, or
+`--allow-secrets`. Send the `.rungraph` file over any channel you already
+trust; rungraph never touches a network.
+
+**Receive:** `npx rungraph open team-work.rungraph`. An ephemeral dashboard —
+nothing copied, nothing left behind — with every run wearing its provenance
+("shared by Bilal"). Signals derive on your side, your agent can be pointed at
+the shared runs (`list_runs` shows them next to your own), and the whole focus
+loop works on them.
+
+**Link:** *copy link* in the header captures the current view as a URL;
+`focus_nodes` answers with one too. A link that lands on a dashboard without
+that run offers a one-click jump to the one that has it.
+
+---
+
+## 9. Driving it from a script
 
 Every subcommand is non-interactive: JSON on stdout, logs on stderr, exit
 `0` ok / `1` error / `2` nothing matched.
@@ -247,8 +271,11 @@ rungraph list --json
 rungraph graph <runId> --json     # full IR, including signals[] and files[]
 rungraph find <runId> <query> --json
 rungraph serve --no-open --json   # {"url":"http://127.0.0.1:4321"}
+rungraph export --last 1 --json   # {"written","bytes",…}; exit 1 + findings on a scan hit
+rungraph open <file> --no-open --json
 rungraph mcp --check --json
 ```
 
 The IR is versioned and documented in [SCHEMA.md](../SCHEMA.md). It is
-vendor-neutral — Claude Code is the first adapter, not the only possible one.
+vendor-neutral — Claude Code and Codex CLI are the two adapters today, and a
+`.rungraph` bundle opens with no adapter at all.

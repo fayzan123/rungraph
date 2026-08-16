@@ -1,59 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`detect > finds sessions and workflow runs with titles 1`] = `
-[
-  {
-    "kind": "session",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111",
-    "sizeBytes": 41860,
-    "startedAt": "2026-08-01T12:00:01.500Z",
-    "title": "Fix flaky login test",
-  },
-  {
-    "kind": "workflow",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111:wf_12345678-abc",
-    "sizeBytes": 8278,
-    "startedAt": undefined,
-    "title": "auth-hardening",
-  },
-  {
-    "kind": "session",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:22222222-2222-4222-8222-222222222222",
-    "sizeBytes": 297,
-    "startedAt": "2026-08-02T09:00:00.000Z",
-    "title": "(untitled session)",
-  },
-  {
-    "kind": "session",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:33333333-3333-4333-8333-333333333333",
-    "sizeBytes": 8514,
-    "startedAt": "2026-08-01T12:01:16.500Z",
-    "title": "Add CHANGELOG entry",
-  },
-  {
-    "kind": "session",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444",
-    "sizeBytes": 13405,
-    "startedAt": "2026-08-01T12:01:34.500Z",
-    "title": "Migrate token store",
-  },
-  {
-    "kind": "session",
-    "project": "/home/dev/acme",
-    "runId": "claude-code:-home-dev-acme:55555555-5555-4555-8555-555555555555",
-    "sizeBytes": 7621,
-    "startedAt": "2026-08-01T12:02:03.000Z",
-    "title": "Rotate leaked credentials",
-  },
-]
-`;
-
-exports[`parse: session > produces the expected IR 1`] = `
+exports[`structure-only > derived and mechanical survives; authored text dies 1`] = `
 {
   "edges": [
     {
@@ -66,7 +13,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "from": "g:toolu_fx0001",
       "id": "e:sequence:g:toolu_fx0001→g:toolu_fx0003",
       "kind": "sequence",
-      "reason": "after Bash error",
       "to": "g:toolu_fx0003",
     },
     {
@@ -109,7 +55,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "from": "h:00000000-0000-4000-8000-000000000039",
       "id": "e:sequence:h:00000000-0000-4000-8000-000000000039→g:toolu_fxD001",
       "kind": "sequence",
-      "reason": "answer: Explicit waits (Recommended)",
       "to": "g:toolu_fxD001",
     },
     {
@@ -122,7 +67,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "from": "h:00000000-0000-4000-8000-000000000042",
       "id": "e:sequence:h:00000000-0000-4000-8000-000000000042→t:00000000-0000-4000-8000-000000000045",
       "kind": "sequence",
-      "reason": "after permission denial",
       "to": "t:00000000-0000-4000-8000-000000000045",
     },
     {
@@ -135,21 +79,18 @@ exports[`parse: session > produces the expected IR 1`] = `
       "from": "t:00000000-0000-4000-8000-000000000033",
       "id": "e:spawn:t:00000000-0000-4000-8000-000000000033→a:toolu_fxA001",
       "kind": "spawn",
-      "label": "Audit src/auth for race conditions like the login.spec one. Report each with file:line.",
       "to": "a:toolu_fxA001",
     },
     {
       "from": "a:toolu_fxA001",
       "id": "e:return:a:toolu_fxA001→t:00000000-0000-4000-8000-000000000045",
       "kind": "return",
-      "label": "Found 2 races: src/auth/session.ts:41 (refresh vs logout), src/auth/redirect.ts:12 (doubl…",
       "to": "t:00000000-0000-4000-8000-000000000045",
     },
     {
       "from": "t:00000000-0000-4000-8000-000000000045",
       "id": "e:spawn:t:00000000-0000-4000-8000-000000000045→w:toolu_fxW001",
       "kind": "spawn",
-      "label": "Find and fix auth races",
       "to": "w:toolu_fxW001",
     },
     {
@@ -167,7 +108,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     "kind": "session",
     "runId": "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111",
     "startedAt": "2026-08-01T12:00:01.500Z",
-    "title": "Fix flaky login test",
+    "title": "session (structure only)",
     "totals": {
       "agents": 1,
       "tokens": 1564,
@@ -179,10 +120,9 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "durationMs": 45000,
       "endedAt": "2026-08-01T12:00:28.500Z",
-      "hasDetail": true,
       "id": "t:00000000-0000-4000-8000-000000000004",
       "kind": "turn",
-      "label": "Fix the flaky login test and make CI green",
+      "label": "turn 1",
       "startedAt": "2026-08-01T12:00:03.000Z",
       "status": "completed",
       "tokens": {
@@ -193,10 +133,9 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "callCount": 2,
       "errorCount": 1,
-      "hasDetail": true,
       "id": "g:toolu_fx0001",
       "kind": "tool",
-      "label": "Bash · Run the login test ×2",
+      "label": "Bash ×2",
       "startedAt": "2026-08-01T12:00:06.000Z",
       "status": "completed",
     },
@@ -206,7 +145,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
       ],
-      "hasDetail": true,
       "id": "g:toolu_fx0003",
       "kind": "tool",
       "label": "Edit · login.spec.ts",
@@ -216,10 +154,9 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "callCount": 1,
       "errorCount": 0,
-      "hasDetail": true,
       "id": "g:toolu_fx0011",
       "kind": "tool",
-      "label": "Grep · waitForURL",
+      "label": "Grep",
       "startedAt": "2026-08-01T12:00:16.500Z",
       "status": "completed",
     },
@@ -229,7 +166,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
       ],
-      "hasDetail": true,
       "id": "g:toolu_fx0012",
       "kind": "tool",
       "label": "Read · login.spec.ts",
@@ -239,17 +175,15 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "callCount": 1,
       "errorCount": 0,
-      "hasDetail": true,
       "id": "g:toolu_fx0013",
       "kind": "tool",
-      "label": "Bash · npm run lint",
+      "label": "Bash",
       "startedAt": "2026-08-01T12:00:22.500Z",
       "status": "completed",
     },
     {
       "callCount": 1,
       "errorCount": 0,
-      "hasDetail": true,
       "id": "g:toolu_fx0014",
       "kind": "tool",
       "label": "Hypervisor",
@@ -259,10 +193,9 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "durationMs": 7500,
       "endedAt": "2026-08-01T12:00:39.000Z",
-      "hasDetail": true,
       "id": "t:00000000-0000-4000-8000-000000000033",
       "kind": "turn",
-      "label": "Now audit the auth module for similar races, then ship a hardening workflow",
+      "label": "turn 2",
       "startedAt": "2026-08-01T12:00:31.500Z",
       "status": "completed",
       "tokens": {
@@ -271,11 +204,10 @@ exports[`parse: session > produces the expected IR 1`] = `
       },
     },
     {
-      "hasDetail": true,
       "id": "h:00000000-0000-4000-8000-000000000039",
       "interventionKind": "answer",
       "kind": "human",
-      "label": "answered: Explicit waits (Recommended)",
+      "label": "answered a question",
       "startedAt": "2026-08-01T12:00:37.500Z",
       "status": "completed",
     },
@@ -285,7 +217,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "files": [
         "/home/dev/acme/src/auth/session.ts",
       ],
-      "hasDetail": true,
       "id": "g:toolu_fxD001",
       "kind": "tool",
       "label": "Edit · session.ts",
@@ -293,21 +224,19 @@ exports[`parse: session > produces the expected IR 1`] = `
       "status": "error",
     },
     {
-      "hasDetail": true,
       "id": "h:00000000-0000-4000-8000-000000000042",
       "interventionKind": "denial",
       "kind": "human",
-      "label": "denied Edit",
+      "label": "denial",
       "startedAt": "2026-08-01T12:00:40.500Z",
       "status": "completed",
     },
     {
       "durationMs": 30000,
       "endedAt": "2026-08-01T12:00:51.000Z",
-      "hasDetail": true,
       "id": "t:00000000-0000-4000-8000-000000000045",
       "kind": "turn",
-      "label": "Don't touch the TTL. Just run the hardening workflow.",
+      "label": "turn 3",
       "startedAt": "2026-08-01T12:00:43.500Z",
       "status": "completed",
       "tokens": {
@@ -318,10 +247,9 @@ exports[`parse: session > produces the expected IR 1`] = `
     {
       "callCount": 1,
       "errorCount": 0,
-      "hasDetail": true,
       "id": "g:toolu_fx0015",
       "kind": "tool",
-      "label": "Bash · Confirm hardening commit",
+      "label": "Bash",
       "startedAt": "2026-08-01T12:00:55.500Z",
       "status": "completed",
     },
@@ -331,10 +259,9 @@ exports[`parse: session > produces the expected IR 1`] = `
       "files": [
         "/home/dev/acme/src/auth/session.ts",
       ],
-      "hasDetail": true,
       "id": "a:toolu_fxA001",
       "kind": "agent",
-      "label": "Audit auth module for race conditions",
+      "label": "agent 1",
       "model": "claude-fable-5",
       "startedAt": "2026-08-01T12:00:58.500Z",
       "status": "completed",
@@ -345,7 +272,6 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "durationMs": 360000,
-      "hasDetail": true,
       "id": "w:toolu_fxW001",
       "kind": "workflow",
       "label": "auth-hardening",
@@ -355,116 +281,6 @@ exports[`parse: session > produces the expected IR 1`] = `
       "tokens": {
         "input": 0,
         "output": 410,
-      },
-    },
-  ],
-}
-`;
-
-exports[`parse: workflow run > produces the expected IR 1`] = `
-{
-  "edges": [
-    {
-      "from": "a:aaaa000000000002f",
-      "id": "e:sequence:a:aaaa000000000002f→a:aaaa000000000003f",
-      "kind": "sequence",
-      "reason": "retry after failure",
-      "to": "a:aaaa000000000003f",
-    },
-    {
-      "from": "w:root",
-      "id": "e:spawn:w:root→a:aaaa000000000001f",
-      "kind": "spawn",
-      "label": "find:auth-races",
-      "to": "a:aaaa000000000001f",
-    },
-    {
-      "from": "a:aaaa000000000001f",
-      "id": "e:sequence:a:aaaa000000000001f→a:aaaa000000000003f",
-      "kind": "sequence",
-      "reason": "phase: Fix",
-      "to": "a:aaaa000000000003f",
-    },
-  ],
-  "groups": [
-    {
-      "id": "p:1",
-      "label": "Find",
-    },
-    {
-      "id": "p:2",
-      "label": "Fix",
-    },
-  ],
-  "irVersion": 1,
-  "meta": {
-    "adapter": "claude-code",
-    "endedAt": "2026-08-01T12:11:00.000Z",
-    "kind": "workflow",
-    "runId": "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111:wf_12345678-abc",
-    "startedAt": "2026-08-01T12:05:00.000Z",
-    "title": "auth-hardening",
-    "totals": {
-      "agents": 3,
-      "tokens": 410,
-      "toolCalls": 3,
-    },
-    "unrecognizedLineCount": 0,
-  },
-  "nodes": [
-    {
-      "durationMs": 360000,
-      "endedAt": "2026-08-01T12:11:00.000Z",
-      "hasDetail": true,
-      "id": "w:root",
-      "kind": "workflow",
-      "label": "auth-hardening",
-      "startedAt": "2026-08-01T12:05:00.000Z",
-      "status": "completed",
-    },
-    {
-      "agentId": "aaaa000000000001f",
-      "durationMs": 119000,
-      "endedAt": "2026-08-01T12:01:07.500Z",
-      "group": "p:1",
-      "hasDetail": true,
-      "id": "a:aaaa000000000001f",
-      "kind": "agent",
-      "label": "find:auth-races",
-      "model": "claude-fable-5",
-      "startedAt": "2026-08-01T12:01:04.500Z",
-      "status": "completed",
-      "tokens": {
-        "input": 12,
-        "output": 90,
-      },
-    },
-    {
-      "agentId": "aaaa000000000002f",
-      "durationMs": 1500,
-      "endedAt": "2026-08-01T12:01:10.500Z",
-      "hasDetail": true,
-      "id": "a:aaaa000000000002f",
-      "kind": "agent",
-      "label": "Fix the races found in phase Find.",
-      "startedAt": "2026-08-01T12:01:09.000Z",
-      "status": "error",
-    },
-    {
-      "agentId": "aaaa000000000003f",
-      "durationMs": 239000,
-      "endedAt": "2026-08-01T12:01:15.000Z",
-      "group": "p:2",
-      "hasDetail": true,
-      "id": "a:aaaa000000000003f",
-      "kind": "agent",
-      "label": "fix:auth-races (retry 1)",
-      "model": "claude-fable-5",
-      "startedAt": "2026-08-01T12:01:12.000Z",
-      "status": "completed",
-      "tokens": {
-        "input": 12,
-        "output": 90,
       },
     },
   ],

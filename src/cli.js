@@ -1,11 +1,14 @@
 import { parseArgs } from 'node:util';
 import { createRequire } from 'node:module';
+import { basename, resolve } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
 import { startServer } from './server.js';
 import { openInBrowser } from './open.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
-import { writePortFile, removePortFile } from './portfile.js';
+import { writeRegistryEntry, removeRegistryEntry } from './registry.js';
+import { buildBundle, defaultBundleName, defaultSharedBy } from './bundle.js';
 
 const require = createRequire(import.meta.url);
 
@@ -21,6 +24,8 @@ USAGE
   rungraph graph <runId>         Print the Graph IR for one run (JSON, stdout).
   rungraph find <runId> <query>  Print nodes whose label or files match a substring.
   rungraph serve [--no-open]     Start the server without/with opening a browser.
+  rungraph export <runId…>       Write a shareable .rungraph bundle (see EXPORT).
+  rungraph open <bundle…>        Serve .rungraph bundle files (ephemeral, read-only).
   rungraph mcp [--install]       Run the MCP server on stdio (--install registers it once).
   rungraph mcp --check           Is the agent side set up and working? Prints what to fix.
 
@@ -28,17 +33,30 @@ OPTIONS
   --json             Machine output: compact JSON on stdout (logs stay on stderr).
   --project <path>   Only runs whose project cwd is (inside) this path.
   --port <n>         Preferred port (default 4321; auto-increments if taken).
-  --no-open          serve: do not open a browser; the URL is always printed.
+  --no-open          serve/open: do not open a browser; the URL is always printed.
   --install          mcp: register rungraph with Claude Code, then exit.
   --check            mcp: verify the agent side end to end, then exit.
   --scope <s>        mcp --install: user (default) | project | local.
   -h, --help         This help.
   -v, --version      Version.
 
+EXPORT
+  rungraph export <runId…> [--last <n>] [--out <file>] [--as <name>]
+                  [--structure-only] [--redact-secrets] [--allow-secrets] [--json]
+  --last <n>          The n most recent runs of the current project, instead of ids.
+  --out <file>        Output path (default: <project>-<date>.rungraph here).
+  --as <name>         The sharedBy display name (default: $USER).
+  --structure-only    Strip all content; keep graph shape, tool names, files, timings.
+  --redact-secrets    Replace each detected secret with a placeholder, keep the rest.
+  --allow-secrets     Export verbatim despite scan findings (for false positives).
+  Every export prints an inventory to stderr, and BLOCKS (exit 1) when the
+  secrets scan finds a high-confidence match. Exit: 0 written, 1 blocked or
+  failed, 2 usage. Recipients open the file with: rungraph open <file>
+
 EXIT CODES
   0  success
-  1  error
-  2  no runs found (list/graph/find: nothing matched)
+  1  error (export: blocked or failed)
+  2  no runs found (list/graph/find: nothing matched; export/open: usage)
 
 FOR AGENTS
   rungraph list --json                 → {"runs":[{"runId","kind","title","project","modifiedAt","active",…}]}
@@ -47,6 +65,9 @@ FOR AGENTS
   rungraph find <runId> <q> --json     → {"nodeIds":[…],"nodes":[…]}  — narrow before pulling a
                                          whole graph; a 500-node IR is 40–50k tokens of context.
   rungraph serve --no-open --json      → {"url":"http://127.0.0.1:4321"}  (stays in foreground)
+  rungraph export --last 2 --json      → {"written","bytes","runs",…} on success;
+                                         {"blocked":true,"findings":[…]} + exit 1 on a scan hit.
+  rungraph open <file> --json          → {"url","runs","errors"}  (stays in foreground)
   rungraph mcp                         → MCP server on stdio: list_runs, get_graph, find_nodes,
                                          get_detail, focus_nodes, get_current_view,
                                          open_visualization. focus_nodes lights up the open
@@ -67,6 +88,12 @@ export async function main(argv) {
         install: { type: 'boolean', default: false },
         check: { type: 'boolean', default: false },
         scope: { type: 'string' },
+        last: { type: 'string' },
+        out: { type: 'string' },
+        as: { type: 'string' },
+        'structure-only': { type: 'boolean', default: false },
+        'redact-secrets': { type: 'boolean', default: false },
+        'allow-secrets': { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
       },
@@ -90,10 +117,16 @@ export async function main(argv) {
     json: args.values.json,
     project: args.values.project,
     port: args.values.port ? Number(args.values.port) : undefined,
-    open: command !== 'serve' || !args.values['no-open'],
+    open: !['serve', 'open'].includes(command) || !args.values['no-open'],
     install: args.values.install,
     check: args.values.check,
     scope: args.values.scope,
+    last: args.values.last,
+    out: args.values.out,
+    as: args.values.as,
+    structureOnly: args.values['structure-only'],
+    redactSecrets: args.values['redact-secrets'],
+    allowSecrets: args.values['allow-secrets'],
   };
   if (opts.port !== undefined && (!Number.isInteger(opts.port) || opts.port < 0 || opts.port > 65535)) {
     process.stderr.write(`rungraph: invalid --port ${args.values.port}\n`);
@@ -110,6 +143,10 @@ export async function main(argv) {
         return await cmdFind(rest[0], rest.slice(1).join(' '), opts);
       case 'serve':
         return await cmdServe(opts);
+      case 'export':
+        return await cmdExport(rest, opts);
+      case 'open':
+        return await cmdOpen(rest, opts);
       case 'mcp':
         return await cmdMcp(opts);
       default:
@@ -208,22 +245,185 @@ async function cmdServe(opts) {
   });
   process.stdout.write(JSON.stringify({ url: server.url }) + '\n');
   process.stderr.write(`rungraph: serving on ${server.url} (Ctrl-C to stop)\n`);
-  // The MCP process is a separate process with no way to learn the port; this
-  // is how it finds us. Removed on clean shutdown — a crash leaves it behind,
-  // which readers handle with a liveness probe rather than trusting the file.
-  await writePortFile(server.port);
+  return serveForeground(server, ['local'], opts);
+}
+
+/**
+ * `rungraph open` — serve bundle files, ephemerally. Nothing is copied
+ * anywhere; closing the process leaves no trace. The file itself is the
+ * library: keep it, re-open it, delete it when done.
+ */
+async function cmdOpen(paths, opts) {
+  if (paths.length === 0) {
+    process.stderr.write('rungraph: usage: rungraph open <bundle…> [--port <n>]\n');
+    return 2;
+  }
+  const server = await startServer({
+    preferredPort: opts.port ?? 4321,
+    bundles: paths.map((p) => resolve(p)),
+  });
+  // A corrupt bundle degrades, never crashes: name the file, serve the rest.
+  for (const e of server.bundleErrors) {
+    process.stderr.write(`rungraph: ${e.file}: ${e.error}\n`);
+  }
+  if (server.bundleRunCount === 0) {
+    process.stderr.write('rungraph: no runs could be loaded from the given bundle(s)\n');
+    await server.close();
+    return 1;
+  }
+  process.stdout.write(
+    JSON.stringify({ url: server.url, runs: server.bundleRunCount, errors: server.bundleErrors }) + '\n',
+  );
+  process.stderr.write(
+    `rungraph: serving ${server.bundleRunCount} shared run${server.bundleRunCount === 1 ? '' : 's'} on ${server.url} (Ctrl-C to stop)\n`,
+  );
+  return serveForeground(server, paths.map((p) => `bundle:${basename(p)}`), opts);
+}
+
+/** Registry entry + browser + foreground-until-killed, shared by serve/open. */
+async function serveForeground(server, sources, opts) {
+  // The MCP process is separate, with no way to learn the port; the registry
+  // is how it finds every live server. Removed on clean shutdown — a crash
+  // leaves the entry behind, which readers handle with a liveness probe.
+  await writeRegistryEntry(server.port, sources);
   if (opts.open) {
     const ok = await openInBrowser(server.url);
     if (!ok) process.stderr.write(`rungraph: could not open a browser — visit ${server.url}\n`);
   }
-  // Foreground until killed.
   await new Promise((resolveWait) => {
     const stop = () =>
-      Promise.resolve(removePortFile())
+      Promise.resolve(removeRegistryEntry(server.port))
         .then(() => server.close())
         .finally(() => resolveWait());
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
   });
   return 0;
+}
+
+/**
+ * `rungraph export` — write a shareable `.rungraph` bundle. The inventory
+ * prints to stderr on EVERY export, blocked or not: people do not realize how
+ * much lives in a transcript, so the tool makes it visible before it leaves
+ * the machine. Exit codes: 0 written, 1 blocked or failed, 2 usage.
+ */
+async function cmdExport(runIdArgs, opts) {
+  let runIds = runIdArgs;
+  if (opts.last !== undefined) {
+    const n = Number(opts.last);
+    if (!Number.isInteger(n) || n <= 0 || runIdArgs.length > 0) {
+      process.stderr.write(
+        'rungraph: usage: rungraph export <runId…> | --last <n>  (one or the other)\n',
+      );
+      return 2;
+    }
+    // The dominant human path — "export what I just did": the n most recent
+    // sessions of the current project; their workflow runs ride along via
+    // runRef inclusion.
+    const { runs } = await scan({ project: opts.project ?? process.cwd() });
+    runIds = runs.filter((r) => r.kind === 'session').slice(0, n).map((r) => r.runId);
+    if (runIds.length === 0) {
+      process.stderr.write('rungraph: no runs found for this project — see rungraph list\n');
+      return 1;
+    }
+  }
+  if (runIds.length === 0) {
+    process.stderr.write('rungraph: usage: rungraph export <runId…> [--last <n>] [--out <file>]\n');
+    return 2;
+  }
+  if (opts.structureOnly && opts.redactSecrets) {
+    process.stderr.write('rungraph: --structure-only already strips content; drop --redact-secrets\n');
+    return 2;
+  }
+  const redaction = opts.structureOnly
+    ? 'structure-only'
+    : opts.redactSecrets
+      ? 'redact-secrets'
+      : 'full';
+
+  // buildBundle fails closed: a scanner error throws, main() reports exit 1 —
+  // the safe default for an outbound artifact is "did not leave".
+  const result = await buildBundle(runIds, {
+    sharedBy: opts.as || defaultSharedBy(),
+    redaction,
+    allowSecrets: opts.allowSecrets,
+  });
+  printInventory(result.inventory);
+
+  if (result.blocked) {
+    const total = result.findings.reduce((t, f) => t + f.count, 0);
+    process.stderr.write(
+      `rungraph: ✗ export blocked: ${total} high-confidence secret${total === 1 ? '' : 's'} found\n`,
+    );
+    for (const f of result.findings) {
+      const runShort = (f.runId ?? '?').split(':').pop();
+      const where = f.nodeId ? `node ${f.nodeId} · ${f.where}` : f.where;
+      process.stderr.write(`    run ${runShort} · ${where} · ${f.name} (${f.hint})${f.count > 1 ? ` ×${f.count}` : ''}\n`);
+    }
+    process.stderr.write(
+      '  re-run with one of:\n' +
+        '    --redact-secrets    replace each match with a placeholder, keep everything else\n' +
+        '    --structure-only    strip all content, keep graph shape / tool names / timings\n' +
+        "    --allow-secrets     export verbatim (you've confirmed these are fine to share)\n",
+    );
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({ blocked: true, findings: result.findings, inventory: result.inventory }) + '\n',
+      );
+    }
+    return 1;
+  }
+
+  const out = resolve(opts.out ?? defaultBundleName(result.envelope));
+  await writeFile(out, result.buffer);
+  const redactedCount = redaction === 'redact-secrets'
+    ? result.findings.reduce((t, f) => t + f.count, 0)
+    : 0;
+  if (redactedCount > 0) {
+    process.stderr.write(`rungraph: redacted ${redactedCount} secret${redactedCount === 1 ? '' : 's'} in place\n`);
+  }
+  process.stderr.write(
+    `rungraph: wrote ${out} (${result.buffer.length.toLocaleString('en-US')} bytes) — recipients: rungraph open ${basename(out)}\n`,
+  );
+  if (opts.json) {
+    process.stdout.write(
+      JSON.stringify({
+        written: out,
+        bytes: result.buffer.length,
+        redaction,
+        runs: result.inventory.runCount,
+        nodeCount: result.inventory.nodeCount,
+        findings: result.findings,
+        inventory: result.inventory,
+      }) + '\n',
+    );
+  } else {
+    process.stdout.write(out + '\n');
+  }
+  return 0;
+}
+
+/** The consent surface: what is about to leave, on stderr, every time. */
+function printInventory(inv) {
+  const tier =
+    inv.redaction === 'full'
+      ? 'full content'
+      : inv.redaction === 'redact-secrets'
+        ? 'full content, secrets redacted'
+        : 'structure only — no prompts, no outputs';
+  process.stderr.write(
+    `rungraph: export inventory (${tier}):\n` +
+      `  ${inv.runCount} run${inv.runCount === 1 ? '' : 's'} · ${inv.nodeCount} nodes · ${inv.promptCount} of your prompts included\n`,
+  );
+  for (const r of inv.runs) {
+    const kind = r.kind === 'workflow' ? 'wf ' : 'ses';
+    process.stderr.write(`    ${kind}  ${r.title}${r.snapshot ? '  [live — exported as a snapshot]' : ''}\n`);
+  }
+  if (inv.files.length > 0) {
+    process.stderr.write(`  files touched: ${inv.files.length}\n`);
+    for (const f of inv.sensitiveFiles) {
+      process.stderr.write(`    ! ${f}  ← credential-looking path\n`);
+    }
+  }
+  for (const w of inv.warnings) process.stderr.write(`  ⚠ ${w}\n`);
 }

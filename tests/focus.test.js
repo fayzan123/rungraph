@@ -104,6 +104,16 @@ describe('files lane', () => {
   });
 });
 
+describe('adapterName', () => {
+  it('names each adapter the same way everywhere, passing unknowns through', async () => {
+    const { adapterName } = await import('../frontend/src/focus.js');
+    expect(adapterName('claude-code')).toBe('claude');
+    expect(adapterName('codex')).toBe('codex');
+    expect(adapterName('future-vendor')).toBe('future-vendor'); // named, never blank
+    expect(adapterName(undefined)).toBe('');
+  });
+});
+
 describe('inspector + canvas helpers', () => {
   it('lists focused nodes in run order', () => {
     const f = { nodeIds: ['n4', 'n1'], label: '', reason: '', source: 'agent' };

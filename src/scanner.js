@@ -1,17 +1,27 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as claudeCode from './adapters/claude-code/index.js';
+import * as codex from './adapters/codex/index.js';
 
-/** Registered adapters. v1.1 adds codex here. */
-export const ADAPTERS = [claudeCode];
+/** Registered adapters. */
+export const ADAPTERS = [claudeCode, codex];
 
 /** How recently a run's files must have changed to be badged "live". */
 const ACTIVE_WINDOW_MS = 45_000;
 
 export function defaultRootDirs() {
-  // RUNGRAPH_CLAUDE_PROJECTS overrides the scan root (tests, unusual setups).
-  const override = process.env.RUNGRAPH_CLAUDE_PROJECTS;
-  return { 'claude-code': [override ?? join(homedir(), '.claude', 'projects')] };
+  // Env vars override each adapter's scan root (tests, unusual setups). An
+  // override set to the EMPTY string disables that adapter's scan entirely —
+  // how tests keep a suite from wandering into the developer's real corpus.
+  const roots = (envVar, fallback) => {
+    const override = process.env[envVar];
+    if (override === '') return [];
+    return [override ?? fallback];
+  };
+  return {
+    'claude-code': roots('RUNGRAPH_CLAUDE_PROJECTS', join(homedir(), '.claude', 'projects')),
+    codex: roots('RUNGRAPH_CODEX_SESSIONS', join(homedir(), '.codex', 'sessions')),
+  };
 }
 
 /**

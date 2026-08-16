@@ -161,20 +161,99 @@ use. Absent when there was no narration; consumers must tolerate absence.
 
 | endpoint | returns |
 |---|---|
-| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active }] }` |
+| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, provenance? }], errors? }` |
 | `GET /api/graph/:runId` | the Graph IR above |
 | `GET /api/find/:runId?q=` | `{ runId, query, matched, nodeIds, nodes }` — plain substring over node labels and `files` |
 | `GET /api/detail/:nodeId?run=:runId` | a detail payload |
 | `GET /api/view` | `{ "runs": [{ runId, clientCount }] }` — what the open dashboards are showing; `[]` when no browser is connected |
 | `GET /api/watch/:runId` | SSE stream: `{type:"snapshot", graph}` first, then `{type:"delta", meta, nodes, edges, groups, signals, removedNodeIds, removedEdgeIds}` (merge by id; `signals` replaces wholesale) and `{type:"focus", runId, nodeIds, label, reason}` |
 | `POST /api/focus` | `{ runId, nodeIds, label, reason }` → broadcasts a `focus` frame; replies `{ ok, runId, clientCount, url }` |
+| `GET /api/export?runs=a,b&redaction=&allow=1&as=&dry=1` | the finished `.rungraph` bundle as a download; `dry=1` → `{ blocked, findings, inventory }` for the consent dialog; a scan hit → `409 { blocked, findings, inventory }` instead of the file; on a bundle server → `409` "send the original file instead" |
+| `GET /api/locate/:runId` | `{ found, url?, port?, self?, sources? }` — do I (or any live server in the registry) serve this run? The deep-link jump. |
 
-The server binds `127.0.0.1` only. `POST /api/focus` is its one write endpoint:
-it accepts node ids and two display strings, its only effect is which nodes a
-local browser tab highlights, and it reads no files and mutates nothing on disk.
-Any local process that could reach it can already read the transcripts directly.
-Requests carrying a non-localhost `Origin` are rejected, so a page the user
-happens to be browsing cannot drive their dashboard.
+The server binds `127.0.0.1` only, and **every request is `Host`-guarded**:
+anything other than `127.0.0.1`/`localhost`/`[::1]` (with the server's port)
+gets a 403. Binding alone never prevented the DNS-rebinding read — a hostile
+page resolving its own domain to 127.0.0.1 arrives same-origin, and only the
+Host header betrays it. `POST /api/focus` remains the one write endpoint: it
+accepts node ids and two display strings, its only effect is which nodes a
+local browser tab highlights, and it reads no files and mutates nothing on
+disk. Requests carrying a non-localhost `Origin` are additionally rejected
+there, so a page the user happens to be browsing cannot drive their dashboard.
+
+`provenance` appears only on bundle-served runs (see below); consumers must
+tolerate its absence — every local run lacks it. `errors` appears only when a
+bundle file failed to decode: `[{ file, error }]`, a named banner per file.
+
+## Bundles (`.rungraph`)
+
+`rungraph export` writes a gzipped-JSON bundle; `rungraph open` serves one.
+The envelope:
+
+```jsonc
+{
+  "bundleVersion": 1,               // governs this envelope
+  "irVersion": 1,                   // governs the payload
+  "sharedBy": "Bilal",              // display string; --as, defaults to $USER. Unverified.
+  "exportedAt": "2026-08-15T18:02:11Z",
+  "redaction": "full",              // 'full' | 'redact-secrets' | 'structure-only'
+  "runs": [
+    { "runId": "…", "project": "/abs/cwd", "ir": { /* full Graph IR */ },
+      "details": { "<nodeId>": { /* detail payload */ } } },
+    { "runId": "…", "snapshot": "2026-08-15T18:02:11Z", "ir": { /* … */ } }
+  ]
+}
+```
+
+- **The bundle carries IR, not raw transcripts** — redaction operates on this
+  one documented schema, vendor neutrality survives sharing, and the viewer
+  needs no adapters to open one. Detail payloads are embedded eagerly (a
+  bundle has no transcript files to fetch them from lazily); they are capped
+  at parse time, so a bundle shows the recipient exactly what the sender's own
+  dashboard shows.
+- **Workflow runs referenced by `runRef` are included transitively**, once —
+  drill-down must work for the recipient.
+- **Signals are not stored.** The viewer's server derives them at view time,
+  exactly like any local run — one implementation, and an old bundle gets the
+  current calibrated signal layer for free.
+- **`snapshot`** marks a run that looked live at export time (its IR has no
+  `endedAt`): a point-in-time capture, surfaced in the recipient's provenance
+  badge.
+- **Version posture:** a newer `bundleVersion` or `irVersion` is refused with
+  a named upgrade message — never a blank screen or a partial render that
+  silently drops fields. Bad gzip/JSON degrades to a named per-file banner;
+  other bundles on the command line still serve.
+- **Provenance lives on index entries, not in the IR:**
+  `{ sharedBy, bundle, exportedAt, snapshot? }` describes the *transfer*, not
+  the run, so the IR is untouched (no `irVersion` implications).
+
+### The secrets scan
+
+Export scans **whatever actually leaves, at every redaction tier** — labels,
+detail payloads, file paths, everything — for anchored, prefix-keyed secret
+patterns (AWS keys, GitHub/Slack/npm/Anthropic/OpenAI/Google/Stripe/SendGrid/
+GitLab tokens, AWS secret assignments, PEM private-key blocks with real
+bodies). On any hit the export blocks, listing each finding's run, node and
+place. `--redact-secrets` replaces matches with `[REDACTED:<kind>]` and
+verifies the output re-scans clean; `--allow-secrets` exports verbatim as a
+deliberate, named act. No entropy heuristics — the pattern list is calibrated
+against real corpora for near-zero false positives, and the scanner **fails
+closed**: if it throws, nothing leaves.
+
+### Structure-only census
+
+The governing rule: **derived and mechanical survives; authored text dies.**
+
+| survives | dies |
+|---|---|
+| node ids, kinds, status, error/call counts | every detail payload |
+| timings, token counts, models, `agentId`, `runRef` | turn labels (→ `"turn N"`), agent labels (→ `"agent N"`), human labels (→ generic) |
+| `files[]`, workflow names, tool names + their PATH-LEVEL label hints (a basename the node's own `files[]` carries, e.g. `Edit · auth.js`) | tool label hints that are authored text — Bash commands/descriptions, Grep patterns, WebSearch queries — reduce to the bare tool name |
+| edges (id, kind, from, to), groups, run meta totals | run titles (→ `"session (structure only)"`) |
+| | `edge.label` (prompt/result snippets), `edge.reason` (can quote answered questions verbatim), every `ext` bag (free-form, unauditable) |
+
+A structure-only bundle still answers "where was feature X built" — file paths
+and tool labels feed `find_nodes` — it just cannot answer "what did they say".
 
 `GET /api/find` exists so an agent can narrow before pulling: a 500-node graph
 is plausibly 40–50k tokens dropped into a session to answer one question. The
@@ -193,17 +272,34 @@ transport and almost no new logic:
 | `get_graph(runId, detail?)` | `GET /api/graph/:runId` (`detail:"compact"` by default — ids, labels, kinds, files, signals; `"full"` adds timings and token counts) |
 | `find_nodes(runId, query)` | `GET /api/find/:runId?q=` |
 | `get_detail(runId, nodeId)` | `GET /api/detail/:nodeId?run=` |
-| `focus_nodes(runId, nodeIds, label, reason)` | `POST /api/focus` |
-| `get_current_view()` | `GET /api/view` |
-| `open_visualization(runId?)` | opens the browser |
+| `focus_nodes(runId, nodeIds, label, reason)` | `POST /api/focus`; the response's `url` is a deep link (`#run=…&f=…`) restoring the focus |
+| `get_current_view()` | `GET /api/view`, aggregated across every live server |
+| `open_visualization(runId?)` | opens the browser, on the server that owns the run |
 
 The read-only tools work with no server running — they parse from disk — so
 asking an agent about a run never requires the dashboard to be open. Only the
-focus and view tools need `serve`; without it they say the highlight was
-skipped rather than failing. `serve` publishes `{ port, pid, startedAt }` to a
-well-known file in the OS temp directory for discovery, and readers confirm
-liveness with a real request before trusting it, which is also how a stale file
-from a crashed process is handled.
+focus and view tools need a server; without one they say the highlight was
+skipped rather than failing.
+
+**The port registry.** Every server writes `<port>.json`
+(`{ port, pid, startedAt, sources }`) into a per-user `rungraph-servers-<uid>`
+directory in the OS temp dir on startup and removes it on clean shutdown —
+one file per server, so concurrent servers never race. Readers confirm
+liveness with a real request before trusting an entry, and whoever finds a
+dead one deletes it. **The MCP aggregates:** `list_runs` merges runs across
+all live servers (bundle-served runs keep their `provenance` and gain the
+owning `dashboard` URL); every other tool routes by `runId` to the server
+actually serving that run, re-probing on a miss; a runId served by two
+servers routes to the most recently started. Runs that exist on disk are
+answered from disk, so the zero-server case keeps working.
+
+**Deep links.** Focus state travels in the URL hash:
+`#run=<runId>&sel=<nodeId>&f=<base64url(descriptor)>`, where the descriptor
+names the focus **by its source, not its members** —
+`{source:'find',query}` / `{source:'signal',signalId}` / `{source:'file',path}`
+re-execute on load; only `{source:'agent',nodeIds,label,reason}` is an
+explicit set. A link landing on a server that lacks the run consults
+`GET /api/locate/:runId` and offers a jump to the server that has it.
 
 Register it once with `rungraph mcp --install`.
 

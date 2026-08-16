@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { fetchDetail } from './api.js';
 import { fmtTokens, fmtDuration } from './canvas.jsx';
 import { SIGNAL_GLYPHS } from './strip.jsx';
-import { filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
+import { adapterName, filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
 import { suggestQuestions } from './suggest.js';
 
 /**
@@ -74,6 +74,8 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
       <div class="microlabel">this run</div>
       <h2>{graph.meta?.title || '(untitled)'}</h2>
       <dl class="kv">
+        <dt>agent</dt>
+        <dd data-adapter={graph.meta?.adapter}>{adapterName(graph.meta?.adapter) || '(unknown)'}</dd>
         <dt>nodes</dt>
         <dd>{graph.nodes.length}</dd>
         {totals.toolCalls != null && (<><dt>tool calls</dt><dd>{totals.toolCalls}</dd></>)}

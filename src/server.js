@@ -1,11 +1,13 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { join, normalize, dirname, extname } from 'node:path';
+import { join, normalize, dirname, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scan, toIndexEntry, ADAPTERS } from './scanner.js';
 import { watchRun, diffGraphs } from './watcher.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
+import { buildBundle, loadBundleFile, bundleRunEntry, defaultBundleName, defaultSharedBy } from './bundle.js';
+import { liveServers } from './registry.js';
 
 const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const HOST = '127.0.0.1'; // privacy: never bind anything else
@@ -33,7 +35,13 @@ const MIME = {
  * API endpoints map 1:1 onto future MCP tools (list_runs, get_graph,
  * get_detail, open_visualization) so `rungraph mcp` in v1.1 is a wrapper.
  *
- * @param {{ preferredPort?: number, project?: string }} opts
+ * With `bundles`, the server serves those `.rungraph` files INSTEAD of the
+ * local scan — `rungraph open` is a dedicated review context; the recipient's
+ * own runs stay on their own dashboard, and the MCP registry is what joins
+ * the two views for the agent. Nothing is copied anywhere: closing the
+ * process leaves no trace, and the file itself is the library.
+ *
+ * @param {{ preferredPort?: number, project?: string, bundles?: string[] }} opts
  * @returns {Promise<{ url: string, port: number, close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
@@ -45,7 +53,35 @@ export async function startServer(opts = {}) {
     watches: new Map(),
     // runId → { frame, at } — the last agent focus, waiting to be collected.
     pendingFocus: new Map(),
+    // `open` mode: runId → { entry, ir, details }. Null when serving local runs.
+    bundles: null,
+    bundleErrors: [],
   };
+
+  if (opts.bundles?.length) {
+    state.bundles = new Map();
+    for (const path of opts.bundles) {
+      try {
+        const { fileName, envelope } = await loadBundleFile(path);
+        for (const run of envelope.runs) {
+          if (!run || typeof run.runId !== 'string' || !run.ir) continue;
+          // Signals derive at view time, exactly like any local run — the
+          // one-implementation rule survives sharing, and a bundle written by
+          // an older rungraph gets the current calibrated layer for free.
+          attachSignals(run.ir);
+          state.bundles.set(run.runId, {
+            entry: bundleRunEntry(run, envelope, fileName),
+            ir: run.ir,
+            details: new Map(Object.entries(run.details ?? {})),
+          });
+        }
+      } catch (err) {
+        // A corrupt or too-new bundle degrades, never crashes: a named error
+        // banner for that file, while other bundles still serve.
+        state.bundleErrors.push({ file: basename(path), error: String(err?.message ?? err) });
+      }
+    }
+  }
 
   const server = createServer((req, res) => {
     handle(req, res, state).catch((err) => {
@@ -62,10 +98,15 @@ export async function startServer(opts = {}) {
   return {
     url,
     port,
+    // `open` mode reporting: how many bundle runs loaded, and which files
+    // failed with what (the CLI prints these; the frontend gets them via
+    // /api/index). Null / empty outside bundle mode.
+    bundleRunCount: state.bundles ? state.bundles.size : null,
+    bundleErrors: state.bundleErrors,
     close: () =>
       new Promise((resolve) => {
         for (const w of state.watches.values()) {
-          w.watcher.close();
+          w.watcher?.close(); // bundle runs are static — no watcher behind them
           for (const c of w.clients) c.end();
         }
         state.watches.clear();
@@ -95,6 +136,15 @@ async function listenWithRetry(server, preferred) {
 }
 
 async function handle(req, res, state) {
+  // The Host guard, on EVERY request. Binding 127.0.0.1 never prevented the
+  // DNS-rebinding read: a hostile page resolves its own domain to 127.0.0.1
+  // and same-origin-reads transcript data out of the GET endpoints. Anything
+  // other than a local Host with our port gets a 403 — this is a hard
+  // prerequisite for /api/export, which streams whole runs.
+  if (!isLocalHost(req.headers.host, state.port)) {
+    return sendJson(res, 403, { error: 'non-local Host header rejected' });
+  }
+
   const url = new URL(req.url, 'http://localhost');
   const path = url.pathname;
 
@@ -104,6 +154,7 @@ async function handle(req, res, state) {
   }
   if (path === '/api/index') return apiIndex(res, state);
   if (path === '/api/view') return apiView(res, state);
+  if (path === '/api/export') return apiExport(res, state, url.searchParams);
 
   let m;
   if ((m = path.match(/^\/api\/graph\/(.+)$/)))
@@ -112,6 +163,8 @@ async function handle(req, res, state) {
     return apiFind(res, state, decodeURIComponent(m[1]), url.searchParams.get('q'));
   if ((m = path.match(/^\/api\/detail\/(.+)$/)))
     return apiDetail(res, state, decodeURIComponent(m[1]), url.searchParams.get('run'));
+  if ((m = path.match(/^\/api\/locate\/(.+)$/)))
+    return apiLocate(res, state, decodeURIComponent(m[1]));
   if ((m = path.match(/^\/api\/watch\/(.+)$/)))
     return apiWatch(req, res, state, decodeURIComponent(m[1]));
 
@@ -123,6 +176,15 @@ async function handle(req, res, state) {
 }
 
 async function apiIndex(res, state) {
+  if (state.bundles) {
+    const runs = [...state.bundles.values()]
+      .map((b) => b.entry)
+      .sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0));
+    return sendJson(res, 200, {
+      runs,
+      ...(state.bundleErrors.length ? { errors: state.bundleErrors } : {}),
+    });
+  }
   const { runs } = await scan({ project: state.project });
   sendJson(res, 200, { runs: runs.map((r) => toIndexEntry(r)) });
 }
@@ -130,6 +192,21 @@ async function apiIndex(res, state) {
 async function resolveRun(state, runId) {
   const { runs } = await scan({ project: state.project });
   return runs.find((r) => r.runId === runId);
+}
+
+/**
+ * One lookup for both serving modes: a bundle-served run comes straight from
+ * the decoded envelope (static, signals attached at load); a local run goes
+ * through the mtime-keyed parse cache. Returns null when the run is unknown.
+ */
+async function loadGraph(state, runId) {
+  if (state.bundles) {
+    const b = state.bundles.get(runId);
+    return b ? { ir: b.ir, details: b.details } : null;
+  }
+  const ref = await resolveRun(state, runId);
+  if (!ref) return null;
+  return parseCached(state, ref);
 }
 
 async function parseCached(state, ref) {
@@ -153,10 +230,9 @@ async function parseCached(state, ref) {
 }
 
 async function apiGraph(res, state, runId) {
-  const ref = await resolveRun(state, runId);
-  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
-  const { ir } = await parseCached(state, ref);
-  sendJson(res, 200, ir);
+  const hit = await loadGraph(state, runId);
+  if (!hit) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  sendJson(res, 200, hit.ir);
 }
 
 /**
@@ -168,9 +244,9 @@ async function apiGraph(res, state, runId) {
  * locally, avoiding a round trip per keystroke. One matcher, two consumers.
  */
 async function apiFind(res, state, runId, q) {
-  const ref = await resolveRun(state, runId);
-  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
-  const { ir } = await parseCached(state, ref);
+  const hit = await loadGraph(state, runId);
+  if (!hit) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  const { ir } = hit;
   const nodeIds = matchNodes(ir, q ?? '');
   const want = new Set(nodeIds);
   sendJson(res, 200, {
@@ -287,6 +363,23 @@ function isLocalOrigin(origin, port) {
   }
 }
 
+/**
+ * The read-side counterpart of the Origin check above. A DNS-rebound request
+ * arrives same-origin (no Origin header to check) but carries the attacker's
+ * hostname in Host; a genuine local request never does. Fail closed on a
+ * missing or malformed header — every legitimate client sends one.
+ */
+function isLocalHost(host, port) {
+  if (typeof host !== 'string' || !host) return false;
+  try {
+    const u = new URL(`http://${host}`);
+    const local = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]';
+    return local && (!port || !u.port || u.port === String(port));
+  } catch {
+    return false;
+  }
+}
+
 function str(v, max) {
   return typeof v === 'string' ? v.slice(0, max) : '';
 }
@@ -332,17 +425,95 @@ function readJsonBody(req, max = MAX_BODY_BYTES) {
 
 async function apiDetail(res, state, nodeId, runId) {
   if (!runId) return sendJson(res, 400, { error: 'missing ?run=<runId>' });
-  const ref = await resolveRun(state, runId);
-  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
-  const { details } = await parseCached(state, ref);
-  const detail = details.get(nodeId);
+  const hit = await loadGraph(state, runId);
+  if (!hit) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  const detail = hit.details.get(nodeId);
   if (!detail) return sendJson(res, 404, { error: `no detail for node "${nodeId}"` });
   sendJson(res, 200, detail);
 }
 
+/**
+ * The dashboard's export surface — the SAME export module the CLI uses
+ * (eager detail, transitive runRefs, scan, redaction tiers), so the two
+ * frontends cannot teach two privacy postures. `dry=1` returns the inventory
+ * and findings for the consent dialog; the real call streams the finished
+ * bundle, and the browser's own downloader writes the file — rungraph itself
+ * still writes nothing to disk. A scan hit returns the findings instead of
+ * the file, with the same three resolutions the CLI offers.
+ */
+async function apiExport(res, state, params) {
+  if (state.bundles) {
+    return sendJson(res, 409, {
+      error: 'these runs came from a bundle — send the original .rungraph file instead of re-exporting',
+    });
+  }
+  const runIds = (params.get('runs') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (runIds.length === 0) return sendJson(res, 400, { error: 'missing ?runs=<runId,…>' });
+  let result;
+  try {
+    result = await buildBundle(runIds, {
+      sharedBy: params.get('as') || defaultSharedBy(),
+      redaction: params.get('redaction') ?? 'full',
+      allowSecrets: params.get('allow') === '1',
+    });
+  } catch (err) {
+    // Fail closed — a scanner error blocks the export, same as the CLI.
+    return sendJson(res, 422, { error: String(err?.message ?? err) });
+  }
+  if (params.get('dry') === '1') {
+    return sendJson(res, 200, {
+      blocked: result.blocked,
+      findings: result.findings,
+      inventory: result.inventory,
+    });
+  }
+  if (result.blocked) {
+    return sendJson(res, 409, {
+      blocked: true,
+      findings: result.findings,
+      inventory: result.inventory,
+    });
+  }
+  const name = defaultBundleName(result.envelope);
+  // Header values must be Latin-1: a CJK/emoji project name would make
+  // writeHead throw. ASCII fallback in `filename`, the real name RFC-5987
+  // encoded in `filename*` for browsers that read it.
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  res.writeHead(200, {
+    'content-type': 'application/octet-stream',
+    'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+  });
+  res.end(result.buffer);
+}
+
+/**
+ * Registry-backed lookup for the deep-link jump: a link minted on one server
+ * can land on another (A's own dashboard on 4321, B's bundle on 4322). The
+ * asked server consults the registry and probes the other live servers; if
+ * one owns the run the banner upgrades to a jump offer. Never a blank screen.
+ */
+async function apiLocate(res, state, runId) {
+  const mine = state.bundles
+    ? state.bundles.has(runId)
+    : Boolean(await resolveRun(state, runId));
+  if (mine) return sendJson(res, 200, { found: true, url: state.url, port: state.port, self: true });
+  const servers = await liveServers({ timeoutMs: 1200 });
+  for (const s of servers) {
+    if (s.port === state.port) continue;
+    if (s.index.runs.some((r) => r.runId === runId)) {
+      return sendJson(res, 200, { found: true, url: s.url, port: s.port, self: false, sources: s.sources });
+    }
+  }
+  sendJson(res, 200, { found: false });
+}
+
 async function apiWatch(req, res, state, runId) {
-  const ref = await resolveRun(state, runId);
-  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  // Bundles are static — no watcher, no live tail, liveness always
+  // "complete". The SSE channel still runs, because the focus loop works on
+  // bundle runs exactly as on local ones.
+  const bundle = state.bundles?.get(runId);
+  const ref = state.bundles ? null : await resolveRun(state, runId);
+  if (!bundle && !ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
 
   res.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -352,20 +523,22 @@ async function apiWatch(req, res, state, runId) {
 
   let entry = state.watches.get(runId);
   if (!entry) {
-    entry = { watcher: null, clients: new Set(), lastIR: null, lastConnectedAt: 0 };
+    entry = { watcher: null, clients: new Set(), lastIR: bundle?.ir ?? null, lastConnectedAt: 0 };
     state.watches.set(runId, entry);
-    const adapter = ADAPTERS.find((a) => a.name === ref.adapter);
-    entry.watcher = watchRun(ref, adapter, {
-      onGraph(ir, details) {
-        state.parseCache.set(runId, { key: 'live', ir, details });
-        const delta = diffGraphs(entry.lastIR, ir);
-        entry.lastIR = ir;
-        if (!delta) return;
-        const payload = `data: ${JSON.stringify(delta)}\n\n`;
-        for (const client of entry.clients) client.write(payload);
-      },
-      onError() {}, // transient mid-write states; next event retries
-    });
+    if (!bundle) {
+      const adapter = ADAPTERS.find((a) => a.name === ref.adapter);
+      entry.watcher = watchRun(ref, adapter, {
+        onGraph(ir, details) {
+          state.parseCache.set(runId, { key: 'live', ir, details });
+          const delta = diffGraphs(entry.lastIR, ir);
+          entry.lastIR = ir;
+          if (!delta) return;
+          const payload = `data: ${JSON.stringify(delta)}\n\n`;
+          for (const client of entry.clients) client.write(payload);
+        },
+        onError() {}, // transient mid-write states; next event retries
+      });
+    }
   }
 
   entry.clients.add(res);
@@ -391,7 +564,7 @@ async function apiWatch(req, res, state, runId) {
     clearInterval(heartbeat);
     entry.clients.delete(res);
     if (entry.clients.size === 0) {
-      entry.watcher.close();
+      entry.watcher?.close();
       state.watches.delete(runId);
     }
   });

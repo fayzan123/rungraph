@@ -305,15 +305,18 @@ export function Canvas({
 
   // Agent-sourced focus moves the viewport: the user asked the question in
   // their terminal and is looking at it, so the graph should already have moved
-  // by the time they glance over. Signal/find/file focus never moves it — find
-  // would thrash the view on every keystroke.
+  // by the time they glance over. A deep-link restore pans for the same reason
+  // (the user clicked a link; the view should have moved) via the `pan` flag.
+  // Signal/find/file focus from in-app clicks never moves it — find would
+  // thrash the view on every keystroke.
   //
-  // focusSeq only advances on a fresh frame off the SSE channel, so this fires
-  // once per answer, not on every re-render; keying the ref (rather than the
-  // deps) also lets a focus that beat the layout pan as soon as the layout lands.
+  // focusSeq only advances on a fresh frame off the SSE channel or a link
+  // restore, so this fires once per answer, not on every re-render; keying the
+  // ref (rather than the deps) also lets a focus that beat the layout pan as
+  // soon as the layout lands.
   useEffect(() => {
     if (focusSeq === pannedSeq.current) return;
-    if (focus?.source !== 'agent') {
+    if (focus?.source !== 'agent' && !focus?.pan) {
       pannedSeq.current = focusSeq;
       return;
     }

@@ -1,11 +1,12 @@
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
-import { liveServerUrl } from './portfile.js';
+import { liveServers, liveServerUrl } from './registry.js';
+import { buildFocusHash } from './deeplink.js';
 import { openInBrowser } from './open.js';
 
 /**
@@ -72,7 +73,11 @@ class ToolError extends Error {}
  * @returns {Promise<number>} exit code
  */
 export async function runMcp(opts = {}) {
-  const ctx = { project: opts.project };
+  // runMap: runId → owning server URL, refreshed on every list_runs /
+  // get_current_view and re-probed on a miss. This is how every tool routes
+  // to the server — and the browser tab — actually showing that run, with
+  // the user's own dashboard and an opened bundle live side by side.
+  const ctx = { project: opts.project, runMap: new Map() };
   log(`ready — JSON-RPC over stdio, rungraph ${VERSION}${ctx.project ? ` (project ${ctx.project})` : ''}`);
 
   // Requests run concurrently: open_visualization can spend 8s waiting for a
@@ -316,12 +321,33 @@ const TOOLS = [
 ];
 
 async function listRuns(args, ctx) {
-  const { runs } = await scan({ project: args.project ?? ctx.project });
-  return { runs: runs.map((r) => toIndexEntry(r)) };
+  const project = args.project ?? ctx.project;
+  const { runs } = await scan({ project });
+  const entries = runs.map((r) => toIndexEntry(r));
+  const known = new Set(entries.map((e) => e.runId));
+  // Merge in what the live servers serve — bundle-served runs exist ONLY
+  // there. Each foreign entry keeps its provenance (who shared it, which
+  // bundle) and gains the dashboard that owns it, which is how the model
+  // matches "in the bundle Bilal sent me" to a runId.
+  for (const s of await refreshServers(ctx)) {
+    for (const r of s.index.runs) {
+      if (known.has(r.runId)) continue;
+      if (project && !projectMatches(r.project, project)) continue;
+      known.add(r.runId);
+      entries.push({ ...r, dashboard: s.url });
+    }
+  }
+  return { runs: entries };
+}
+
+function projectMatches(runProject, project) {
+  if (typeof runProject !== 'string' || !runProject) return false;
+  const p = resolvePath(project);
+  return runProject === p || runProject.startsWith(p + '/');
 }
 
 async function getGraph(args, ctx) {
-  const { ir } = await loadRun(args.runId, ctx);
+  const ir = await loadIR(args.runId, ctx);
   if (args.detail === 'full') return ir;
   if (args.detail !== undefined && args.detail !== 'compact') {
     log(`get_graph: ignoring unknown detail "${args.detail}", using compact`);
@@ -333,7 +359,7 @@ async function findNodes(args, ctx) {
   const query = typeof args.query === 'string' ? args.query.trim() : '';
   if (!query) throw new ToolError('find_nodes needs a non-empty query — a file name or tool name works well.');
 
-  const { ir } = await loadRun(args.runId, ctx);
+  const ir = await loadIR(args.runId, ctx);
   const limit = Number.isInteger(args.limit) && args.limit > 0 ? args.limit : DEFAULT_FIND_LIMIT;
   const ids = matchNodes(ir, query);
   const kept = ids.slice(0, limit);
@@ -357,31 +383,56 @@ async function getDetail(args, ctx) {
   if (typeof args.nodeId !== 'string' || !args.nodeId) {
     throw new ToolError('get_detail needs a nodeId — get one from find_nodes or get_graph.');
   }
-  const { ir, details } = await loadRun(args.runId, ctx, { collectDetails: true });
-  const detail = details?.get(args.nodeId);
-  if (!detail) {
-    const known = (ir.nodes ?? []).some((n) => n.id === args.nodeId);
+  const id = requireRunId(args.runId);
+  const ref = await findRun(id, { project: ctx.project });
+  if (ref) {
+    const { ir, details } = await loadRun(id, ctx, { collectDetails: true });
+    const detail = details?.get(args.nodeId);
+    if (!detail) {
+      const known = (ir.nodes ?? []).some((n) => n.id === args.nodeId);
+      throw new ToolError(
+        known
+          ? `Node "${args.nodeId}" has no detail payload — everything it carries is already in the graph.`
+          : `No node "${args.nodeId}" in run "${args.runId}". Node ids come from get_graph or find_nodes.`,
+      );
+    }
+    return { runId: id, nodeId: args.nodeId, detail };
+  }
+  // Not on disk — a bundle-served run. Its details live only on the server
+  // that opened the bundle, so route by runId.
+  const detail = await fetchRunResource(
+    ctx,
+    id,
+    (url) => `${url}/api/detail/${encodeURIComponent(args.nodeId)}?run=${encodeURIComponent(id)}`,
+  );
+  if (!detail || detail.error) {
     throw new ToolError(
-      known
-        ? `Node "${args.nodeId}" has no detail payload — everything it carries is already in the graph.`
-        : `No node "${args.nodeId}" in run "${args.runId}". Node ids come from get_graph or find_nodes.`,
+      detail?.error
+        ? `${detail.error} (run "${id}" is served by a dashboard, not by files on this machine)`
+        : `No run found with id "${id}". Call list_runs for the current ids.`,
     );
   }
-  return { runId: args.runId, nodeId: args.nodeId, detail };
+  return { runId: id, nodeId: args.nodeId, detail };
 }
 
-async function focusNodes(args) {
+async function focusNodes(args, ctx) {
   const runId = requireRunId(args.runId);
   const nodeIds = (Array.isArray(args.nodeIds) ? args.nodeIds : []).filter((id) => typeof id === 'string' && id);
   if (nodeIds.length === 0) throw new ToolError('focus_nodes needs at least one nodeId.');
 
-  const server = await liveServerUrl();
+  // Route to the server actually showing this run — with a dashboard and an
+  // opened bundle both live, landing the focus on the wrong one would be a
+  // silent lie. The fallback for runs no server has loaded yet is a LOCAL
+  // server only (it can serve local runs on demand); a bundle viewer can
+  // never show a run outside its bundle, so falling back to one would drag
+  // the user's tab to a graph that cannot load.
+  let server = (await ownerServer(ctx, runId)) ?? (await localServerUrl());
   // No server is the expected case, not a failure: the answer already happened
   // in the terminal, so say the highlight was skipped and move on.
   if (!server) {
     return {
       focused: false,
-      reason: 'no rungraph server is running',
+      reason: 'no rungraph server is running that could show this run',
       hint: 'Tell the user the dashboard highlight was skipped; `rungraph` (or open_visualization) starts it.',
     };
   }
@@ -392,12 +443,31 @@ async function focusNodes(args) {
     label: typeof args.label === 'string' ? args.label : '',
     reason: typeof args.reason === 'string' ? args.reason : '',
   };
-  const res = await callServer(`${server}/api/focus`, {
+  let res = await callServer(`${server}/api/focus`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const url = `${server}/?run=${encodeURIComponent(runId)}`;
+  if (!res.ok) {
+    // The mapped server may have died since the last refresh (its port can
+    // even be reused by something else). One full re-probe, one retry.
+    ctx.runMap.delete(runId);
+    const retry = (await ownerServer(ctx, runId)) ?? (await localServerUrl());
+    if (retry && retry !== server) {
+      server = retry;
+      res = await callServer(`${server}/api/focus`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+  }
+  // A deep link, not just a landing page: pasted into a PR or an issue, it
+  // restores this exact focus — run, node set, label, reason — via the hash.
+  const url = `${server}/${buildFocusHash({
+    runId,
+    descriptor: { source: 'agent', nodeIds, label: body.label, reason: body.reason },
+  })}`;
   if (!res.ok) {
     return { focused: false, reason: res.body?.error ?? `the rungraph server would not take the focus (${res.why})`, url };
   }
@@ -439,18 +509,31 @@ async function focusNodes(args) {
   };
 }
 
-async function getCurrentView() {
-  const server = await liveServerUrl();
-  if (!server) return { runs: [], reason: 'no rungraph server is running' };
-  const res = await callServer(`${server}/api/view`);
-  if (!res.ok || !Array.isArray(res.body?.runs)) {
-    return { runs: [], reason: `the rungraph server did not report its view (${res.why})`, serverUrl: server };
+async function getCurrentView(args, ctx) {
+  const servers = await refreshServers(ctx);
+  if (servers.length === 0) return { runs: [], reason: 'no rungraph server is running' };
+  const runs = [];
+  for (const s of servers) {
+    const res = await callServer(`${s.url}/api/view`);
+    if (!res.ok || !Array.isArray(res.body?.runs)) continue;
+    for (const r of res.body.runs) runs.push({ ...r, serverUrl: s.url, sources: s.sources });
   }
-  return { runs: res.body.runs, serverUrl: server };
+  // Most recently opened first, ACROSS servers — runs[0] is what the user
+  // means by "this run" even with a dashboard and a bundle viewer both open.
+  runs.sort((a, b) => (a.connectedAt < b.connectedAt ? 1 : -1));
+  return {
+    runs,
+    serverUrl: servers[0].url,
+    servers: servers.map((s) => ({ url: s.url, sources: s.sources })),
+  };
 }
 
 async function openVisualization(args, ctx) {
-  let server = await liveServerUrl();
+  // A run already served somewhere opens on ITS server — the one whose
+  // browser tab can actually show it. The no-owner fallback is local-only:
+  // a bundle viewer cannot show anything outside its bundle.
+  let server = args.runId ? await ownerServer(ctx, args.runId) : null;
+  server ??= args.runId ? await localServerUrl() : await liveServerUrl();
   let pid = null;
 
   if (!server) {
@@ -476,6 +559,78 @@ async function openVisualization(args, ctx) {
 }
 
 /* ------------------------------------------------------------------ helpers */
+
+/**
+ * Probe every registry entry and refresh the runId → server routing map.
+ * Servers come back most recently started first, so writing the map in
+ * REVERSE order makes the newest server win a runId served by two (identical
+ * reconstructions of the same files — route to the newest).
+ */
+async function refreshServers(ctx) {
+  const servers = await liveServers();
+  for (const s of [...servers].reverse()) {
+    for (const r of s.index.runs) ctx.runMap.set(r.runId, s.url);
+  }
+  return servers;
+}
+
+/** The URL of the server serving this run — re-probing all servers on a miss. */
+async function ownerServer(ctx, runId) {
+  if (!ctx.runMap.has(runId)) await refreshServers(ctx);
+  return ctx.runMap.get(runId) ?? null;
+}
+
+/**
+ * The most recently started live server that serves LOCAL runs — the only
+ * kind that can load a run it has not seen yet. Registry sources make the
+ * distinction: 'local' vs 'bundle:<file>'.
+ */
+async function localServerUrl() {
+  const servers = await liveServers();
+  return servers.find((s) => s.sources?.includes('local'))?.url ?? null;
+}
+
+/**
+ * Fetch a run-scoped resource from whichever server owns the run. A stale map
+ * entry (server gone, bundle closed) gets one full re-probe before giving up.
+ * Returns the JSON body, or null when no live server owns the run.
+ */
+async function fetchRunResource(ctx, runId, pathFor) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const url = attempt === 0 ? await ownerServer(ctx, runId) : ctx.runMap.get(runId);
+    if (!url) {
+      if (attempt === 0) continue; // ownerServer already re-probed; one more map read
+      break;
+    }
+    const res = await callServer(pathFor(url));
+    if (res.ok) return res.body;
+    lastError = typeof res.body?.error === 'string' ? res.body.error : null;
+    ctx.runMap.delete(runId);
+    await refreshServers(ctx);
+  }
+  return lastError ? { error: lastError } : null;
+}
+
+/**
+ * The graph for a run, signals attached, wherever it lives: parsed straight
+ * from disk when the run is local (no server required — the point), fetched
+ * from the owning server when it is bundle-served (the server derived the
+ * signals; same one implementation).
+ */
+async function loadIR(runId, ctx) {
+  const id = requireRunId(runId);
+  const ref = await findRun(id, { project: ctx.project });
+  if (ref) {
+    const { ir } = await loadRun(id, ctx);
+    return ir;
+  }
+  const body = await fetchRunResource(ctx, id, (url) => `${url}/api/graph/${encodeURIComponent(id)}`);
+  if (body && Number.isInteger(body.irVersion)) return body;
+  throw new ToolError(
+    `No run found with id "${id}" — not on disk here, and no live dashboard serves it. Call list_runs for the current ids.`,
+  );
+}
 
 /** Parse a run straight from disk — no server required, which is the point. */
 async function loadRun(runId, ctx, parseOpts) {
