@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { basename, resolve } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
@@ -426,4 +427,20 @@ function printInventory(inv) {
     }
   }
   for (const w of inv.warnings) process.stderr.write(`  ⚠ ${w}\n`);
+}
+
+/** Process bootstrap, shared by bin/rungraph.js and direct `node src/cli.js`. */
+export async function runCli() {
+  // `rungraph list --json | head -1` closes stdout early — exit quietly.
+  process.stdout.on('error', (err) => {
+    if (err.code === 'EPIPE') process.exit(0);
+  });
+  process.exitCode = await main(process.argv.slice(2));
+}
+
+// Run `node src/cli.js …` without this guard and the module loads, nothing
+// calls main(), the event loop drains, and node exits 0 in silence — which an
+// agent reads as success.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runCli();
 }

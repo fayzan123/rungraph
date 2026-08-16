@@ -136,6 +136,15 @@ describe('golden CLI (agent contract)', () => {
       expect(r.stdout).toContain(s);
     }
   });
+
+  // An agent that finds src/cli.js and runs it without the bin wrapper must
+  // get the same contract — a module that only exports main() loads, does
+  // nothing, and exits 0 in silence, which reads as success.
+  it('node src/cli.js run directly is an entry point, not a silent no-op', async () => {
+    const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js');
+    const { stdout } = await exec('node', [CLI, '--help'], { env });
+    expect(stdout).toContain('FOR AGENTS');
+  });
 });
 
 describe('rungraph export (agent contract)', () => {
