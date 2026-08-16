@@ -22,6 +22,12 @@ That's the whole quickstart. It scans `~/.claude/projects`, starts a local
 server, and opens your browser. Pick a run — including one that's **running
 right now**: the graph grows live as the agent works (file watching only).
 
+The graph is also something you can **talk to**: wire the MCP server into your
+coding agent and ask it about a run — *"why did the Edit on `token.js` keep
+failing?"* — the answer arrives in your terminal, and the agent **highlights
+the exact nodes it's describing** on the open graph as it answers. See
+[Ask your agent about a run](#ask-your-agent-about-a-run).
+
 **New here?** [docs/GUIDE.md](docs/GUIDE.md) walks through the whole thing —
 reading the graph, what each signal means, wiring it to your own agent, and what
 to do when something looks broken.
@@ -95,14 +101,24 @@ npx rungraph mcp --install     # one time, then restart Claude Code
 npx rungraph mcp --check       # is it working? prints exactly what to fix
 ```
 
-You don't have to guess what to ask, either: the dashboard writes the
-questions for you, from the run you're looking at — *"why did the Edit on
-token.js keep failing?"* — with a copy button. Paste one into Claude Code.
+Then ask, in Claude Code, the kinds of questions a transcript can actually
+answer:
 
-Then, in Claude Code: *"which edits in my last run failed?"* Claude calls
-`find_nodes` / `get_graph` / `get_detail`, **answers in your terminal** — your
-model, your session, fully inspectable — and then calls `focus_nodes`, and the
-dashboard you have open lights up the nodes it just described.
+- *which edits in my last run failed — and did any stay broken?*
+- *which steps touched `src/auth.js`, subagents included?*
+- *what did the "audit auth module" agent find?*
+- *what was the actual error behind that red node?*
+- *did it actually run the tests, or just say it did?*
+
+Claude calls `find_nodes` / `get_graph` / `get_detail` and **answers in your
+terminal** — your model, your session, fully inspectable. Then it calls
+`focus_nodes`, and **the graph you have open lights up the exact nodes the
+answer is about** — switching to the right run, or opening a browser tab, if
+it has to — and hands back a deep link that restores the same highlight for
+anyone you paste it to.
+
+You don't have to invent the questions, either: the bottom of the inspector
+writes them for you, from the run you're looking at, with a copy button.
 
 Nothing is pinned, prompted, or proxied: rungraph contributes the graph, not the
 conversation. The read-only tools work with no server running at all.
@@ -297,6 +313,14 @@ Requires Node ≥ 20.
   "what else touched this file?" across runs needs iteration, not a migration.
 - **Run comparison** — diff two runs of the same task.
 - **Cost estimates** — turn per-node token counts into dollars.
+
+## Contributing
+
+Adapters for other agent CLIs are the most valuable thing you can add, and
+bug reports with a `--structure-only` bundle attached are the most useful
+kind. [CONTRIBUTING.md](CONTRIBUTING.md) has the repo map, the project's
+non-negotiables (worth reading *before* you build), and the fixture
+workflow. Security reports: [SECURITY.md](SECURITY.md), privately please.
 
 ## License
 

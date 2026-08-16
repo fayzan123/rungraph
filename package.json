@@ -11,6 +11,9 @@
     "cli"
   ],
   "homepage": "https://github.com/fayzan123/rungraph#readme",
+  "bugs": {
+    "url": "https://github.com/fayzan123/rungraph/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fayzan123/rungraph.git"
