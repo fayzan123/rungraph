@@ -8,3 +8,6 @@ coverage/
 
 # Launch drafts and personal notes — kept locally, never published.
 docs/launch/
+
+# Personal design specs — local only, never published.
+docs/superpowers/
