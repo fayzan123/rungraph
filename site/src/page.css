@@ -260,7 +260,7 @@ button:focus-visible,
 
 .stage-caption {
   position: absolute;
-  top: 10px;
+  top: 44px; /* below the signal strip — the chips must stay readable */
   /* clear of the inspector pane, which owns the stage's right edge */
   right: calc(min(384px, 30vw) + 22px);
   z-index: 5;
@@ -288,6 +288,35 @@ button:focus-visible,
   display: flex;
   gap: 8px;
 }
+
+/* Wheel-intent affordances: the hint pill when a scroll passes through, and a
+   whisper of the accent on the stage edge while the graph holds the controls. */
+.scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translate(-50%, 6px);
+  z-index: 6;
+  padding: 9px 18px;
+  background: color-mix(in oklch, var(--bg-panel) 92%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  text-transform: none;
+  letter-spacing: 0.03em;
+  font-size: 11.5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+.scroll-hint[data-show] { opacity: 1; transform: translate(-50%, 0); }
+.stage[data-captured] {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--sage) 35%, transparent);
+}
+/* Touch mirrors the same intent rule: before engagement a finger drag scrolls
+   the page; after a tap on the canvas it pans the graph. */
+.stage:not([data-captured]) .canvas-wrap > svg { touch-action: pan-y; }
+.stage[data-captured] .canvas-wrap > svg { touch-action: none; }
 .try-chip {
   font-family: var(--mono);
   font-size: 11px;

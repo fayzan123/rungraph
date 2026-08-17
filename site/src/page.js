@@ -84,6 +84,28 @@ new IntersectionObserver(
 ).observe(stage);
 window.RUNGRAPH_EMBED.keysEnabled = () => stageVisible;
 
+// The wheel belongs to the page until the visitor takes the graph's controls
+// (a click on the canvas, or a guided chip). Moving the cursor off the canvas
+// hands scroll back. A quiet hint appears when a scroll passes through, so
+// nobody wonders why the graph "ignored" their wheel.
+const scrollHint = document.querySelector('[data-scroll-hint]');
+let hintTimer = null;
+window.RUNGRAPH_EMBED.wheelCaptured = false;
+window.RUNGRAPH_EMBED.setCaptured = (on) => {
+  window.RUNGRAPH_EMBED.wheelCaptured = on;
+  stage.toggleAttribute('data-captured', on);
+  if (on) {
+    clearTimeout(hintTimer);
+    scrollHint?.removeAttribute('data-show');
+  }
+};
+window.RUNGRAPH_EMBED.onWheelPassthrough = () => {
+  if (!scrollHint) return;
+  scrollHint.setAttribute('data-show', '');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => scrollHint.removeAttribute('data-show'), 1700);
+};
+
 /* --------------------------------------------------------- guided chips */
 
 for (const chip of document.querySelectorAll('[data-try]')) {
@@ -100,6 +122,9 @@ for (const chip of document.querySelectorAll('[data-try]')) {
       done = Boolean(embed.canvas);
     }
     if (done) {
+      // Using a chip is taking the controls too — wheeling right after
+      // "fit the graph" should zoom the graph, not scroll away from it.
+      embed.setCaptured?.(true);
       chip.setAttribute('data-done', '');
       setTimeout(() => chip.removeAttribute('data-done'), 2200);
     }
