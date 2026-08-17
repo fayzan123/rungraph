@@ -1,13 +1,13 @@
 {
  "runs": [
   {
-   "runId": "claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444",
+   "runId": "claude-code:-Users-Shared-rungraph-demo:1d690258-b1a5-43e6-8afe-88aff452d12e",
    "adapter": "claude-code",
    "kind": "session",
-   "title": "Migrate token store",
-   "project": "/home/dev/acme",
-   "startedAt": "2026-08-01T12:01:34.500Z",
-   "modifiedAt": "2026-08-01T12:02:01.500Z",
+   "title": "Fix flaky concurrent token refresh test",
+   "project": "/Users/Shared/rungraph-demo",
+   "startedAt": "2026-08-17T20:53:31.874Z",
+   "modifiedAt": "2026-08-17T21:47:46.881Z",
    "sizeBytes": null,
    "active": false
   }

@@ -1,1 +1,15 @@
-{"question":"placeholder — replaced by the real captured loop","answer":"placeholder answer long enough to pass the length check while developing locally.","label":"placeholder","reason":"","nodeIds":[]}
+{
+ "question": "why did the Edit on token.js keep failing in my rungraph-demo run?",
+ "answer": "Found it — confirmed straight from the run's tool errors, not guesswork. src/token.js was a generated file: package.json's pretest hook (and a --watch mode) reran scripts/sync-tokens.mjs, which regenerated it from token.template.js with a fresh `// synced <timestamp>` header every time it ran. The agent would Read the file, then Edit it — but between the read and the write the generator fired again and rewrote it out from under the edit, so every Edit and Write failed with \"File has been modified since read.\" The resolution is in the same run: after asking which way to go, the agent removed the generator entirely, folded token.js back into one hand-written file, and the final Write succeeded with the suite green.",
+ "label": "Why token.js edits kept failing",
+ "reason": "pretest/watch regenerated token.js between read and write, causing repeated 'file modified since read' errors, until the codegen was removed",
+ "nodeIds": [
+  "g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+  "g:toolu_01Eu6hcXCdjJty8JxG73CC6F",
+  "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+  "g:toolu_01991TAbTJzekTXJtEVkBMc3",
+  "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+  "t:4a8e23a4-4568-47ad-ba27-45c502dd5836",
+  "g:toolu_01HGw3oSRRtDCgoWydAUzaQh"
+ ]
+}
