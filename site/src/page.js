@@ -5,7 +5,13 @@
  * exchange. No invented content anywhere in this file.
  */
 
-const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedMq = matchMedia('(prefers-reduced-motion: reduce)');
+const REDUCED = () => reducedMq.matches;
+
+const announce = (text) => {
+  const el = document.querySelector('[data-announce]');
+  if (el) el.textContent = text;
+};
 
 /* ------------------------------------------------------------- copy chips */
 
@@ -14,6 +20,7 @@ for (const btn of document.querySelectorAll('[data-copy]')) {
     try {
       await navigator.clipboard.writeText(btn.dataset.copy);
       btn.setAttribute('data-copied', '');
+      announce(`copied: ${btn.dataset.copy}`);
       setTimeout(() => btn.removeAttribute('data-copied'), 1800);
     } catch {
       /* clipboard unavailable — the command is right there to select */
@@ -30,11 +37,17 @@ const stage = document.querySelector('.stage');
 // so the page's own paint never waits on it.
 window.RUNGRAPH_EMBED = { runId: null };
 
+const json = (path) =>
+  fetch(path).then((r) => {
+    if (!r.ok) throw new Error(`${path}: ${r.status}`);
+    return r.json();
+  });
+
 const dataP = {
-  index: fetch('data/index.json').then((r) => r.json()),
-  graph: fetch('data/graph.json').then((r) => r.json()),
-  loop: fetch('data/loop.json').then((r) => r.json()).catch(() => null),
-  exportTxt: fetch('data/export.txt').then((r) => r.text()).catch(() => ''),
+  index: json('data/index.json'),
+  graph: json('data/graph.json'),
+  loop: json('data/loop.json').catch(() => null),
+  exportTxt: fetch('data/export.txt').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
 };
 
 dataP.index
@@ -43,14 +56,18 @@ dataP.index
     return import('./app.js');
   })
   .then(() => {
-    // App mounted: when the canvas svg exists the boot glyph fades.
-    const seen = new MutationObserver(() => {
-      if (stage.querySelector('.canvas-wrap')) {
-        stage.setAttribute('data-live', '');
-        seen.disconnect();
-      }
-    });
-    seen.observe(document.getElementById('app'), { childList: true, subtree: true });
+    // App mounted: the boot glyph fades once the graph itself is drawing —
+    // the canvas svg exists only with a loaded graph (the empty state has none).
+    const app = document.getElementById('app');
+    const ready = () => {
+      if (!stage.querySelector('.canvas-wrap > svg')) return false;
+      stage.setAttribute('data-live', '');
+      return true;
+    };
+    if (!ready()) {
+      const seen = new MutationObserver(() => ready() && seen.disconnect());
+      seen.observe(app, { childList: true, subtree: true });
+    }
   })
   .catch(() => {
     // Never a blank hero: the boot glyph stays, the page still reads.
@@ -106,7 +123,13 @@ const revealer = new IntersectionObserver(
 );
 for (const el of document.querySelectorAll('.band-inner, .outro')) revealer.observe(el);
 
-/* -------------------------------------------------- mini node rendering */
+/* -------------------------------------------------- mini node rendering
+   A deliberate, documented exception to the one-implementation rule: these
+   static SVG fragments are PRESENTATION ONLY — every label, status, count,
+   reason, and signal membership they show comes from the baked graph.json,
+   and every color comes from the dashboard's own CSS tokens. The real
+   renderer (canvas.jsx + elkjs) needs a live layout engine; embedding it
+   three more times would cost more drift risk than these ~60 lines do.   */
 
 const esc = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -211,6 +234,10 @@ dataP.graph.then((graph) => {
   pruneEmptyVignettes();
   buildSignalDemo(graph);
   dataP.loop.then((loop) => loop && buildLoopDemo(graph, loop));
+}).catch(() => {
+  // No graph data: the demos can't build, but the page must still read —
+  // hide the empty frames rather than leaving three blank boxes.
+  pruneEmptyVignettes();
 });
 
 function setVignette(name, svg) {
@@ -233,8 +260,15 @@ function pruneEmptyVignettes() {
  * the rest; the container never reflows, so nothing "hides".
  */
 function runStrip(graph, mount) {
-  const ordered = [...graph.nodes]
-    .map((n, i) => ({ n, i, t: Date.parse(n.startedAt ?? '') || 0 }))
+  // Run order, with the same carry-forward-on-missing-timestamp rule as the
+  // canvas's own orderedNodes — the two views must agree on "earlier".
+  let lastT = 0;
+  const ordered = graph.nodes
+    .map((n, i) => {
+      const t = Date.parse(n.startedAt);
+      if (Number.isFinite(t)) lastT = t;
+      return { n, i, t: Number.isFinite(t) ? t : lastT };
+    })
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map((k) => k.n);
   const COLS = 14;
@@ -284,6 +318,7 @@ function buildSignalDemo(graph) {
       // Absent is a feature: precision over recall means chips only exist
       // when the run earns them, and the demo says so out loud.
       chip.setAttribute('data-absent', '');
+      chip.setAttribute('aria-disabled', 'true');
       const explain = () => {
         reasonEl.textContent = 'not derived for this run — a signal only exists when the run earns it.';
       };
@@ -296,14 +331,20 @@ function buildSignalDemo(graph) {
       chip.addEventListener('blur', clear);
       continue;
     }
+    chip.setAttribute('aria-pressed', 'false');
     const on = () => {
-      for (const c of document.querySelectorAll('.sig-chip[data-on]')) c.removeAttribute('data-on');
+      for (const c of document.querySelectorAll('.sig-chip[data-on]')) {
+        c.removeAttribute('data-on');
+        c.setAttribute('aria-pressed', 'false');
+      }
       chip.setAttribute('data-on', '');
+      chip.setAttribute('aria-pressed', 'true');
       strip.focus(sig.nodeIds);
       reasonEl.textContent = sig.reason;
     };
     const off = () => {
       chip.removeAttribute('data-on');
+      chip.setAttribute('aria-pressed', 'false');
       strip.focus(null);
       reasonEl.textContent = restText;
     };
@@ -311,7 +352,8 @@ function buildSignalDemo(graph) {
     chip.addEventListener('mouseleave', off);
     chip.addEventListener('focus', on);
     chip.addEventListener('blur', off);
-    chip.addEventListener('click', on); // touch
+    // Touch has no hover: tapping an already-lit chip clears it.
+    chip.addEventListener('click', () => (chip.hasAttribute('data-on') ? off() : on()));
   }
 }
 
@@ -331,24 +373,38 @@ function buildLoopDemo(graph, loop) {
     { cls: 'sys', text: `✓ focus_nodes · ${loop.nodeIds.length} nodes lit on the open dashboard — "${loop.label}"` },
   ];
 
+  // The animated terminal is decorative for assistive tech; the full exchange
+  // lives in one static, readable element instead.
+  const sr = document.querySelector('[data-loop-sr]');
+  if (sr) {
+    sr.textContent = `Question asked in the terminal: ${loop.question} — The agent answered: ${loop.answer} — It then called focus_nodes and ${loop.nodeIds.length} nodes lit up on the dashboard.`;
+  }
+
   let timer = null;
   const stopped = () => {
     clearTimeout(timer);
     timer = null;
   };
 
+  // The spec's beat is "the embedded graph's nodes light up as the answer
+  // streams" — so the hero embed receives the same focus, quietly (no scroll;
+  // the button below is the scroll affordance).
+  const lightHero = () =>
+    window.RUNGRAPH_EMBED.app?.focusNodes?.(loop.nodeIds, loop.label, loop.reason);
+
   function renderInstant() {
     term.innerHTML = segs
       .map((s) => `<span class="${s.cls}">${esc(s.text)}</span>`)
       .join('\n\n');
     strip.focus(loop.nodeIds);
+    lightHero();
     replay.hidden = false;
     heroBtn.hidden = false;
   }
 
   function play() {
     stopped();
-    if (REDUCED) return renderInstant();
+    if (REDUCED()) return renderInstant();
     term.innerHTML = '';
     strip.focus(null);
     replay.hidden = true;
@@ -364,7 +420,10 @@ function buildLoopDemo(graph, loop) {
         if (si > 0) term.append('\n\n');
         term.append(el);
         spans[si] = el;
-        if (seg.cls === 'a') strip.focus(loop.nodeIds); // the graph answers as the text streams
+        if (seg.cls === 'a') {
+          strip.focus(loop.nodeIds); // the graph answers as the text streams
+          lightHero();
+        }
       }
       const step = seg.cls === 'q' ? 1 : 4;
       ci = Math.min(seg.text.length, ci + step);
@@ -401,10 +460,8 @@ function buildLoopDemo(graph, loop) {
 
   replay.addEventListener('click', play);
   heroBtn.addEventListener('click', () => {
-    const app = window.RUNGRAPH_EMBED.app;
-    if (app?.focusNodes) {
-      app.focusNodes(loop.nodeIds, loop.label, loop.reason);
-      document.querySelector('.stage').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth' });
+    if (lightHero()) {
+      document.querySelector('.stage').scrollIntoView({ behavior: REDUCED() ? 'auto' : 'smooth' });
     }
   });
 }

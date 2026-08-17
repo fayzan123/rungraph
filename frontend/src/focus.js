@@ -79,6 +79,9 @@ export function focusFromAgent(msg) {
  */
 export function pruneFocus(focus, ir) {
   if (!focus) return null;
+  // An agent can POST an empty node set; "dim the whole canvas and light
+  // nothing" is never the right rendering of that, so it clears instead.
+  if (!Array.isArray(focus.nodeIds) || focus.nodeIds.length === 0) return null;
   const known = new Set((ir?.nodes ?? []).map((n) => n.id));
   const kept = focus.nodeIds.filter((id) => known.has(id));
   if (kept.length === focus.nodeIds.length) return focus;

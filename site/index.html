@@ -22,12 +22,15 @@
   /* paint the ground before any stylesheet arrives */
   html, body { margin: 0; background: oklch(0.155 0.011 58); }
 </style>
+<script>document.documentElement.classList.add('js');</script>
 <link rel="stylesheet" href="app.css" />
 <link rel="stylesheet" href="page.css" />
 </head>
 <body>
 
-<nav class="nav">
+<a class="skip-link" href="#graph-section">skip past the interactive graph</a>
+
+<nav class="nav" aria-label="primary">
   <a class="wordmark" href="#top" aria-label="rungraph — back to top"><b>run</b>graph</a>
   <div class="nav-links">
     <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
@@ -37,13 +40,13 @@
   <a class="btn-ink" href="https://github.com/fayzan123/rungraph">GitHub</a>
 </nav>
 
+<main id="main">
 <header class="hero" id="top">
   <h1 class="display">See your agent runs<br /><em class="accent">as a graph.</em></h1>
   <p class="lede">
-    Your coding agent already wrote down everything it did. rungraph turns those
-    transcripts into an interactive graph — subagents fanning out, tools failing
-    and retrying, the moments you said no — retroactively, for every session
-    you've ever run. No hooks, no setup, no telemetry.
+    Your coding agent already wrote down everything it did — rungraph turns those
+    transcripts into an interactive graph, retroactively, for every session
+    you've ever run, with no hooks, no setup, and nothing leaving your machine.
   </p>
   <div class="cta-row">
     <button class="npx-chip" data-copy="npx rungraph" aria-label="copy the command npx rungraph">
@@ -122,16 +125,16 @@
       marker you can't trust is worse than no marker.
     </p>
     <div class="signal-demo">
-      <div class="signal-defs" role="list">
-        <button class="sig-chip" role="listitem" data-signal="retry-storm"><span class="glyph">⟳</span><b>retry storm</b><span class="def">the same tool kept failing in one place</span></button>
-        <button class="sig-chip" role="listitem" data-signal="unresolved-error"><span class="glyph">⚠&#xFE0E;</span><b>unresolved error</b><span class="def">something failed and nothing came back to fix it</span></button>
-        <button class="sig-chip" role="listitem" data-signal="intervention"><span class="glyph">✋&#xFE0E;</span><b>intervention</b><span class="def">a denied permission, an interrupt, an answered question</span></button>
-        <button class="sig-chip" role="listitem" data-signal="outlier"><span class="glyph">◆</span><b>outlier</b><span class="def">a step that cost far more than the rest of the run</span></button>
-        <button class="sig-chip" role="listitem" data-signal="course-change"><span class="glyph">⚑</span><b>course change</b><span class="def">the run's own recorded reason for changing direction</span></button>
+      <div class="signal-defs" role="group" aria-label="the five signals — activate one to light it up on the run">
+        <button class="sig-chip" data-signal="retry-storm"><span class="glyph" aria-hidden="true">⟳</span><b>retry storm</b><span class="def">the same tool kept failing in one place</span></button>
+        <button class="sig-chip" data-signal="unresolved-error"><span class="glyph" aria-hidden="true">⚠&#xFE0E;</span><b>unresolved error</b><span class="def">something failed and nothing came back to fix it</span></button>
+        <button class="sig-chip" data-signal="intervention"><span class="glyph" aria-hidden="true">✋&#xFE0E;</span><b>intervention</b><span class="def">a denied permission, an interrupt, an answered question</span></button>
+        <button class="sig-chip" data-signal="outlier"><span class="glyph" aria-hidden="true">◆</span><b>outlier</b><span class="def">a step that cost far more than the rest of the run</span></button>
+        <button class="sig-chip" data-signal="course-change"><span class="glyph" aria-hidden="true">⚑</span><b>course change</b><span class="def">the run's own recorded reason for changing direction</span></button>
       </div>
       <div class="signal-stage">
         <div class="mini-graph" data-mini="signals" aria-hidden="true"></div>
-        <p class="mini-reason microlabel" data-mini-reason>hover a signal — the run lights up. dimmed, never hidden.</p>
+        <p class="mini-reason microlabel" data-mini-reason aria-live="polite">hover a signal — the run lights up. dimmed, never hidden.</p>
       </div>
     </div>
   </div>
@@ -150,7 +153,8 @@
     <div class="loop-demo">
       <div class="terminal" data-terminal>
         <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
-        <pre class="term-body" aria-live="polite"></pre>
+        <pre class="term-body" aria-hidden="true"></pre>
+        <p class="sr-only" data-loop-sr></p>
         <button class="term-replay ghosted" data-replay hidden>↺ replay</button>
       </div>
       <div class="loop-stage">
@@ -163,7 +167,7 @@
       above, then tightened for length.
     </p>
     <div class="cta-row">
-      <button class="npx-chip small" data-copy="npx rungraph mcp --install">
+      <button class="npx-chip small" data-copy="npx rungraph mcp --install" aria-label="copy the command npx rungraph mcp --install">
         <span class="prompt" aria-hidden="true">$</span> npx rungraph mcp --install <span class="copy-glyph" aria-hidden="true">⧉</span>
       </button>
     </div>
@@ -215,11 +219,12 @@ npx rungraph serve --no-open
     </p>
   </div>
 </section>
+</main>
 
 <footer class="outro">
   <h2 class="display giant">Your agent already<br />wrote it all down.</h2>
   <div class="cta-row center">
-    <button class="npx-chip" data-copy="npx rungraph">
+    <button class="npx-chip" data-copy="npx rungraph" aria-label="copy the command npx rungraph">
       <span class="prompt" aria-hidden="true">$</span> npx rungraph <span class="copy-glyph" aria-hidden="true">⧉</span>
     </button>
   </div>
@@ -237,6 +242,7 @@ npx rungraph serve --no-open
   </nav>
 </footer>
 
+<p class="sr-only" aria-live="polite" data-announce></p>
 <script type="module" src="page.js"></script>
 </body>
 </html>

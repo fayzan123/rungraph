@@ -147,10 +147,15 @@ async function buildSite() {
       {
         name: 'api-static',
         setup(b) {
-          b.onResolve({ filter: /api\.js$/ }, (a) => {
+          // Match loosely (extensionless spellings included), decide on the
+          // RESOLVED path — an import spelling must not be able to dodge the
+          // swap and smuggle the server-backed api.js into the static bundle.
+          b.onResolve({ filter: /api(\.js)?$/ }, (a) => {
             if (a.importer === apiStatic) return null;
             const resolved = normalize(join(a.resolveDir, a.path));
-            return resolved === apiPath ? { path: apiStatic } : null;
+            return resolved === apiPath || `${resolved}.js` === apiPath
+              ? { path: apiStatic }
+              : null;
           });
         },
       },
@@ -223,6 +228,20 @@ async function check() {
   const problems = [];
   const html = await readFile(join(DIST, 'index.html'), 'utf8');
 
+  // Contained resolution: a `../`-style URL escaping dist would resolve
+  // against files GitHub Pages never serves — that is a broken link even
+  // when the file happens to exist in the source tree.
+  const inDist = async (url, from) => {
+    const target = resolve(DIST, url.split('#')[0]);
+    if (!target.startsWith(DIST + '/')) {
+      problems.push(`${from} references a path outside dist: ${url}`);
+      return;
+    }
+    await stat(target).catch(() => {
+      problems.push(`${from} references missing file: ${url}`);
+    });
+  };
+
   const urls = [...html.matchAll(/(?:href|src)="([^"]+)"/g)].map((m) => m[1]);
   for (const url of urls) {
     if (/^(https?:|mailto:|#|data:)/.test(url)) continue;
@@ -230,9 +249,7 @@ async function check() {
       problems.push(`absolute path in index.html: ${url} (breaks under /rungraph/)`);
       continue;
     }
-    await stat(join(DIST, url.split('#')[0])).catch(() => {
-      problems.push(`index.html references missing file: ${url}`);
-    });
+    await inDist(url, 'index.html');
   }
   for (const cssFile of ['page.css', 'app.css']) {
     const css = await readFile(join(DIST, cssFile), 'utf8').catch(() => '');
@@ -243,9 +260,7 @@ async function check() {
         problems.push(`absolute path in ${cssFile}: ${url}`);
         continue;
       }
-      await stat(join(DIST, url)).catch(() => {
-        problems.push(`${cssFile} references missing file: ${url}`);
-      });
+      await inDist(url, cssFile);
     }
   }
   // The page must make zero external requests: no http(s) URL may be fetched

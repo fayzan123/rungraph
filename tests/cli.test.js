@@ -61,10 +61,11 @@ describe('golden CLI (agent contract)', () => {
     expect(ir.nodes.length).toBeGreaterThan(5);
   });
 
-  // The three deriveSignals call sites (cli, server, watcher) are easy to add a
-  // fourth producer to and forget. If an agent reading --json and a human
-  // reading the dashboard disagree about what is wrong, neither can be trusted,
-  // so a missed call site has to fail CI rather than go unnoticed.
+  // The four deriveSignals call sites (cli, server, watcher, and the site
+  // bake in scripts/build-site.mjs — guarded by tests/site.test.js) are easy
+  // to add a fifth producer to and forget. If an agent reading --json and a
+  // human reading the dashboard disagree about what is wrong, neither can be
+  // trusted, so a missed call site has to fail CI rather than go unnoticed.
   it('graph --json carries derived signals', async () => {
     const r = await run('graph', TROUBLE_RUN_ID, '--json');
     const ir = JSON.parse(r.stdout);

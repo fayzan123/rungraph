@@ -30,6 +30,34 @@ describe('api-static (the embed data layer)', () => {
     expect(r.ok).toBe(true);
     expect(r.clientCount).toBe(1);
   });
+
+  // Round-trip against the COMMITTED data files, with fetch stubbed to serve
+  // them: a path typo inside api-static would otherwise only surface as a
+  // broken embed in a browser.
+  it('fetchIndex/fetchGraph/fetchDetail resolve against the baked files', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (path) => {
+      try {
+        const body = await readFile(join(DATA, String(path).replace(/^data\//, '')), 'utf8');
+        return { ok: true, json: async () => JSON.parse(body), text: async () => body };
+      } catch {
+        return { ok: false, status: 404 };
+      }
+    };
+    try {
+      const index = await staticApi.fetchIndex();
+      const runId = index.runs[0].runId;
+      const graph = await staticApi.fetchGraph(runId);
+      expect(graph.meta.runId).toBe(runId);
+      const withDetail = graph.nodes.find((n) => n.hasDetail);
+      const detail = await staticApi.fetchDetail(runId, withDetail.id);
+      expect(detail.kind).toBeTruthy();
+      await expect(staticApi.fetchGraph('nope')).rejects.toThrow(/404/);
+      await expect(staticApi.fetchDetail(runId, 'nope')).rejects.toThrow(/404/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
 
 describe('the baked demo run', () => {

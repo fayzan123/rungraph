@@ -1,0 +1,189 @@
+{
+ "irVersion": 1,
+ "meta": {
+  "runId": "claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444",
+  "adapter": "claude-code",
+  "kind": "session",
+  "title": "Migrate token store",
+  "totals": {
+   "tokens": 454,
+   "toolCalls": 6,
+   "agents": 0
+  },
+  "unrecognizedLineCount": 0,
+  "startedAt": "2026-08-01T12:01:34.500Z",
+  "endedAt": "2026-08-01T12:02:01.500Z"
+ },
+ "nodes": [
+  {
+   "id": "t:00000000-0000-4000-8000-000000000100",
+   "kind": "turn",
+   "label": "Move the token store onto the new refresh API",
+   "status": "completed",
+   "startedAt": "2026-08-01T12:01:34.500Z",
+   "hasDetail": true,
+   "durationMs": 60000,
+   "tokens": {
+    "input": 48,
+    "output": 200
+   },
+   "endedAt": "2026-08-01T12:01:45.000Z"
+  },
+  {
+   "id": "g:toolu_fxT001",
+   "kind": "tool",
+   "label": "Bash · Baseline the token tests",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-01T12:01:36.000Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_fxT101",
+   "kind": "tool",
+   "label": "Edit · token.js ×3",
+   "status": "error",
+   "callCount": 3,
+   "errorCount": 3,
+   "startedAt": "2026-08-01T12:01:39.000Z",
+   "hasDetail": true,
+   "files": [
+    "/home/dev/acme/src/auth/token.js"
+   ]
+  },
+  {
+   "id": "t:00000000-0000-4000-8000-000000000115",
+   "kind": "turn",
+   "label": "Read the file first, then patch it",
+   "status": "completed",
+   "startedAt": "2026-08-01T12:01:49.500Z",
+   "hasDetail": true,
+   "durationMs": 90000,
+   "tokens": {
+    "input": 12,
+    "output": 50
+   },
+   "endedAt": "2026-08-01T12:01:51.000Z"
+  },
+  {
+   "id": "g:toolu_fxT200",
+   "kind": "tool",
+   "label": "Read · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-01T12:01:51.000Z",
+   "hasDetail": true,
+   "files": [
+    "/home/dev/acme/src/auth/token.js"
+   ]
+  },
+  {
+   "id": "t:00000000-0000-4000-8000-000000000121",
+   "kind": "turn",
+   "label": "Ship it",
+   "status": "completed",
+   "startedAt": "2026-08-01T12:01:55.500Z",
+   "hasDetail": true,
+   "durationMs": 1500000,
+   "tokens": {
+    "input": 24,
+    "output": 120
+   },
+   "endedAt": "2026-08-01T12:02:00.000Z"
+  },
+  {
+   "id": "g:toolu_fxT300",
+   "kind": "tool",
+   "label": "Bash · Build the bundle",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-01T12:01:57.000Z",
+   "hasDetail": true
+  }
+ ],
+ "edges": [
+  {
+   "id": "e:sequence:t:00000000-0000-4000-8000-000000000100→g:toolu_fxT001",
+   "kind": "sequence",
+   "from": "t:00000000-0000-4000-8000-000000000100",
+   "to": "g:toolu_fxT001"
+  },
+  {
+   "id": "e:sequence:g:toolu_fxT001→g:toolu_fxT101",
+   "kind": "sequence",
+   "from": "g:toolu_fxT001",
+   "to": "g:toolu_fxT101"
+  },
+  {
+   "id": "e:sequence:g:toolu_fxT101→t:00000000-0000-4000-8000-000000000115",
+   "kind": "sequence",
+   "from": "g:toolu_fxT101",
+   "to": "t:00000000-0000-4000-8000-000000000115",
+   "reason": "after Edit error"
+  },
+  {
+   "id": "e:sequence:t:00000000-0000-4000-8000-000000000115→g:toolu_fxT200",
+   "kind": "sequence",
+   "from": "t:00000000-0000-4000-8000-000000000115",
+   "to": "g:toolu_fxT200"
+  },
+  {
+   "id": "e:sequence:g:toolu_fxT200→t:00000000-0000-4000-8000-000000000121",
+   "kind": "sequence",
+   "from": "g:toolu_fxT200",
+   "to": "t:00000000-0000-4000-8000-000000000121"
+  },
+  {
+   "id": "e:sequence:t:00000000-0000-4000-8000-000000000121→g:toolu_fxT300",
+   "kind": "sequence",
+   "from": "t:00000000-0000-4000-8000-000000000121",
+   "to": "g:toolu_fxT300"
+  }
+ ],
+ "groups": [],
+ "signals": [
+  {
+   "id": "sig:retry-storm:g:toolu_fxT101",
+   "kind": "retry-storm",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_fxT101"
+   ],
+   "label": "3 failed Edit calls",
+   "reason": "Edit failed 3× in a single step on token.js, so the run was retrying instead of making progress."
+  },
+  {
+   "id": "sig:unresolved-error:g:toolu_fxT300",
+   "kind": "unresolved-error",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_fxT300"
+   ],
+   "label": "unresolved Bash error",
+   "reason": "The last Bash call in this lane failed and nothing came back to fix it."
+  },
+  {
+   "id": "sig:course-change",
+   "kind": "course-change",
+   "severity": "info",
+   "nodeIds": [
+    "t:00000000-0000-4000-8000-000000000115"
+   ],
+   "label": "1 course change",
+   "reason": "The run's own lineage explains this step: “after Edit error”."
+  },
+  {
+   "id": "sig:outlier",
+   "kind": "outlier",
+   "severity": "info",
+   "nodeIds": [
+    "t:00000000-0000-4000-8000-000000000121"
+   ],
+   "label": "1 outsized step",
+   "reason": "“Ship it” is 17× the run's median runtime."
+  }
+ ]
+}

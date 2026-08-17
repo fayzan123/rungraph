@@ -1,0 +1,15 @@
+{
+ "runs": [
+  {
+   "runId": "claude-code:-home-dev-acme:44444444-4444-4444-8444-444444444444",
+   "adapter": "claude-code",
+   "kind": "session",
+   "title": "Migrate token store",
+   "project": "/home/dev/acme",
+   "startedAt": "2026-08-01T12:01:34.500Z",
+   "modifiedAt": "2026-08-01T12:02:01.500Z",
+   "sizeBytes": null,
+   "active": false
+  }
+ ]
+}

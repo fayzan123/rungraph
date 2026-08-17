@@ -1,0 +1,89 @@
+{
+ "g:toolu_fxT001": {
+  "kind": "tool",
+  "name": "Bash",
+  "calls": [
+   {
+    "toolUseId": "toolu_fxT001",
+    "input": "{\n  \"command\": \"npm test -- token\",\n  \"description\": \"Baseline the token tests\"\n}",
+    "output": "12 passed",
+    "isError": false,
+    "startedAt": "2026-08-01T12:01:36.000Z",
+    "durationMs": 1500
+   }
+  ]
+ },
+ "g:toolu_fxT101": {
+  "kind": "tool",
+  "name": "Edit",
+  "calls": [
+   {
+    "toolUseId": "toolu_fxT101",
+    "input": "{\n  \"file_path\": \"/home/dev/acme/src/auth/token.js\",\n  \"old_string\": \"refreshToken(\",\n  \"new_string\": \"refresh(\"\n}",
+    "output": "Error: String to replace not found in file.",
+    "isError": true,
+    "startedAt": "2026-08-01T12:01:39.000Z",
+    "durationMs": 1500
+   },
+   {
+    "toolUseId": "toolu_fxT102",
+    "input": "{\n  \"file_path\": \"/home/dev/acme/src/auth/token.js\",\n  \"old_string\": \"refreshToken(\",\n  \"new_string\": \"refresh(\"\n}",
+    "output": "Error: String to replace not found in file.",
+    "isError": true,
+    "startedAt": "2026-08-01T12:01:42.000Z",
+    "durationMs": 1500
+   },
+   {
+    "toolUseId": "toolu_fxT103",
+    "input": "{\n  \"file_path\": \"/home/dev/acme/src/auth/token.js\",\n  \"old_string\": \"refreshToken(\",\n  \"new_string\": \"refresh(\"\n}",
+    "output": "Error: String to replace not found in file.",
+    "isError": true,
+    "startedAt": "2026-08-01T12:01:45.000Z",
+    "durationMs": 1500
+   }
+  ]
+ },
+ "t:00000000-0000-4000-8000-000000000100": {
+  "kind": "turn",
+  "prompt": "Move the token store onto the new refresh API",
+  "responseText": ""
+ },
+ "g:toolu_fxT200": {
+  "kind": "tool",
+  "name": "Read",
+  "calls": [
+   {
+    "toolUseId": "toolu_fxT200",
+    "input": "{\n  \"file_path\": \"/home/dev/acme/src/auth/token.js\"\n}",
+    "output": "export async function refresh_token() {}",
+    "isError": false,
+    "startedAt": "2026-08-01T12:01:51.000Z",
+    "durationMs": 1500
+   }
+  ]
+ },
+ "t:00000000-0000-4000-8000-000000000115": {
+  "kind": "turn",
+  "prompt": "Read the file first, then patch it",
+  "responseText": ""
+ },
+ "g:toolu_fxT300": {
+  "kind": "tool",
+  "name": "Bash",
+  "calls": [
+   {
+    "toolUseId": "toolu_fxT300",
+    "input": "{\n  \"command\": \"npm run build\",\n  \"description\": \"Build the bundle\"\n}",
+    "output": "Error: Exit code 2",
+    "isError": true,
+    "startedAt": "2026-08-01T12:01:57.000Z",
+    "durationMs": 1500
+   }
+  ]
+ },
+ "t:00000000-0000-4000-8000-000000000121": {
+  "kind": "turn",
+  "prompt": "Ship it",
+  "responseText": "The build still fails on the renamed export."
+ }
+}

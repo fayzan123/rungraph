@@ -9,6 +9,9 @@ on:
     paths:
       - 'site/**'
       - 'frontend/**'
+      # the embed bundles src/find.js + src/deeplink.js, and the bake imports
+      # src/bundle.js + src/signals.js — a src-only change must redeploy too
+      - 'src/**'
       - 'scripts/build-site.mjs'
       - '.github/workflows/site.yml'
   workflow_dispatch:

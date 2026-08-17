@@ -20,6 +20,8 @@ async function fetchJson(path) {
     if (!r.ok) throw new Error(`${path}: ${r.status}`);
     return r.json();
   });
+  // A transient failure must not poison every later read of the same file.
+  p.catch(() => cache.delete(path));
   cache.set(path, p);
   return p;
 }
