@@ -1,5 +1,9 @@
 node_modules/
 dist/
+site/dist/
+
+# Design context for the build tooling — personal, local only.
+.impeccable.md
 *.log
 .DS_Store
 coverage/

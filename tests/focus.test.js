@@ -81,6 +81,10 @@ describe('pruneFocus', () => {
     expect(pruneFocus({ nodeIds: ['gone'], label: 'x', reason: '', source: 'agent' }, graph)).toBeNull();
     expect(pruneFocus(null, graph)).toBeNull();
   });
+
+  it('clears an agent focus with an empty node set — never dim-everything-light-nothing', () => {
+    expect(pruneFocus({ nodeIds: [], label: 'x', reason: '', source: 'agent' }, graph)).toBeNull();
+  });
 });
 
 describe('files lane', () => {

@@ -149,6 +149,15 @@ export function Canvas({
   // Figma-style wheel: two-finger scroll pans, pinch (ctrlKey) and
   // cmd+scroll zoom at the cursor. Plain mouse-wheel deltas are normalized.
   const onWheel = (e) => {
+    // Embedded in a scrolling page, the wheel belongs to the PAGE until the
+    // visitor takes the graph's controls (any click on the canvas) — the
+    // embedded-map trap, solved the map way. Leaving the canvas hands the
+    // wheel back. Click-drag, taps, chips and keys stay live throughout.
+    const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+    if (embed && !embed.wheelCaptured) {
+      embed.onWheelPassthrough?.();
+      return; // no preventDefault — the page scrolls
+    }
     e.preventDefault();
     userTouched();
     const rect = wrapRef.current.getBoundingClientRect();
@@ -165,6 +174,9 @@ export function Canvas({
 
   const onPointerDown = (e) => {
     if (e.button !== 0) return; // right/middle press must never arm a drag
+    // A press on the canvas is the visitor taking the embed's controls.
+    const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+    if (embed && !embed.wheelCaptured) embed.setCaptured?.(true);
     // Record the element under the ORIGINAL press before capture: in
     // Chromium, pointer capture retargets the browser's own click event to
     // the capturing svg, so click handlers on nodes never fire.
@@ -230,6 +242,13 @@ export function Canvas({
     setView(fitView(layout, wrapRef.current.getBoundingClientRect()));
   };
 
+  // Embed bridge: the landing page's "fit the graph" chip calls the same fit
+  // the dock button and the `f` key use. See RUNGRAPH_EMBED in app.jsx.
+  useEffect(() => {
+    const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+    if (embed) embed.canvas = { fit };
+  });
+
   const centerNode = (id, scale) => {
     const pos = layout?.nodes.get(id);
     if (!pos || !wrapRef.current) return;
@@ -264,11 +283,19 @@ export function Canvas({
   useEffect(() => {
     const onKey = (e) => {
       if (!graph || !layout) return;
+      // Embedded in a scrolling page, the shortcuts belong to the graph only
+      // while the graph is actually on screen — "/" three sections down must
+      // not yank the viewport back to the hero.
+      const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+      if (embed?.keysEnabled && !embed.keysEnabled()) return;
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable))
         return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Escape') {
+        // Esc also hands the wheel back to the page in embed mode.
+        const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+        if (embed?.wheelCaptured) embed.setCaptured?.(false);
         onSelect(null);
         return onClearFocus?.();
       }
@@ -350,7 +377,15 @@ export function Canvas({
   const showMinimap = layout && box && (mmDragging || !graphFullyVisible(view, box, layout));
 
   return (
-    <div class="canvas-wrap" ref={wrapRef}>
+    <div
+      class="canvas-wrap"
+      ref={wrapRef}
+      onPointerLeave={() => {
+        // Cursor left the canvas: the page owns the wheel again (embed only).
+        const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+        if (embed?.wheelCaptured) embed.setCaptured?.(false);
+      }}
+    >
       <svg
         onWheel={onWheel}
         onPointerDown={onPointerDown}

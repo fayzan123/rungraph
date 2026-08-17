@@ -1,0 +1,13 @@
+$ rungraph export --last 1
+rungraph: export inventory (full content):
+  1 run · 3 nodes · 1 of your prompts included
+    ses  Read .env.example and wire the same variable names into a new deploy.config.js that reads them from…
+  files touched: 2
+    ! /private/tmp/rg-probe/.env.example  ← credential-looking path
+rungraph: ✗ export blocked: 2 high-confidence secrets found
+    run f32c690a-5af0-4ae3-9ce6-eb5ed094c268 · node g:toolu_011TZta9JMi1cEVEFNrksiGM · Read output · AWS access key (AKIA…)
+    run f32c690a-5af0-4ae3-9ce6-eb5ed094c268 · node g:toolu_011TZta9JMi1cEVEFNrksiGM · Read output · AWS secret key (aws_secret_access_key=…)
+  re-run with one of:
+    --redact-secrets    replace each match with a placeholder, keep everything else
+    --structure-only    strip all content, keep graph shape / tool names / timings
+    --allow-secrets     export verbatim (you've confirmed these are fine to share)

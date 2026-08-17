@@ -1,6 +1,8 @@
 # rungraph
 
-**See your agent runs as a graph.**
+**See your agent runs as a graph.** —
+**[fayzan123.github.io/rungraph](https://fayzan123.github.io/rungraph/)**
+embeds a real run you can click around, right in the page.
 
 ![rungraph triaging a live 192-node run: the signal strip flags an unresolved error, clicking it rings the failing node and dims the rest, clicking a file shows the six steps that touched it, and find matches on labels and file paths at once](https://raw.githubusercontent.com/fayzan123/rungraph/master/docs/rungraph-demo.gif)
 

@@ -1,0 +1,638 @@
+/* rungraph landing — the dashboard's material, stretched to a marketing surface.
+   Loads AFTER app.css and re-opens what the dashboard's chrome locked down
+   (body scroll, type scale); everything inherits the same OKLCH tokens. */
+
+/* URLs are relative to the CSS file's SERVED location (site/dist/page.css,
+   next to the copied fonts/ dir) — not to this source file. The build does
+   not rebase them; scripts/build-site.mjs --check verifies they resolve. */
+@font-face {
+  font-family: 'Newsreader';
+  src: url('fonts/newsreader-var.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Newsreader';
+  src: url('fonts/newsreader-italic-var.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --display: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --page-bg: var(--bg-canvas);
+  --measure: 62ch;
+  --gutter: clamp(20px, 4vw, 56px);
+  --band-gap: clamp(88px, 14vh, 180px);
+  /* The dashboard's --ink-faint (2.9:1) is fine for its dense instrument
+     chrome but fails AA for page prose; the page's quiet text uses this
+     brighter cut (≈4.6:1 on the canvas) and leaves the embed's tokens alone. */
+  --faint: oklch(0.58 0.018 68);
+}
+
+/* ---------- the page reclaims the document ---------- */
+html {
+  height: auto;
+  scroll-behavior: smooth;
+}
+body {
+  height: auto;
+  overflow: auto;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: color-mix(in oklch, var(--sage) 40%, transparent); }
+
+a { color: inherit; }
+a:hover { color: var(--sage); }
+
+/* ---------- shared atoms ---------- */
+.microlabel { /* app.css defines it; the page only sizes it up a touch */
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Visible only when focused: lets keyboard users vault the interactive stage. */
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 50;
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--sage);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: none;
+  transform: translateY(-64px);
+  opacity: 0;
+}
+.skip-link:focus-visible {
+  transform: none;
+  opacity: 1;
+}
+.section-tag { margin-bottom: 22px; color: var(--sage); }
+
+/* One focus indicator for every page control — hover styles never stand in. */
+a:focus-visible,
+button:focus-visible,
+.stage .find input:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.display, .display-2 {
+  font-family: var(--display);
+  font-optical-sizing: auto;
+  font-weight: 480;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  text-wrap: balance;
+  margin: 0;
+}
+.display { font-size: clamp(44px, 7.6vw, 108px); line-height: 1.0; }
+.display em.accent { font-style: italic; color: var(--sage); font-weight: 440; }
+.display-2 { font-size: clamp(32px, 4.6vw, 60px); line-height: 1.06; margin-bottom: 22px; }
+.display.giant { font-size: clamp(40px, 8.4vw, 128px); text-align: center; }
+
+.body-lg {
+  max-width: var(--measure);
+  font-size: clamp(15.5px, 1.35vw, 18px);
+  color: var(--ink-dim);
+  margin: 0 0 34px;
+}
+.body-lg b, .body-lg i { color: var(--ink); }
+.body-lg code, .privacy code, .fineprint code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: color-mix(in oklch, var(--sage) 80%, var(--ink));
+}
+.fineprint {
+  max-width: var(--measure);
+  color: var(--faint);
+  font-size: 13px;
+  margin: 18px 0 0;
+}
+.fineprint a { color: var(--ink-dim); }
+
+/* ---------- nav ---------- */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 14px var(--gutter);
+  background: color-mix(in oklch, var(--page-bg) 82%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid color-mix(in oklch, var(--hairline-soft) 60%, transparent);
+}
+.wordmark {
+  font-family: var(--mono);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+.wordmark b { color: var(--amber); font-weight: 600; }
+.wordmark:hover { color: var(--ink); }
+.nav-links { display: flex; gap: 22px; flex: 1; }
+.nav-links a {
+  font-size: 13px;
+  color: var(--ink-dim);
+  text-decoration: none;
+  padding: 8px 2px;
+}
+.nav-links a:hover { color: var(--ink); }
+
+.btn-ink {
+  font-family: var(--ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--ink);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  text-decoration: none;
+  transition: transform 120ms ease-out, background 120ms ease-out;
+}
+.btn-ink:hover { background: #fff; color: var(--bg); transform: translateY(-1px); }
+
+/* ---------- hero ---------- */
+.hero {
+  padding: clamp(48px, 9vh, 110px) var(--gutter) 34px;
+  max-width: 1280px;
+}
+.hero .lede {
+  max-width: 58ch;
+  font-size: clamp(15.5px, 1.5vw, 18.5px);
+  color: var(--ink-dim);
+  margin: 26px 0 30px;
+}
+.cta-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cta-row.center { justify-content: center; margin: 34px 0 10px; }
+
+.npx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--mono);
+  font-size: 14.5px;
+  color: var(--sage);
+  background: var(--bg-panel);
+  border: 1px solid color-mix(in oklch, var(--sage) 38%, transparent);
+  border-radius: 9px;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: border-color 120ms ease-out, background 120ms ease-out, transform 120ms ease-out;
+}
+.npx-chip:hover {
+  border-color: color-mix(in oklch, var(--sage) 70%, transparent);
+  background: color-mix(in oklch, var(--sage) 8%, var(--bg-panel));
+  transform: translateY(-1px);
+}
+.npx-chip .prompt { color: var(--ink-faint); }
+.npx-chip .copy-glyph { color: var(--ink-faint); font-size: 13px; }
+.npx-chip:hover .copy-glyph { color: var(--sage); }
+.npx-chip.small { font-size: 13px; padding: 8px 14px; }
+.npx-chip[data-copied] { border-color: var(--sage); }
+.npx-chip[data-copied] .copy-glyph::after { content: ' copied'; color: var(--sage); font-family: var(--mono); font-size: 11px; }
+
+.benefits {
+  display: flex;
+  gap: 10px 28px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+}
+.benefits li::before { content: '●  '; color: var(--sage-dim); font-size: 8px; vertical-align: 2px; }
+
+/* ---------- the stage (embed) ---------- */
+.stage {
+  position: relative;
+  height: min(82vh, 900px);
+  min-height: 480px;
+  border-top: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+#app { height: 100%; }
+
+/* boot placeholder: covered the moment the app paints */
+.stage-boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
+}
+.stage-boot svg { opacity: 0.8; animation: boot-breathe 1.8s ease-in-out infinite; }
+@keyframes boot-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
+.stage[data-live] .stage-boot { opacity: 0; }
+
+.stage-caption {
+  position: absolute;
+  top: 44px; /* below the signal strip — the chips must stay readable */
+  /* clear of the inspector pane, which owns the stage's right edge */
+  right: calc(min(384px, 30vw) + 22px);
+  z-index: 5;
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  padding: 6px 12px;
+  background: color-mix(in oklch, var(--bg-panel) 88%, transparent);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 7px;
+  text-transform: none;
+  letter-spacing: 0.03em;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.stage-caption a { color: var(--sage); text-decoration: none; }
+.stage-caption a:hover { text-decoration: underline; }
+.stage-caption .keys { color: var(--faint); }
+
+.stage-chips {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+/* Wheel-intent affordances: the hint pill when a scroll passes through, and a
+   whisper of the accent on the stage edge while the graph holds the controls. */
+.scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translate(-50%, 6px);
+  z-index: 6;
+  padding: 9px 18px;
+  background: color-mix(in oklch, var(--bg-panel) 92%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  text-transform: none;
+  letter-spacing: 0.03em;
+  font-size: 11.5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+.scroll-hint[data-show] { opacity: 1; transform: translate(-50%, 0); }
+.stage[data-captured] {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--sage) 35%, transparent);
+}
+/* Touch mirrors the same intent rule: before engagement a finger drag scrolls
+   the page; after a tap on the canvas it pans the graph. */
+.stage:not([data-captured]) .canvas-wrap > svg { touch-action: pan-y; }
+.stage[data-captured] .canvas-wrap > svg { touch-action: none; }
+.try-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  min-height: 34px;
+  color: var(--ink-dim);
+  background: color-mix(in oklch, var(--bg-panel) 90%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
+}
+.try-chip:hover { color: var(--ink); border-color: var(--ink-faint); transform: translateY(-1px); }
+.try-chip.warn { color: var(--clay); border-color: color-mix(in oklch, var(--clay) 45%, transparent); }
+.try-chip.warn:hover { color: color-mix(in oklch, var(--clay) 70%, var(--ink)); }
+.try-chip[data-done]::after { content: ' ✓'; color: var(--sage); }
+
+/* Embed chrome: the page hides what presumes a server or a run list —
+   header (copy-link, live tail), the runs pane, share/export UI — and keeps
+   canvas + strip + inspector. CSS only; no forked components. */
+.stage .header, .stage .picker-tools { display: none; }
+.stage .app { grid-template-rows: 1fr; }
+/* zero the picker's grid column rather than display:none — removing it from
+   the grid would shift .center into the 0px track */
+.stage .main { --picker-w: 0px; }
+.stage .picker { border-right: none; padding: 0; overflow: hidden; visibility: hidden; }
+
+/* On phones the inspector overlays the canvas instead of crushing it. */
+@media (max-width: 700px) {
+  .stage .inspector[data-open="true"] {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(384px, 88vw);
+    --inspector-w: min(384px, 88vw);
+    z-index: 6;
+    box-shadow: -12px 0 40px oklch(0.05 0.01 60 / 0.5);
+  }
+  /* The honesty caption is content, not chrome — only the key hints go. */
+  .stage-caption { right: 10px; left: 10px; justify-content: center; }
+  .stage-caption .keys { display: none; }
+  .stage-chips .try-chip:not(.warn) { display: none; }
+}
+
+/* ---------- bands ---------- */
+.band { padding: var(--band-gap) var(--gutter); }
+.band-inner { max-width: 1180px; margin: 0 auto; }
+.band + .band { border-top: 1px solid color-mix(in oklch, var(--hairline-soft) 55%, transparent); }
+
+/* Section reveals — page.js adds [data-revealed]. Gated on html.js (set by an
+   inline one-liner in <head>): with scripts unavailable, every section is
+   simply visible. A broken page must degrade to a readable page. */
+@media (prefers-reduced-motion: no-preference) {
+  .js .band-inner > * { opacity: 0; transform: translateY(18px); transition: opacity 600ms ease-out, transform 600ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .js .band-inner > *:nth-child(2) { transition-delay: 60ms; }
+  .js .band-inner > *:nth-child(3) { transition-delay: 120ms; }
+  .js .band-inner > *:nth-child(4) { transition-delay: 180ms; }
+  .js .band-inner > *:nth-child(5) { transition-delay: 240ms; }
+  .js [data-revealed] > * { opacity: 1; transform: none; }
+
+  /* Page-load choreography: the hero settles in once, top to bottom. */
+  .hero > *, .nav {
+    animation: hero-in 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .hero > h1 { animation-delay: 60ms; }
+  .hero > .lede { animation-delay: 140ms; }
+  .hero > .cta-row { animation-delay: 220ms; }
+  .hero > .benefits { animation-delay: 300ms; }
+}
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- vignettes (§2) ---------- */
+.vignettes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  margin-top: 14px;
+}
+.vignette {
+  margin: 0;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.vg-canvas {
+  height: 210px;
+  background:
+    radial-gradient(circle at 1px 1px, oklch(0.24 0.014 62 / 0.5) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--bg-canvas);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.vg-canvas svg { display: block; width: 100%; height: 100%; }
+.vignette figcaption {
+  padding: 14px 16px 16px;
+  font-size: 13.5px;
+  color: var(--ink-dim);
+}
+.vignette figcaption b { color: var(--ink); display: block; margin-bottom: 3px; }
+
+/* mini node rendering (vignettes + mini graphs) — presentational only; the
+   labels and statuses come from the baked run */
+.mn-node rect.body { fill: var(--bg-raised); stroke: var(--hairline); }
+.mn-node[data-kind="turn"] rect.body { fill: var(--node-turn); }
+.mn-node[data-kind="agent"] rect.body { fill: var(--node-agent); }
+.mn-node[data-kind="tool"] rect.body { fill: var(--node-tool); }
+.mn-node[data-kind="human"] rect.body { fill: var(--node-human); }
+.mn-node text { font-family: var(--ui); font-size: 11px; fill: var(--ink); }
+.mn-node text.tag { font-family: var(--mono); font-size: 8px; letter-spacing: 0.09em; fill: var(--ink-faint); text-transform: uppercase; }
+.mn-node text.meta { font-family: var(--mono); font-size: 8.5px; fill: var(--ink-dim); }
+.mn-node rect.status { }
+.mn-node[data-status="completed"] rect.status { fill: var(--sage); }
+.mn-node[data-status="error"] rect.status { fill: var(--clay); }
+.mn-edge { stroke: var(--hairline); fill: none; }
+.mn-edge[data-kind="spawn"], .mn-edge[data-kind="return"] { stroke: var(--sage-dim); }
+.mn-edge[data-kind="return"] { stroke-dasharray: 3 4; }
+.mn-edge.has-reason { stroke: var(--amber-dim); }
+.mn-reason { font-family: var(--mono); font-size: 8.5px; fill: var(--amber); }
+
+/* ---------- signals (§3) ---------- */
+.signal-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 34px;
+  align-items: start;
+  margin-top: 10px;
+}
+.signal-defs { display: flex; flex-direction: column; gap: 8px; }
+.sig-chip {
+  display: grid;
+  grid-template-columns: 26px auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  font: inherit;
+  color: var(--ink-dim);
+  background: none;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease-out, background 120ms ease-out;
+}
+.sig-chip .glyph { grid-row: 1 / 3; font-size: 16px; color: var(--ink-faint); }
+.sig-chip b { color: var(--ink); font-size: 14px; font-weight: 600; }
+.sig-chip .def { grid-column: 2; font-size: 12.5px; color: var(--faint); }
+.sig-chip:hover, .sig-chip[data-on] {
+  border-color: color-mix(in oklch, var(--sage) 45%, transparent);
+  background: color-mix(in oklch, var(--sage) 6%, transparent);
+}
+.sig-chip:hover .glyph, .sig-chip[data-on] .glyph { color: var(--sage); }
+.sig-chip[data-absent] { opacity: 0.55; cursor: default; }
+.sig-chip[data-absent]:hover { border-color: var(--hairline-soft); background: none; }
+
+.signal-stage {
+  position: sticky;
+  top: 80px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 12px;
+  background: var(--bg-canvas);
+  padding: 18px;
+}
+.mini-graph { min-height: 260px; }
+.mini-graph svg { display: block; width: 100%; height: auto; }
+/* focus mechanics, miniaturized: members ring, the rest dims — never hides */
+.mini-graph .mn-node, .mini-graph .mn-edge { transition: opacity 200ms ease-out; }
+.mini-graph[data-focused] .mn-node:not([data-lit]) { opacity: 0.22; }
+.mini-graph[data-focused] .mn-edge { opacity: 0.15; }
+.mini-graph .mn-node[data-lit] rect.body { stroke: var(--amber); stroke-width: 1.4; }
+.mini-reason { margin: 14px 2px 0; text-transform: none; letter-spacing: 0.02em; font-size: 11.5px; color: var(--ink-dim); min-height: 1.2em; }
+
+/* ---------- the loop (§4) ---------- */
+.loop-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 6fr);
+  gap: 26px;
+  align-items: stretch;
+  margin-top: 8px;
+}
+.terminal {
+  position: relative;
+  background: oklch(0.13 0.01 58);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.term-head {
+  display: flex;
+  gap: 6px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.term-head span { width: 10px; height: 10px; border-radius: 50%; background: var(--bg-raised); }
+.term-body {
+  margin: 0;
+  padding: 16px 18px 20px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 240px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.term-body .q { color: var(--ink); }
+.term-body .q::before { content: '❯ '; color: var(--sage); }
+.term-body .a { color: var(--ink-dim); }
+.term-body .sys { color: var(--faint); font-size: 11.5px; }
+.term-body .caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  background: var(--sage);
+  vertical-align: -2px;
+  animation: caret-blink 1.1s steps(1) infinite;
+}
+@keyframes caret-blink { 50% { opacity: 0; } }
+.term-replay {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+}
+.ghosted {
+  font-family: var(--mono);
+  font-size: 11px;
+  min-height: 32px;
+  color: var(--ink-dim);
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+.ghosted:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+.loop-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 12px;
+  background: var(--bg-canvas);
+  padding: 18px;
+}
+.loop-stage .mini-graph { flex: 1; }
+.loop-stage .ghosted { align-self: flex-start; }
+
+/* ---------- share (§5) ---------- */
+.terminal.static .term-body { min-height: 0; }
+.term-body .warnline { color: var(--clay); }
+.term-body .okline { color: var(--sage); }
+.term-body .cmd { color: var(--ink); }
+
+/* ---------- agents (§6) ---------- */
+.codeblock {
+  background: oklch(0.13 0.01 58);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 12px;
+  padding: 18px 20px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  overflow-x: auto;
+  max-width: 880px;
+}
+.codeblock .c { color: var(--faint); }
+
+/* ---------- outro ---------- */
+.outro {
+  padding: calc(var(--band-gap) * 1.15) var(--gutter) 70px;
+  border-top: 1px solid color-mix(in oklch, var(--hairline-soft) 55%, transparent);
+  text-align: center;
+}
+.privacy {
+  max-width: 58ch;
+  margin: 26px auto 0;
+  color: var(--faint);
+  font-size: 13.5px;
+}
+.foot-links {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+  margin-top: 44px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+.foot-links a { color: var(--ink-dim); text-decoration: none; }
+.foot-links a:hover { color: var(--sage); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 960px) {
+  .vignettes { grid-template-columns: 1fr; }
+  .vg-canvas { height: 180px; }
+  .signal-demo, .loop-demo { grid-template-columns: 1fr; }
+  .signal-stage { position: static; }
+}
+@media (max-width: 640px) {
+  .nav { gap: 16px; }
+  .nav-links a:not(:last-child) { display: none; }
+  .stage { height: 72vh; min-height: 420px; }
+  .display { font-size: clamp(38px, 11vw, 64px); }
+  .foot-links { flex-wrap: wrap; gap: 14px 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stage-boot svg, .term-body .caret { animation: none; }
+}

@@ -1,0 +1,913 @@
+{
+ "irVersion": 1,
+ "meta": {
+  "runId": "claude-code:-Users-Shared-rungraph-demo:1d690258-b1a5-43e6-8afe-88aff452d12e",
+  "adapter": "claude-code",
+  "kind": "session",
+  "title": "Fix flaky concurrent token refresh test",
+  "totals": {
+   "tokens": 58138,
+   "toolCalls": 45,
+   "agents": 1
+  },
+  "unrecognizedLineCount": 0,
+  "startedAt": "2026-08-17T20:53:31.874Z",
+  "endedAt": "2026-08-17T21:47:46.881Z"
+ },
+ "nodes": [
+  {
+   "id": "t:f2962c64-9c90-4372-ae68-2badbe23375b",
+   "kind": "turn",
+   "label": "The `refreshes the access token once under concurrent calls` test in this repo …",
+   "status": "completed",
+   "startedAt": "2026-08-17T20:53:32.750Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 130,
+    "output": 5384
+   },
+   "durationMs": 57421,
+   "endedAt": "2026-08-17T20:54:30.171Z"
+  },
+  {
+   "id": "g:toolu_01QXMjF6Y6ZToKR4b4TX1A6y",
+   "kind": "tool",
+   "label": "Bash · find /Users/Shared/rungraph-demo…",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:53:35.249Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01Gpn54sSnLb35JocTqxqKAQ",
+   "kind": "tool",
+   "label": "Read · auth.test.js ×2",
+   "status": "completed",
+   "callCount": 2,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:53:38.447Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/test/auth.test.js",
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+   "kind": "tool",
+   "label": "Edit · token.js",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T20:53:51.209Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_014CP4Sfj3cBv2fMm96A1ysf",
+   "kind": "tool",
+   "label": "Read · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:53:52.751Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01Eu6hcXCdjJty8JxG73CC6F",
+   "kind": "tool",
+   "label": "Edit · token.js",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T20:53:58.702Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+   "kind": "tool",
+   "label": "Write · token.js",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T20:54:02.883Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01YJGnFCqpGohG3rvhd5hRZD",
+   "kind": "tool",
+   "label": "Bash · cat > /Users/Shared/rungraph-dem…",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:07.938Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01V4SxHvnk8xmEEFVZ5L6W68",
+   "kind": "tool",
+   "label": "Read · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:09.270Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01Bx1aFcqTPZT4xCrQY1T2dT",
+   "kind": "tool",
+   "label": "Bash · cat /Users/Shared/rungraph-demo/…",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:11.207Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01ShGMMAtbrRxEn3xvn9TgLW",
+   "kind": "tool",
+   "label": "Read · sync-tokens.mjs ×2",
+   "status": "completed",
+   "callCount": 2,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:13.025Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/scripts/sync-tokens.mjs",
+    "/Users/Shared/rungraph-demo/src/token.template.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01DkS6xvixap8ykGYVkNYV3a",
+   "kind": "tool",
+   "label": "Edit · token.template.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:19.603Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.template.js"
+   ]
+  },
+  {
+   "id": "g:toolu_0184NT91eJrjqJKBCzxH9fHN",
+   "kind": "tool",
+   "label": "Bash · npm test",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:21.090Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_019MWekFgyELcmGZnHQqCQc7",
+   "kind": "tool",
+   "label": "Read · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T20:54:23.154Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13",
+   "kind": "turn",
+   "label": "Your edits kept failing and the file kept changing underneath you, so before I …",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:02:54.069Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 591,
+    "output": 6710
+   },
+   "durationMs": 878143,
+   "endedAt": "2026-08-17T21:17:32.212Z"
+  },
+  {
+   "id": "g:toolu_011Vww7qggJSoTGX9tcXP7XF",
+   "kind": "tool",
+   "label": "ToolSearch",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:02:59.215Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01JHs8Gdbrca9jCnvVftdE6b",
+   "kind": "tool",
+   "label": "WebFetch · ci.rungraph-demo.test",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:03:13.715Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+   "kind": "tool",
+   "label": "Bash · curl -s -m 5 -o /dev/null -w \"%{…",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:03:17.289Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01RvjiQqjzbSygeRvYqGQSjA",
+   "kind": "tool",
+   "label": "WebFetch · ci.rungraph-demo.test",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:03:20.274Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01Fv4L9qBDQXWofgVwNzpDRK",
+   "kind": "tool",
+   "label": "Read · token.template.js ×2",
+   "status": "completed",
+   "callCount": 2,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:05:25.648Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.template.js",
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01Jokb14NiwN27ozx4GPryVF",
+   "kind": "tool",
+   "label": "ToolSearch",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:05:42.297Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01Tgmn5ugqc3DGbk32hZ39aS",
+   "kind": "tool",
+   "label": "SendMessage",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:05:55.034Z",
+   "hasDetail": true
+  },
+  {
+   "id": "t:4a8e23a4-4568-47ad-ba27-45c502dd5836",
+   "kind": "turn",
+   "label": "One more thing before we wrap this up: should we keep generating src/token.js f…",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:36:53.598Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 22,
+    "output": 5829
+   },
+   "durationMs": 72433,
+   "endedAt": "2026-08-17T21:38:06.031Z"
+  },
+  {
+   "id": "g:toolu_01MKuWrkzpKmiVygj14MVNHg",
+   "kind": "tool",
+   "label": "Bash · cat .gitignore 2>/dev/null; echo…",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:37:10.507Z",
+   "hasDetail": true
+  },
+  {
+   "id": "h:984551dd-6a0d-4b84-a266-7147b50a978f",
+   "kind": "human",
+   "label": "answered: Fold back to hand-written (recommended)",
+   "status": "completed",
+   "interventionKind": "answer",
+   "startedAt": "2026-08-17T21:37:36.870Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+   "kind": "tool",
+   "label": "Read · package.json ×2",
+   "status": "completed",
+   "callCount": 2,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:39.626Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/package.json",
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01991TAbTJzekTXJtEVkBMc3",
+   "kind": "tool",
+   "label": "Write · token.js",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:37:46.445Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01XBgdQd1SDwLeaD2uGUArTN",
+   "kind": "tool",
+   "label": "Edit · package.json",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:50.818Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/package.json"
+   ]
+  },
+  {
+   "id": "g:toolu_01Vj4qbAbRsccMo32fsyWGA9",
+   "kind": "tool",
+   "label": "Bash · rm -v /Users/Shared/rungraph-dem…",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:52.580Z",
+   "hasDetail": true
+  },
+  {
+   "id": "g:toolu_01Vbve9mZ27ckT7HA9Y3bBbq",
+   "kind": "tool",
+   "label": "Read · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:54.183Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01HGw3oSRRtDCgoWydAUzaQh",
+   "kind": "tool",
+   "label": "Write · token.js",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:58.462Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.js"
+   ]
+  },
+  {
+   "id": "g:toolu_01KP24Vpk3Qo1SsxBeiv9o53",
+   "kind": "tool",
+   "label": "Bash · npm test ×2",
+   "status": "completed",
+   "callCount": 2,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:37:59.931Z",
+   "hasDetail": true
+  },
+  {
+   "id": "t:f232b580-70ff-4d65-8f1c-8149d317d761",
+   "kind": "turn",
+   "label": "Good call. Commit the whole cleanup — the race fix and the codegen removal — wi…",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:41:09.284Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 12,
+    "output": 1190
+   },
+   "durationMs": 26933,
+   "endedAt": "2026-08-17T21:41:36.217Z"
+  },
+  {
+   "id": "g:toolu_0196RXWSbQTXhrpzqfgpZKVc",
+   "kind": "tool",
+   "label": "Bash · git status --porcelain && echo \"… ×5",
+   "status": "completed",
+   "callCount": 5,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:41:14.272Z",
+   "hasDetail": true
+  },
+  {
+   "id": "t:30804d3b-2991-4370-bdad-cb19f4c6e75c",
+   "kind": "turn",
+   "label": "Also tag it — v0.1.1 — and push the tag up so the release job sees it.",
+   "status": "error",
+   "startedAt": "2026-08-17T21:45:39.688Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 6,
+    "output": 559
+   },
+   "durationMs": 38921,
+   "endedAt": "2026-08-17T21:46:18.609Z"
+  },
+  {
+   "id": "g:toolu_01E3439UXVqkBSLpym3WTmuu",
+   "kind": "tool",
+   "label": "Bash · git tag -l; echo \"---\"; grep '\"v… ×3",
+   "status": "completed",
+   "callCount": 3,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:45:44.226Z",
+   "hasDetail": true
+  },
+  {
+   "id": "h:a728b969-5f66-45d8-ba84-e76f794cee3a",
+   "kind": "human",
+   "label": "denied Bash",
+   "status": "completed",
+   "interventionKind": "denial",
+   "startedAt": "2026-08-17T21:45:51.681Z",
+   "hasDetail": true
+  },
+  {
+   "id": "h:fd5302c6-211f-45c6-b8cf-a08f6724bd74",
+   "kind": "human",
+   "label": "interrupted",
+   "status": "completed",
+   "interventionKind": "interrupt",
+   "startedAt": "2026-08-17T21:45:51.682Z",
+   "hasDetail": true
+  },
+  {
+   "id": "t:c23562b6-9871-436c-8f5d-8600b03bc542",
+   "kind": "turn",
+   "label": "Leave it — I'll sort the remote out myself. Prove the flaky auth test is actual…",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:46:18.979Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 4,
+    "output": 342
+   },
+   "durationMs": 8315,
+   "endedAt": "2026-08-17T21:46:27.294Z"
+  },
+  {
+   "id": "g:toolu_01FD4zPd4oFoAuGNRJQJxXAy",
+   "kind": "tool",
+   "label": "Bash · for i in 1 2 3 4 5; do echo \"===…",
+   "status": "completed",
+   "callCount": 1,
+   "errorCount": 0,
+   "startedAt": "2026-08-17T21:46:21.766Z",
+   "hasDetail": true
+  },
+  {
+   "id": "t:93eb653e-e005-4d24-9234-40b76f578baf",
+   "kind": "turn",
+   "label": "Perfect. Last thing: read .github/workflows/test.yml and tell me what CI actual…",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:47:42.957Z",
+   "hasDetail": true,
+   "tokens": {
+    "input": 4,
+    "output": 132
+   },
+   "durationMs": 3924,
+   "endedAt": "2026-08-17T21:47:46.881Z"
+  },
+  {
+   "id": "g:toolu_01XrpaksJT92dErkwvD6KmTd",
+   "kind": "tool",
+   "label": "Read · test.yml",
+   "status": "error",
+   "callCount": 1,
+   "errorCount": 1,
+   "startedAt": "2026-08-17T21:47:45.263Z",
+   "hasDetail": true,
+   "files": [
+    "/Users/Shared/rungraph-demo/.github/workflows/test.yml"
+   ]
+  },
+  {
+   "id": "a:toolu_01NZNa4Y2dhBxjzBfzgoqqfW",
+   "kind": "agent",
+   "label": "Soak-test token race fix",
+   "status": "completed",
+   "startedAt": "2026-08-17T21:03:11.007Z",
+   "hasDetail": true,
+   "agentId": "ac454331e95f1a20b",
+   "model": "claude-sonnet-5",
+   "tokens": {
+    "input": 1313,
+    "output": 35910
+   },
+   "durationMs": 850696,
+   "files": [
+    "/Users/Shared/rungraph-demo/src/token.template.js",
+    "/Users/Shared/rungraph-demo/src/token.js",
+    "/private/tmp/claude-501/-Users-Shared-rungraph-demo/1d690258-b1a5-43e6-8afe-88aff452d12e/tasks/b9thhz723.output",
+    "/tmp/soak/summary.log"
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "id": "e:sequence:t:f2962c64-9c90-4372-ae68-2badbe23375b→g:toolu_01QXMjF6Y6ZToKR4b4TX1A6y",
+   "kind": "sequence",
+   "from": "t:f2962c64-9c90-4372-ae68-2badbe23375b",
+   "to": "g:toolu_01QXMjF6Y6ZToKR4b4TX1A6y"
+  },
+  {
+   "id": "e:sequence:g:toolu_01QXMjF6Y6ZToKR4b4TX1A6y→g:toolu_01Gpn54sSnLb35JocTqxqKAQ",
+   "kind": "sequence",
+   "from": "g:toolu_01QXMjF6Y6ZToKR4b4TX1A6y",
+   "to": "g:toolu_01Gpn54sSnLb35JocTqxqKAQ"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Gpn54sSnLb35JocTqxqKAQ→g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+   "kind": "sequence",
+   "from": "g:toolu_01Gpn54sSnLb35JocTqxqKAQ",
+   "to": "g:toolu_014JsYRfyt2YzM7WNpNCbrXK"
+  },
+  {
+   "id": "e:sequence:g:toolu_014JsYRfyt2YzM7WNpNCbrXK→g:toolu_014CP4Sfj3cBv2fMm96A1ysf",
+   "kind": "sequence",
+   "from": "g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+   "to": "g:toolu_014CP4Sfj3cBv2fMm96A1ysf",
+   "reason": "after Edit error"
+  },
+  {
+   "id": "e:sequence:g:toolu_014CP4Sfj3cBv2fMm96A1ysf→g:toolu_01Eu6hcXCdjJty8JxG73CC6F",
+   "kind": "sequence",
+   "from": "g:toolu_014CP4Sfj3cBv2fMm96A1ysf",
+   "to": "g:toolu_01Eu6hcXCdjJty8JxG73CC6F"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Eu6hcXCdjJty8JxG73CC6F→g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+   "kind": "sequence",
+   "from": "g:toolu_01Eu6hcXCdjJty8JxG73CC6F",
+   "to": "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+   "reason": "after Edit error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01SLxjkDXSsrLYSfhraZ3LpS→g:toolu_01YJGnFCqpGohG3rvhd5hRZD",
+   "kind": "sequence",
+   "from": "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+   "to": "g:toolu_01YJGnFCqpGohG3rvhd5hRZD",
+   "reason": "after Write error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01YJGnFCqpGohG3rvhd5hRZD→g:toolu_01V4SxHvnk8xmEEFVZ5L6W68",
+   "kind": "sequence",
+   "from": "g:toolu_01YJGnFCqpGohG3rvhd5hRZD",
+   "to": "g:toolu_01V4SxHvnk8xmEEFVZ5L6W68"
+  },
+  {
+   "id": "e:sequence:g:toolu_01V4SxHvnk8xmEEFVZ5L6W68→g:toolu_01Bx1aFcqTPZT4xCrQY1T2dT",
+   "kind": "sequence",
+   "from": "g:toolu_01V4SxHvnk8xmEEFVZ5L6W68",
+   "to": "g:toolu_01Bx1aFcqTPZT4xCrQY1T2dT"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Bx1aFcqTPZT4xCrQY1T2dT→g:toolu_01ShGMMAtbrRxEn3xvn9TgLW",
+   "kind": "sequence",
+   "from": "g:toolu_01Bx1aFcqTPZT4xCrQY1T2dT",
+   "to": "g:toolu_01ShGMMAtbrRxEn3xvn9TgLW"
+  },
+  {
+   "id": "e:sequence:g:toolu_01ShGMMAtbrRxEn3xvn9TgLW→g:toolu_01DkS6xvixap8ykGYVkNYV3a",
+   "kind": "sequence",
+   "from": "g:toolu_01ShGMMAtbrRxEn3xvn9TgLW",
+   "to": "g:toolu_01DkS6xvixap8ykGYVkNYV3a"
+  },
+  {
+   "id": "e:sequence:g:toolu_01DkS6xvixap8ykGYVkNYV3a→g:toolu_0184NT91eJrjqJKBCzxH9fHN",
+   "kind": "sequence",
+   "from": "g:toolu_01DkS6xvixap8ykGYVkNYV3a",
+   "to": "g:toolu_0184NT91eJrjqJKBCzxH9fHN"
+  },
+  {
+   "id": "e:sequence:g:toolu_0184NT91eJrjqJKBCzxH9fHN→g:toolu_019MWekFgyELcmGZnHQqCQc7",
+   "kind": "sequence",
+   "from": "g:toolu_0184NT91eJrjqJKBCzxH9fHN",
+   "to": "g:toolu_019MWekFgyELcmGZnHQqCQc7"
+  },
+  {
+   "id": "e:sequence:g:toolu_019MWekFgyELcmGZnHQqCQc7→t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13",
+   "kind": "sequence",
+   "from": "g:toolu_019MWekFgyELcmGZnHQqCQc7",
+   "to": "t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13"
+  },
+  {
+   "id": "e:sequence:t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13→g:toolu_011Vww7qggJSoTGX9tcXP7XF",
+   "kind": "sequence",
+   "from": "t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13",
+   "to": "g:toolu_011Vww7qggJSoTGX9tcXP7XF"
+  },
+  {
+   "id": "e:sequence:g:toolu_011Vww7qggJSoTGX9tcXP7XF→g:toolu_01JHs8Gdbrca9jCnvVftdE6b",
+   "kind": "sequence",
+   "from": "g:toolu_011Vww7qggJSoTGX9tcXP7XF",
+   "to": "g:toolu_01JHs8Gdbrca9jCnvVftdE6b"
+  },
+  {
+   "id": "e:sequence:g:toolu_01JHs8Gdbrca9jCnvVftdE6b→g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+   "kind": "sequence",
+   "from": "g:toolu_01JHs8Gdbrca9jCnvVftdE6b",
+   "to": "g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+   "reason": "after WebFetch error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01TJ3tCEBmAiMc1hxBTzme9i→g:toolu_01RvjiQqjzbSygeRvYqGQSjA",
+   "kind": "sequence",
+   "from": "g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+   "to": "g:toolu_01RvjiQqjzbSygeRvYqGQSjA",
+   "reason": "after Bash error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01RvjiQqjzbSygeRvYqGQSjA→g:toolu_01Fv4L9qBDQXWofgVwNzpDRK",
+   "kind": "sequence",
+   "from": "g:toolu_01RvjiQqjzbSygeRvYqGQSjA",
+   "to": "g:toolu_01Fv4L9qBDQXWofgVwNzpDRK",
+   "reason": "after WebFetch error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Fv4L9qBDQXWofgVwNzpDRK→g:toolu_01Jokb14NiwN27ozx4GPryVF",
+   "kind": "sequence",
+   "from": "g:toolu_01Fv4L9qBDQXWofgVwNzpDRK",
+   "to": "g:toolu_01Jokb14NiwN27ozx4GPryVF"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Jokb14NiwN27ozx4GPryVF→g:toolu_01Tgmn5ugqc3DGbk32hZ39aS",
+   "kind": "sequence",
+   "from": "g:toolu_01Jokb14NiwN27ozx4GPryVF",
+   "to": "g:toolu_01Tgmn5ugqc3DGbk32hZ39aS"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Tgmn5ugqc3DGbk32hZ39aS→t:4a8e23a4-4568-47ad-ba27-45c502dd5836",
+   "kind": "sequence",
+   "from": "g:toolu_01Tgmn5ugqc3DGbk32hZ39aS",
+   "to": "t:4a8e23a4-4568-47ad-ba27-45c502dd5836"
+  },
+  {
+   "id": "e:sequence:t:4a8e23a4-4568-47ad-ba27-45c502dd5836→g:toolu_01MKuWrkzpKmiVygj14MVNHg",
+   "kind": "sequence",
+   "from": "t:4a8e23a4-4568-47ad-ba27-45c502dd5836",
+   "to": "g:toolu_01MKuWrkzpKmiVygj14MVNHg"
+  },
+  {
+   "id": "e:sequence:g:toolu_01MKuWrkzpKmiVygj14MVNHg→h:984551dd-6a0d-4b84-a266-7147b50a978f",
+   "kind": "sequence",
+   "from": "g:toolu_01MKuWrkzpKmiVygj14MVNHg",
+   "to": "h:984551dd-6a0d-4b84-a266-7147b50a978f",
+   "reason": "after Bash error"
+  },
+  {
+   "id": "e:sequence:h:984551dd-6a0d-4b84-a266-7147b50a978f→g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+   "kind": "sequence",
+   "from": "h:984551dd-6a0d-4b84-a266-7147b50a978f",
+   "to": "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+   "reason": "answer: Fold back to hand-written (recommended)"
+  },
+  {
+   "id": "e:sequence:g:toolu_014xfcQRK3cAMjES5PAQPzGP→g:toolu_01991TAbTJzekTXJtEVkBMc3",
+   "kind": "sequence",
+   "from": "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+   "to": "g:toolu_01991TAbTJzekTXJtEVkBMc3"
+  },
+  {
+   "id": "e:sequence:g:toolu_01991TAbTJzekTXJtEVkBMc3→g:toolu_01XBgdQd1SDwLeaD2uGUArTN",
+   "kind": "sequence",
+   "from": "g:toolu_01991TAbTJzekTXJtEVkBMc3",
+   "to": "g:toolu_01XBgdQd1SDwLeaD2uGUArTN",
+   "reason": "after Write error"
+  },
+  {
+   "id": "e:sequence:g:toolu_01XBgdQd1SDwLeaD2uGUArTN→g:toolu_01Vj4qbAbRsccMo32fsyWGA9",
+   "kind": "sequence",
+   "from": "g:toolu_01XBgdQd1SDwLeaD2uGUArTN",
+   "to": "g:toolu_01Vj4qbAbRsccMo32fsyWGA9"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Vj4qbAbRsccMo32fsyWGA9→g:toolu_01Vbve9mZ27ckT7HA9Y3bBbq",
+   "kind": "sequence",
+   "from": "g:toolu_01Vj4qbAbRsccMo32fsyWGA9",
+   "to": "g:toolu_01Vbve9mZ27ckT7HA9Y3bBbq"
+  },
+  {
+   "id": "e:sequence:g:toolu_01Vbve9mZ27ckT7HA9Y3bBbq→g:toolu_01HGw3oSRRtDCgoWydAUzaQh",
+   "kind": "sequence",
+   "from": "g:toolu_01Vbve9mZ27ckT7HA9Y3bBbq",
+   "to": "g:toolu_01HGw3oSRRtDCgoWydAUzaQh"
+  },
+  {
+   "id": "e:sequence:g:toolu_01HGw3oSRRtDCgoWydAUzaQh→g:toolu_01KP24Vpk3Qo1SsxBeiv9o53",
+   "kind": "sequence",
+   "from": "g:toolu_01HGw3oSRRtDCgoWydAUzaQh",
+   "to": "g:toolu_01KP24Vpk3Qo1SsxBeiv9o53"
+  },
+  {
+   "id": "e:sequence:g:toolu_01KP24Vpk3Qo1SsxBeiv9o53→t:f232b580-70ff-4d65-8f1c-8149d317d761",
+   "kind": "sequence",
+   "from": "g:toolu_01KP24Vpk3Qo1SsxBeiv9o53",
+   "to": "t:f232b580-70ff-4d65-8f1c-8149d317d761"
+  },
+  {
+   "id": "e:sequence:t:f232b580-70ff-4d65-8f1c-8149d317d761→g:toolu_0196RXWSbQTXhrpzqfgpZKVc",
+   "kind": "sequence",
+   "from": "t:f232b580-70ff-4d65-8f1c-8149d317d761",
+   "to": "g:toolu_0196RXWSbQTXhrpzqfgpZKVc"
+  },
+  {
+   "id": "e:sequence:g:toolu_0196RXWSbQTXhrpzqfgpZKVc→t:30804d3b-2991-4370-bdad-cb19f4c6e75c",
+   "kind": "sequence",
+   "from": "g:toolu_0196RXWSbQTXhrpzqfgpZKVc",
+   "to": "t:30804d3b-2991-4370-bdad-cb19f4c6e75c"
+  },
+  {
+   "id": "e:sequence:t:30804d3b-2991-4370-bdad-cb19f4c6e75c→g:toolu_01E3439UXVqkBSLpym3WTmuu",
+   "kind": "sequence",
+   "from": "t:30804d3b-2991-4370-bdad-cb19f4c6e75c",
+   "to": "g:toolu_01E3439UXVqkBSLpym3WTmuu"
+  },
+  {
+   "id": "e:sequence:g:toolu_01E3439UXVqkBSLpym3WTmuu→h:a728b969-5f66-45d8-ba84-e76f794cee3a",
+   "kind": "sequence",
+   "from": "g:toolu_01E3439UXVqkBSLpym3WTmuu",
+   "to": "h:a728b969-5f66-45d8-ba84-e76f794cee3a"
+  },
+  {
+   "id": "e:sequence:h:a728b969-5f66-45d8-ba84-e76f794cee3a→h:fd5302c6-211f-45c6-b8cf-a08f6724bd74",
+   "kind": "sequence",
+   "from": "h:a728b969-5f66-45d8-ba84-e76f794cee3a",
+   "to": "h:fd5302c6-211f-45c6-b8cf-a08f6724bd74",
+   "reason": "after permission denial"
+  },
+  {
+   "id": "e:sequence:h:fd5302c6-211f-45c6-b8cf-a08f6724bd74→t:c23562b6-9871-436c-8f5d-8600b03bc542",
+   "kind": "sequence",
+   "from": "h:fd5302c6-211f-45c6-b8cf-a08f6724bd74",
+   "to": "t:c23562b6-9871-436c-8f5d-8600b03bc542",
+   "reason": "after user interrupt"
+  },
+  {
+   "id": "e:sequence:t:c23562b6-9871-436c-8f5d-8600b03bc542→g:toolu_01FD4zPd4oFoAuGNRJQJxXAy",
+   "kind": "sequence",
+   "from": "t:c23562b6-9871-436c-8f5d-8600b03bc542",
+   "to": "g:toolu_01FD4zPd4oFoAuGNRJQJxXAy"
+  },
+  {
+   "id": "e:sequence:g:toolu_01FD4zPd4oFoAuGNRJQJxXAy→t:93eb653e-e005-4d24-9234-40b76f578baf",
+   "kind": "sequence",
+   "from": "g:toolu_01FD4zPd4oFoAuGNRJQJxXAy",
+   "to": "t:93eb653e-e005-4d24-9234-40b76f578baf"
+  },
+  {
+   "id": "e:sequence:t:93eb653e-e005-4d24-9234-40b76f578baf→g:toolu_01XrpaksJT92dErkwvD6KmTd",
+   "kind": "sequence",
+   "from": "t:93eb653e-e005-4d24-9234-40b76f578baf",
+   "to": "g:toolu_01XrpaksJT92dErkwvD6KmTd"
+  },
+  {
+   "id": "e:spawn:g:toolu_011Vww7qggJSoTGX9tcXP7XF→a:toolu_01NZNa4Y2dhBxjzBfzgoqqfW",
+   "kind": "spawn",
+   "from": "g:toolu_011Vww7qggJSoTGX9tcXP7XF",
+   "to": "a:toolu_01NZNa4Y2dhBxjzBfzgoqqfW",
+   "label": "Independently verify a race-condition fix in the repo at /Users/Shared/rungraph-demo. Bac…"
+  },
+  {
+   "id": "e:return:a:toolu_01NZNa4Y2dhBxjzBfzgoqqfW→t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13",
+   "kind": "return",
+   "from": "a:toolu_01NZNa4Y2dhBxjzBfzgoqqfW",
+   "to": "t:1f2c215f-5fde-4e90-b8d1-cfc16c0cad13",
+   "label": "## Final Report **Code review:** `src/token.template.js` (source of truth) and the regene…"
+  }
+ ],
+ "groups": [],
+ "signals": [
+  {
+   "id": "sig:retry-storm:g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+   "kind": "retry-storm",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
+    "g:toolu_01Eu6hcXCdjJty8JxG73CC6F"
+   ],
+   "label": "2 failed Edit calls",
+   "reason": "Edit failed 2× across 2 consecutive steps on token.js, so the run was retrying instead of making progress."
+  },
+  {
+   "id": "sig:retry-storm:g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+   "kind": "retry-storm",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
+    "g:toolu_01991TAbTJzekTXJtEVkBMc3"
+   ],
+   "label": "2 failed Write calls",
+   "reason": "Write failed 2× across 2 consecutive steps on token.js, so the run was retrying instead of making progress."
+  },
+  {
+   "id": "sig:retry-storm:g:toolu_01JHs8Gdbrca9jCnvVftdE6b",
+   "kind": "retry-storm",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_01JHs8Gdbrca9jCnvVftdE6b",
+    "g:toolu_01RvjiQqjzbSygeRvYqGQSjA"
+   ],
+   "label": "2 failed WebFetch calls",
+   "reason": "WebFetch failed 2× across 2 consecutive steps, so the run was retrying instead of making progress."
+  },
+  {
+   "id": "sig:retry-storm:g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+   "kind": "retry-storm",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_01TJ3tCEBmAiMc1hxBTzme9i",
+    "g:toolu_01MKuWrkzpKmiVygj14MVNHg"
+   ],
+   "label": "2 failed Bash calls",
+   "reason": "Bash failed 2× across 2 consecutive steps, so the run was retrying instead of making progress."
+  },
+  {
+   "id": "sig:intervention:denial",
+   "kind": "intervention",
+   "severity": "high",
+   "nodeIds": [
+    "h:a728b969-5f66-45d8-ba84-e76f794cee3a"
+   ],
+   "label": "1 denial",
+   "reason": "1 denial in this run. Permission was refused, so the run had to abandon that approach mid-flight."
+  },
+  {
+   "id": "sig:intervention:interrupt",
+   "kind": "intervention",
+   "severity": "high",
+   "nodeIds": [
+    "h:fd5302c6-211f-45c6-b8cf-a08f6724bd74"
+   ],
+   "label": "1 interrupt",
+   "reason": "1 interrupt in this run. The user cut the run off mid-turn — it was doing something they did not want."
+  },
+  {
+   "id": "sig:unresolved-error:g:toolu_01XrpaksJT92dErkwvD6KmTd",
+   "kind": "unresolved-error",
+   "severity": "high",
+   "nodeIds": [
+    "g:toolu_01XrpaksJT92dErkwvD6KmTd"
+   ],
+   "label": "unresolved Read error",
+   "reason": "The last Read call in this lane failed on test.yml and nothing came back to fix it."
+  },
+  {
+   "id": "sig:course-change",
+   "kind": "course-change",
+   "severity": "info",
+   "nodeIds": [
+    "g:toolu_014CP4Sfj3cBv2fMm96A1ysf",
+    "g:toolu_01YJGnFCqpGohG3rvhd5hRZD",
+    "g:toolu_01Fv4L9qBDQXWofgVwNzpDRK",
+    "h:984551dd-6a0d-4b84-a266-7147b50a978f",
+    "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
+    "g:toolu_01XBgdQd1SDwLeaD2uGUArTN",
+    "t:c23562b6-9871-436c-8f5d-8600b03bc542"
+   ],
+   "label": "7 course changes",
+   "reason": "The run's own lineage explains these 7 steps: “after Edit error”, “after Write error”, “after WebFetch error”, and others."
+  },
+  {
+   "id": "sig:intervention:answer",
+   "kind": "intervention",
+   "severity": "info",
+   "nodeIds": [
+    "h:984551dd-6a0d-4b84-a266-7147b50a978f"
+   ],
+   "label": "1 answered question",
+   "reason": "1 answered question in this run. The run stopped to ask, and those answers steered everything after them."
+  }
+ ]
+}
