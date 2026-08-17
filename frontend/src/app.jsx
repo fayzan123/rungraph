@@ -24,6 +24,12 @@ import { buildFocusHash, descriptorFromFocus, parseFocusHash } from '../../src/d
 // events — so the page's guided chips cannot drift from real behavior.
 const EMBED = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
 
+// Embedded on a phone, the inspector cannot share the width with the canvas —
+// it overlays instead (page CSS), so it must start CLOSED and appear only
+// while something is selected, or it eats the whole portrait screen.
+const embedNarrow = () =>
+  Boolean(EMBED) && typeof matchMedia !== 'undefined' && matchMedia('(max-width: 700px)').matches;
+
 export function App() {
   const [index, setIndex] = useState(null);
   // A deep link (#run=…&sel=…&f=…) wins over the plain ?run= param: the hash
@@ -349,6 +355,17 @@ export function App() {
 
   const togglePane = (side) => setPanes((cur) => savePanes({ ...cur, [side]: !cur[side] }));
 
+  // Narrow embed: the inspector rides the selection — tap a node and it
+  // slides over, deselect (Esc, close, empty canvas) and the graph is back.
+  // Raw setter on purpose: a phone visitor's transient state must not be
+  // persisted as a preference.
+  useEffect(() => {
+    if (!embedNarrow()) return;
+    setPanes((cur) =>
+      cur.right === Boolean(selection) ? cur : { ...cur, right: Boolean(selection) },
+    );
+  }, [selection]);
+
   // Embed bridge (landing page guided chips). Re-registered per render on
   // purpose: the closures must see the current graph and focus, and a plain
   // object assignment costs nothing. Signal focus reuses the deep-link
@@ -577,6 +594,7 @@ const PANES_KEY = 'rungraph.panes';
  * rather than an occasional one — and the graph is the thing people came for.
  */
 function loadPanes() {
+  if (embedNarrow()) return { left: true, right: false };
   try {
     const raw = JSON.parse(localStorage.getItem(PANES_KEY) ?? 'null');
     return { left: raw?.left !== false, right: raw?.right !== false };

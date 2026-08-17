@@ -346,13 +346,16 @@ button:focus-visible,
 
 /* On phones the inspector overlays the canvas instead of crushing it. */
 @media (max-width: 700px) {
+  /* Selection-driven overlay: closed until a node is tapped, and narrow
+     enough that the graph stays visibly behind it — tapping the exposed
+     canvas (or the close button) slides it away again. */
   .stage .inspector[data-open="true"] {
     position: absolute;
     right: 0;
     top: 0;
     bottom: 0;
-    width: min(384px, 88vw);
-    --inspector-w: min(384px, 88vw);
+    width: min(384px, 78vw);
+    --inspector-w: min(384px, 78vw);
     z-index: 6;
     box-shadow: -12px 0 40px oklch(0.05 0.01 60 / 0.5);
   }
@@ -622,7 +625,18 @@ button:focus-visible,
   .vignettes { grid-template-columns: 1fr; }
   .vg-canvas { height: 180px; }
   .signal-demo, .loop-demo { grid-template-columns: 1fr; }
-  .signal-stage { position: static; }
+  /* Touch has no hover: the strip moves ABOVE the chips and stays pinned
+     while you tap through them, so every tap visibly lights the run. */
+  .signal-stage {
+    order: -1;
+    position: sticky;
+    top: 72px;
+    z-index: 5;
+    padding: 12px;
+    background: color-mix(in oklch, var(--bg-canvas) 96%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .signal-stage .mini-graph { min-height: 0; }
 }
 @media (max-width: 640px) {
   .nav { gap: 16px; }
