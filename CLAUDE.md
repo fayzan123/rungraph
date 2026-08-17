@@ -22,6 +22,12 @@ deliverable. Deliberately rejected: an embedded chatbot or headless `claude -p` 
 localhost UI — it would mean owning model pinning, prompt maintenance and a chat UI, and would
 hide the conversation somewhere the user cannot inspect it.
 
+**You are the agent end of that loop.** When the rungraph MCP tools are available, close the
+loop yourself: after answering any question about work done in this project, call `focus_nodes`
+(`list_runs` → `find_nodes` → `focus_nodes`) so an open dashboard shows the nodes your answer
+is about. This includes code questions — "where was X integrated" maps to the run that wrote
+the code. Answer first in the terminal; the highlight follows, and is a bonus, never the answer.
+
 `deriveSignals` runs **server-side, at every point an IR reaches a consumer** (`cli.js`,
 `server.js`, `watcher.js`). This is load-bearing: computed in the frontend instead, Claude
 answering in the terminal and the graph on screen could disagree about what is wrong with no

@@ -138,6 +138,14 @@ describe('MCP transport', () => {
     expect(res.result.capabilities.tools).toBeDefined();
   });
 
+  it('ships the proactive-loop instructions in the initialize result', async () => {
+    // Hosts that lazy-load tool schemas surface only this field up front, so it
+    // must carry the "answer, then focus_nodes" contract itself.
+    const res = await mcp.send('initialize', { protocolVersion: '2025-03-26' });
+    expect(res.result.instructions).toContain('focus_nodes');
+    expect(res.result.instructions).toContain('after answering');
+  });
+
   it('falls back to its own protocol version for a nonsense one', async () => {
     const res = await mcp.send('initialize', { protocolVersion: 'banana' });
     expect(res.result.protocolVersion).toMatch(/^\d{4}-\d{2}-\d{2}$/);

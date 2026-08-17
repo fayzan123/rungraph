@@ -31,6 +31,15 @@ const BIN_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'run
 
 const PROTOCOL_VERSION = '2025-06-18';
 const DATE_VERSION = /^\d{4}-\d{2}-\d{2}$/;
+
+// Server-level instructions exist because tool descriptions alone don't close
+// the loop: hosts that lazy-load tool schemas show the model only bare tool
+// names until it loads them, so the "call focus_nodes after you answer"
+// contract in the focus_nodes description is invisible exactly when the model
+// decides whether to use it. The initialize-result instructions field is
+// surfaced up front even by those hosts — this is the one copy of the
+// proactive-loop contract that is guaranteed to be in context.
+const INSTRUCTIONS = `The user may have a rungraph dashboard open — a live graph view of the AI coding-agent runs on this machine. You and that dashboard are two ends of one loop: answer in the conversation first, then call focus_nodes so the graph lights up the nodes your answer is about. Do this proactively after answering any question about work done in a project — including code questions like "where was X built", where the right nodes live in the run that wrote the code (list_runs, then find_nodes, then focus_nodes). The highlight is a bonus, never the answer: with no dashboard watching, focus_nodes still succeeds with focused:false and you simply mention the highlight was skipped.`;
 const DEFAULT_FIND_LIMIT = 100;
 const SERVER_BOOT_MS = 8000;
 const SERVER_CALL_MS = 3000;
@@ -178,6 +187,7 @@ function initializeResult(params) {
     protocolVersion: typeof asked === 'string' && DATE_VERSION.test(asked) ? asked : PROTOCOL_VERSION,
     capabilities: { tools: {} },
     serverInfo: { name: 'rungraph', version: VERSION },
+    instructions: INSTRUCTIONS,
   };
 }
 
