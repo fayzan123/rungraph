@@ -230,6 +230,13 @@ export function Canvas({
     setView(fitView(layout, wrapRef.current.getBoundingClientRect()));
   };
 
+  // Embed bridge: the landing page's "fit the graph" chip calls the same fit
+  // the dock button and the `f` key use. See RUNGRAPH_EMBED in app.jsx.
+  useEffect(() => {
+    const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+    if (embed) embed.canvas = { fit };
+  });
+
   const centerNode = (id, scale) => {
     const pos = layout?.nodes.get(id);
     if (!pos || !wrapRef.current) return;
@@ -264,6 +271,11 @@ export function Canvas({
   useEffect(() => {
     const onKey = (e) => {
       if (!graph || !layout) return;
+      // Embedded in a scrolling page, the shortcuts belong to the graph only
+      // while the graph is actually on screen — "/" three sections down must
+      // not yank the viewport back to the hero.
+      const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+      if (embed?.keysEnabled && !embed.keysEnabled()) return;
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable))
         return;

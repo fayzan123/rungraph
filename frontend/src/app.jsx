@@ -17,12 +17,22 @@ import {
 } from './focus.js';
 import { buildFocusHash, descriptorFromFocus, parseFocusHash } from '../../src/deeplink.js';
 
+// Embed mode — the landing page (site/) mounts the real app inside a page that
+// owns its own URL. Set by the page before app.js loads; absent everywhere
+// else. The bridge exposes the SAME internal producers a click or a deep link
+// would use (focusFromSignal + pan, the find opener) — never synthetic DOM
+// events — so the page's guided chips cannot drift from real behavior.
+const EMBED = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
+
 export function App() {
   const [index, setIndex] = useState(null);
   // A deep link (#run=…&sel=…&f=…) wins over the plain ?run= param: the hash
   // carries focus state the search param cannot.
   const [runId, setRunId] = useState(
-    () => parseFocusHash(location.hash)?.runId ?? new URLSearchParams(location.search).get('run'),
+    () =>
+      EMBED?.runId ??
+      parseFocusHash(location.hash)?.runId ??
+      new URLSearchParams(location.search).get('run'),
   );
   const [graph, setGraph] = useState(null);
   const [graphError, setGraphError] = useState(null);
@@ -54,10 +64,11 @@ export function App() {
     const load = () =>
       fetchIndex().then((d) => alive && setIndex(d)).catch(() => {});
     load();
-    const t = setInterval(load, 15000);
+    // Static embed: the baked index cannot change, so polling it is noise.
+    const t = EMBED ? null : setInterval(load, 15000);
     return () => {
       alive = false;
-      clearInterval(t);
+      if (t) clearInterval(t);
     };
   }, []);
 
@@ -111,12 +122,16 @@ export function App() {
       },
       (ok) => alive && setConnected(ok),
     );
-    const url = new URL(location.href);
-    url.searchParams.set('run', runId);
-    // A consumed or bypassed deep link must not linger in the address bar —
-    // copying it there would hand someone a link to a run you already left.
-    if (parseFocusHash(url.hash)?.runId !== runId) url.hash = '';
-    history.replaceState(null, '', url);
+    // The embedding page owns its URL (its own anchors live in the hash); the
+    // run param is the dashboard's concern only.
+    if (!EMBED) {
+      const url = new URL(location.href);
+      url.searchParams.set('run', runId);
+      // A consumed or bypassed deep link must not linger in the address bar —
+      // copying it there would hand someone a link to a run you already left.
+      if (parseFocusHash(url.hash)?.runId !== runId) url.hash = '';
+      history.replaceState(null, '', url);
+    }
     return () => {
       alive = false;
       unwatch();
@@ -334,6 +349,47 @@ export function App() {
 
   const togglePane = (side) => setPanes((cur) => savePanes({ ...cur, [side]: !cur[side] }));
 
+  // Embed bridge (landing page guided chips). Re-registered per render on
+  // purpose: the closures must see the current graph and focus, and a plain
+  // object assignment costs nothing. Signal focus reuses the deep-link
+  // restore behavior (focusFromSignal + pan), find reuses the canvas's own
+  // opener — one producer per behavior, here as everywhere.
+  useEffect(() => {
+    if (!EMBED) return;
+    EMBED.app = {
+      focusSignalKind(kind) {
+        const signals = graph?.signals ?? [];
+        const s = signals.find((x) => x.kind === kind) ?? signals[0];
+        if (!s) return false;
+        acknowledge();
+        setSelection(null);
+        setFocus({ ...focusFromSignal(s), pan: true });
+        setFocusSeq((n) => n + 1);
+        return true;
+      },
+      openFind() {
+        acknowledge();
+        setFindOpen(true);
+        setFindSeq((n) => n + 1);
+      },
+      // The captured MCP answer, replayed onto the live embed — the same
+      // agent-sourced focus shape POST /api/focus would deliver.
+      focusNodes(nodeIds, label, reason) {
+        const f = pruneFocus(
+          { nodeIds: [...(nodeIds ?? [])], label: label || 'from your agent', reason: reason ?? '', source: 'agent' },
+          graph,
+        );
+        if (!f) return false;
+        acknowledge();
+        setSelection(null);
+        setFocus(f);
+        setFocusSeq((n) => n + 1);
+        return true;
+      },
+      clearFocus,
+    };
+  });
+
   // Any run the user chooses themselves ends the "your agent moved you" offer —
   // there is nothing to undo once they have navigated on their own.
   const selectRun = (id) => {
@@ -353,6 +409,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (EMBED?.keysEnabled && !EMBED.keysEnabled()) return;
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       if (e.key === '[') togglePane('left');
