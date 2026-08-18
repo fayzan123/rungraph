@@ -1,15 +1,15 @@
 {
  "question": "why did the Edit on token.js keep failing in my rungraph-demo run?",
- "answer": "Found it — confirmed straight from the run's tool errors, not guesswork. src/token.js was a generated file: package.json's pretest hook (and a --watch mode) reran scripts/sync-tokens.mjs, which regenerated it from token.template.js with a fresh `// synced <timestamp>` header every time it ran. The agent would Read the file, then Edit it — but between the read and the write the generator fired again and rewrote it out from under the edit, so every Edit and Write failed with \"File has been modified since read.\" The resolution is in the same run: after asking which way to go, the agent removed the generator entirely, folded token.js back into one hand-written file, and the final Write succeeded with the suite green.",
- "label": "Why token.js edits kept failing",
- "reason": "pretest/watch regenerated token.js between read and write, causing repeated 'file modified since read' errors, until the codegen was removed",
+ "answer": "The run itself already diagnosed and fixed this. Four separate write attempts on src/token.js all failed with the identical error — \"File has been modified since read, either by the user or by a linter\" — and each attempt's old_string carries a different `// synced <timestamp>` line: proof the file was changing between the agent's Read and its Edit. Root cause: token.js wasn't hand-written — it was codegen output, regenerated from token.template.js by scripts/sync-tokens.mjs, and a stray `npm run watch` process was still alive, rewriting it every ~150ms and clobbering it out from under every Edit and Write. The resolution is in the run too: the agent asked before making a structural call, killed the stray watch process, folded token.js back into a plain hand-written file, and deleted the codegen machinery — after which the final Edit and Write completed cleanly and npm test came back green.",
+ "label": "4 failed token.js writes + root cause",
+ "reason": "The repeated 'File has been modified since read' errors on token.js, the stray watch process that caused them, and the turn where the agent diagnosed and fixed it.",
  "nodeIds": [
-  "g:toolu_014JsYRfyt2YzM7WNpNCbrXK",
-  "g:toolu_01Eu6hcXCdjJty8JxG73CC6F",
-  "g:toolu_01SLxjkDXSsrLYSfhraZ3LpS",
-  "g:toolu_01991TAbTJzekTXJtEVkBMc3",
-  "g:toolu_014xfcQRK3cAMjES5PAQPzGP",
-  "t:4a8e23a4-4568-47ad-ba27-45c502dd5836",
-  "g:toolu_01HGw3oSRRtDCgoWydAUzaQh"
+  "g:toolu_01FMxxF5JGeW9Zmx77bEefvG",
+  "g:toolu_01YJUTEQzJizWwkXdajuF5HY",
+  "g:toolu_01CybyCduNWT5rCKamawSEhU",
+  "g:toolu_01UVmzTvt2Hx9CCw4NSW3JpF",
+  "g:toolu_01SnG6f1FeH7TN9ZdR5caiF9",
+  "a:toolu_01Hb5upQcjJXe66CCd4gw1RU",
+  "t:a7b990c9-36d6-45d7-b9f1-be13632886eb"
  ]
 }

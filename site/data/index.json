@@ -1,13 +1,13 @@
 {
  "runs": [
   {
-   "runId": "claude-code:-Users-Shared-rungraph-demo:1d690258-b1a5-43e6-8afe-88aff452d12e",
+   "runId": "claude-code:-Users-Shared-rungraph-demo:ebdf6782-e09d-4eba-97de-4ed2819ae0c1",
    "adapter": "claude-code",
    "kind": "session",
-   "title": "Fix flaky concurrent token refresh test",
+   "title": "Fix concurrent access token refresh race condition",
    "project": "/Users/Shared/rungraph-demo",
-   "startedAt": "2026-08-17T20:53:31.874Z",
-   "modifiedAt": "2026-08-17T21:47:46.881Z",
+   "startedAt": "2026-08-17T23:54:43.689Z",
+   "modifiedAt": "2026-08-18T00:23:22.329Z",
    "sizeBytes": null,
    "active": false
   }
