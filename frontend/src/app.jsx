@@ -4,6 +4,7 @@ import { Canvas } from './canvas.jsx';
 import { Inspector } from './inspector.jsx';
 import { Strip } from './strip.jsx';
 import { ExportDialog } from './export.jsx';
+import { ResumePopover } from './resume.jsx';
 import {
   adapterName,
   focusFromAgent,
@@ -56,6 +57,7 @@ export function App() {
   const [escalated, setEscalated] = useState(false);
   const [panes, setPanes] = useState(loadPanes);
   const [switchedFrom, setSwitchedFrom] = useState(null); // undo for an agent-driven run switch
+  const [resumePop, setResumePop] = useState(null); // { entry, anchor } — the resume popover
   const [linkMiss, setLinkMiss] = useState(null); // deep link to a run this server lacks
   const [linkSeq, setLinkSeq] = useState(0); // bumps when a deep link arrives without a reload
   const pendingFocus = useRef(null); // an agent's focus, waiting for its own graph
@@ -91,6 +93,7 @@ export function App() {
     setQuery('');
     setNote(null);
     setLinkMiss(null);
+    setResumePop(null);
     setEscalated(false);
     seenHigh.current = new Set();
     primed.current = false;
@@ -414,6 +417,11 @@ export function App() {
     setRunId(id);
   };
 
+  // Resume popover, anchored to whichever affordance opened it (the header
+  // button or a picker-row hover action). One popover, entry snapshot in hand.
+  const openResume = (entry, rect) =>
+    setResumePop({ entry, anchor: { left: rect.left, bottom: rect.bottom } });
+
   const undoSwitch = () => {
     const back = switchedFrom;
     setSwitchedFrom(null);
@@ -479,6 +487,16 @@ export function App() {
         )}
         {live && connected && <span class="badge-live">live</span>}
         {runId && !connected && <span class="microlabel">reconnecting…</span>}
+        {currentRun?.resume && (
+          <button
+            class="ghost"
+            data-on={String(resumePop?.entry.runId === currentRun.runId)}
+            onClick={(e) => openResume(currentRun, e.currentTarget.getBoundingClientRect())}
+            title="continue this conversation in your terminal"
+          >
+            resume
+          </button>
+        )}
         {graph && (
           <button class="ghost" onClick={copyLink} title="copy a link that restores this exact view">
             copy link
@@ -508,7 +526,7 @@ export function App() {
         )}
       </header>
       <div class="main" data-left={String(panes.left)} data-right={String(panes.right)}>
-        <Picker index={index} runId={runId} onSelect={selectRun} />
+        <Picker index={index} runId={runId} onSelect={selectRun} onResume={openResume} />
         <div class="center">
           {linkMiss && (
             <div class="link-banner">
@@ -585,6 +603,18 @@ export function App() {
           }}
         />
       </div>
+      {resumePop && (
+        <ResumePopover
+          // Keyed by run: the fork pre-check (and busy/copied state) is derived
+          // at mount, so swapping entries without a remount would carry one
+          // run's state onto another — losing the live-run fork default.
+          key={resumePop.entry.runId}
+          entry={resumePop.entry}
+          anchor={resumePop.anchor}
+          onClose={() => setResumePop(null)}
+          onNote={setNote}
+        />
+      )}
     </div>
   );
 }
@@ -643,7 +673,7 @@ function saveGroupPrefs(prefs) {
   return prefs;
 }
 
-function Picker({ index, runId, onSelect }) {
+function Picker({ index, runId, onSelect, onResume }) {
   const [prefs, setPrefs] = useState(loadGroupPrefs);
   // Share mode: check off runs, hit export. Backed by GET /api/export — the
   // same export module the CLI uses, so the consent surface cannot fork.
@@ -783,48 +813,62 @@ function Picker({ index, runId, onSelect }) {
             {open && (
               <div class="project-runs" id={groupId}>
                 {runs.map((r) => (
-                  <button
-                    key={r.runId}
-                    class="run-item"
-                    data-selected={String(!selectMode && r.runId === runId)}
-                    data-checked={String(selectMode && checked.has(r.runId))}
-                    onClick={() => (selectMode ? toggleChecked(r.runId) : onSelect(r.runId))}
-                    title={r.runId}
-                  >
-                    <div class="title">
-                      {selectMode && (
-                        <span class="check" aria-hidden="true">
-                          {checked.has(r.runId) ? '☑' : '☐'}
+                  // A wrapper, not nesting: the hover-revealed resume action is
+                  // a sibling of the row button (a button inside a button is
+                  // invalid HTML and breaks activation).
+                  <div class="run-row" key={r.runId}>
+                    <button
+                      class="run-item"
+                      data-selected={String(!selectMode && r.runId === runId)}
+                      data-checked={String(selectMode && checked.has(r.runId))}
+                      onClick={() => (selectMode ? toggleChecked(r.runId) : onSelect(r.runId))}
+                      title={r.runId}
+                    >
+                      <div class="title">
+                        {selectMode && (
+                          <span class="check" aria-hidden="true">
+                            {checked.has(r.runId) ? '☑' : '☐'}
+                          </span>
+                        )}
+                        {r.title}
+                      </div>
+                      <div class="sub">
+                        {multiAdapter && (
+                          <span class="adapter" data-adapter={r.adapter}>
+                            {adapterName(r.adapter)}
+                          </span>
+                        )}
+                        <span class={`kind-${r.kind}`}>
+                          {r.kind === 'workflow' ? 'wf' : 'session'}
                         </span>
-                      )}
-                      {r.title}
-                    </div>
-                    <div class="sub">
-                      {multiAdapter && (
-                        <span class="adapter" data-adapter={r.adapter}>
-                          {adapterName(r.adapter)}
-                        </span>
-                      )}
-                      <span class={`kind-${r.kind}`}>
-                        {r.kind === 'workflow' ? 'wf' : 'session'}
-                      </span>
-                      <span>{timeAgo(r.modifiedAt)}</span>
-                      {r.active && <span class="live">● live</span>}
-                      {r.provenance && (
-                        <span
-                          class="provenance"
-                          title={`${r.provenance.bundle} · exported ${r.provenance.exportedAt ?? ''}`}
-                        >
-                          shared by {r.provenance.sharedBy}
-                        </span>
-                      )}
-                      {r.provenance?.snapshot && (
-                        <span class="provenance snap" title={`exported while live, at ${r.provenance.snapshot}`}>
-                          snapshot
-                        </span>
-                      )}
-                    </div>
-                  </button>
+                        <span>{timeAgo(r.modifiedAt)}</span>
+                        {r.active && <span class="live">● live</span>}
+                        {r.provenance && (
+                          <span
+                            class="provenance"
+                            title={`${r.provenance.bundle} · exported ${r.provenance.exportedAt ?? ''}`}
+                          >
+                            shared by {r.provenance.sharedBy}
+                          </span>
+                        )}
+                        {r.provenance?.snapshot && (
+                          <span class="provenance snap" title={`exported while live, at ${r.provenance.snapshot}`}>
+                            snapshot
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    {!selectMode && r.resume && onResume && (
+                      <button
+                        class="ghost resume-hint"
+                        title="continue this conversation in your terminal"
+                        aria-label={`resume ${r.title}`}
+                        onClick={(e) => onResume(r, e.currentTarget.getBoundingClientRect())}
+                      >
+                        resume
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}

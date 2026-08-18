@@ -52,6 +52,24 @@ describe('golden CLI (agent contract)', () => {
     }
   });
 
+  // The resume block rides toIndexEntry, so `list --json` (and MCP list_runs,
+  // which shares the call site) teach an agent the exact resume incantation
+  // for free — copy strings only, never argv or a cwd.
+  it('list --json carries resume commands for sessions, never for workflow rows', async () => {
+    const r = await run('list', '--json');
+    const data = JSON.parse(r.stdout);
+    const session = data.runs.find((e) => e.runId === SESSION_RUN_ID);
+    expect(session.resume.copyCommand).toBe(
+      'claude --resume 11111111-1111-4111-8111-111111111111',
+    );
+    expect(session.resume.forkCopyCommand).toBe(
+      'claude --resume 11111111-1111-4111-8111-111111111111 --fork-session',
+    );
+    const wf = data.runs.find((e) => e.kind === 'workflow');
+    expect(wf).toBeDefined();
+    expect(wf).not.toHaveProperty('resume');
+  });
+
   it('graph <runId> --json: full IR on stdout, exit 0', async () => {
     const r = await run('graph', SESSION_RUN_ID, '--json');
     expect(r.code).toBe(0);

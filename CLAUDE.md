@@ -42,11 +42,13 @@ real sessions, never reasoned into place.
 
 - **Agent-first CLI:** every subcommand non-interactive with `--json`; data on stdout, logs on stderr; exit codes 0/1/2; no prompts anywhere. Agents must be able to operate the whole tool via Bash.
 - **Vendor-neutral IR:** no Claude-specific names or fields outside `adapters/claude-code/`. Provider extras go in a namespaced `ext` bag. Everything downstream consumes only the IR (`irVersion: 1`, documented in SCHEMA.md).
-- **Parser purity:** adapters take lines in, return IR out — no server imports, no I/O beyond reading the run's own files. All format knowledge lives in adapters.
+- **Parser purity:** adapters take lines in, return IR out — no server imports, no I/O beyond reading the run's own files, plus one stat-only existence probe of the run's recorded cwd in `detect()` (it feeds `resumeInfo`'s cwd rule; `resumeInfo` itself is pure string construction). All format knowledge lives in adapters.
 - **Never blank-screen:** unknown lines are skipped + counted, surfaced as a banner, never a crash. Truncated JSONL lines (live tail mid-write) are tolerated.
-- **Privacy:** server binds `127.0.0.1` only; nothing leaves the machine. `POST /api/focus` is
-  the only write endpoint — node ids and two display strings, no disk writes, non-localhost
-  `Origin` rejected.
+- **Privacy:** server binds `127.0.0.1` only; nothing leaves the machine. Two write endpoints,
+  `POST /api/focus` and `POST /api/resume`, both behind the same non-localhost-`Origin`
+  rejection and Host guard; neither executes or persists request-supplied strings (resume takes
+  a runId lookup key and a boolean — the adapter rebuilds the command from the server's own
+  scan), and neither writes to disk.
 - **Zero runtime dependencies.** `package.json` has devDependencies only, and that is
   load-bearing for `npx rungraph`. `src/mcp.js` hand-rolls JSON-RPC over stdio for this reason.
 - **Still out of scope:** run comparison, filtering, cost estimates, cross-run querying.

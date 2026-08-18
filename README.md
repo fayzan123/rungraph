@@ -217,6 +217,18 @@ failure. Runs open at readable zoom: finished runs at the first prompt, live
 runs at the latest activity, with follow mode sliding the view as new nodes
 stream in.
 
+**Resume from the dashboard.** The graph is where you *find* a session — the
+run where auth broke, the conversation from Tuesday you half-remember — and
+every local session carries the edge back to the terminal: **resume** in the
+run header, or hover a run in the list (workflow rows resume via their parent
+session's row). Copy the exact `claude --resume` /
+`codex resume` command (shown in full, so it also teaches the incantation),
+or on macOS open a new Terminal window with the session already loading
+(`RUNGRAPH_TERMINAL=iTerm` targets iTerm2 instead). A live Claude run
+pre-checks **fork** — resume a copy rather than interleaving with the running
+session — and forking an old run to branch it is first-class too. Bundle-served
+runs are other machines' transcripts, so they offer no resume at all.
+
 ## For agents
 
 Everything the UI can do, a coding agent can do over the CLI — no browser, no

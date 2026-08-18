@@ -1002,6 +1002,75 @@ button.ghost[data-on="true"] {
 }
 .export-foot .incantation:hover code { color: var(--amber); }
 
+/* ---------- resume (picker hover action + popover) ---------- */
+.run-row { position: relative; }
+.run-row .resume-hint {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  background: var(--bg-raised);
+  transition: opacity 100ms ease-out;
+}
+.run-row:hover .resume-hint,
+.run-row:focus-within .resume-hint {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The overlay is invisible on purpose: a popover dims nothing — it closes on
+   any outside click and otherwise stays out of the way. */
+.resume-overlay { position: fixed; inset: 0; z-index: 60; }
+.resume-popover {
+  position: fixed;
+  z-index: 61;
+  width: 320px;
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 36px oklch(0.05 0.01 60 / 0.5);
+}
+.resume-popover .resume-cmd {
+  display: block;
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.resume-popover .resume-fork {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 9px 2px 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.resume-popover .resume-fork input { accent-color: var(--amber); }
+.resume-popover .resume-warn {
+  margin: 7px 2px 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--clay);
+}
+.resume-popover .resume-warn.fork { color: var(--amber); }
+.resume-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.resume-actions .primary {
+  color: var(--amber);
+  border-color: color-mix(in oklch, var(--amber) 50%, transparent);
+}
+.resume-actions .primary:disabled { opacity: 0.45; cursor: default; }
+
 /* scrollbars */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 5px; }

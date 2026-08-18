@@ -61,3 +61,12 @@ export function watchGraph(runId, onMessage, onStatus) {
   onStatus?.(true);
   return () => {};
 }
+
+/**
+ * Unreachable in the embed: baked index entries never carry a `resume` field,
+ * so the affordance that would call this never renders. The export exists only
+ * so the bundler resolves the module; behave like a launchless machine anyway.
+ */
+export async function postResume(runId, fork) {
+  return { launched: false, copyCommand: '' };
+}

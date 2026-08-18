@@ -35,6 +35,22 @@ export async function postFocus(runId, nodeIds, label, reason) {
 }
 
 /**
+ * Ask the server to resume this run in a new terminal window (macOS launch
+ * tier). Resolves to `{ launched: true }` or — on any launcher problem —
+ * `{ launched: false, copyCommand }` so the caller can degrade to the copy
+ * tier. Only a non-2xx (stale runId, bundle mode, unforkable vendor) throws.
+ */
+export async function postResume(runId, fork) {
+  const r = await fetch('/api/resume', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ runId, ...(fork ? { fork: true } : {}) }),
+  });
+  if (!r.ok) throw new Error(`resume: ${r.status}`);
+  return r.json();
+}
+
+/**
  * Subscribe to live IR deltas. onMessage receives {type:'snapshot', graph},
  * {type:'delta', …} or {type:'focus', …} (an agent's answer, broadcast by
  * POST /api/focus). onStatus(connected) fires on connection state changes

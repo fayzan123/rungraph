@@ -66,8 +66,18 @@ function byRecency(a, b) {
   return a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0;
 }
 
-/** Serializable picker/index entry derived from a RunRef. */
+/**
+ * Serializable picker/index entry derived from a RunRef.
+ *
+ * Local runs whose adapter can resume them carry a `resume` block — only the
+ * copy strings and the launch capability, never `argv`/`cwd` (those stay
+ * server-side; POST /api/resume rebuilds them from its own scan). Bundle
+ * entries are built elsewhere (bundle.js) and never carry `resume`: bundles
+ * are other machines' transcripts, and a resume button on them would be a lie.
+ */
 export function toIndexEntry(ref, now = Date.now()) {
+  const adapter = ADAPTERS.find((a) => a.name === ref.adapter);
+  const info = adapter?.resumeInfo?.(ref) ?? null;
   return {
     runId: ref.runId,
     adapter: ref.adapter,
@@ -78,6 +88,17 @@ export function toIndexEntry(ref, now = Date.now()) {
     modifiedAt: ref.modifiedAt,
     sizeBytes: ref.sizeBytes,
     active: now - Date.parse(ref.modifiedAt) < ACTIVE_WINDOW_MS,
+    ...(info
+      ? {
+          resume: {
+            copyCommand: info.copyCommand,
+            ...(info.forkCopyCommand ? { forkCopyCommand: info.forkCopyCommand } : {}),
+            // v1 launches on macOS only; elsewhere the UI shows the copy tier
+            // alone. A Linux chain would be untested code reasoned into place.
+            canLaunch: process.platform === 'darwin',
+          },
+        }
+      : {}),
   };
 }
 

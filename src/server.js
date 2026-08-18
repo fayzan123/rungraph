@@ -8,6 +8,7 @@ import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
 import { buildBundle, loadBundleFile, bundleRunEntry, defaultBundleName, defaultSharedBy } from './bundle.js';
 import { liveServers } from './registry.js';
+import { launchTerminal } from './launch.js';
 
 const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const HOST = '127.0.0.1'; // privacy: never bind anything else
@@ -41,12 +42,15 @@ const MIME = {
  * the two views for the agent. Nothing is copied anywhere: closing the
  * process leaves no trace, and the file itself is the library.
  *
- * @param {{ preferredPort?: number, project?: string, bundles?: string[] }} opts
+ * @param {{ preferredPort?: number, project?: string, bundles?: string[],
+ *           launch?: (argv: string[], cwd: string|null) => Promise<boolean> }} opts
  * @returns {Promise<{ url: string, port: number, close: () => Promise<void> }>}
  */
 export async function startServer(opts = {}) {
   const state = {
     project: opts.project,
+    // Injectable for tests; the real one opens a macOS terminal window.
+    launch: opts.launch ?? launchTerminal,
     // runId → { key, ir, details } — parse cache, invalidated by mtime key.
     parseCache: new Map(),
     // runId → { watcher, clients: Set<res>, lastIR }
@@ -151,6 +155,10 @@ async function handle(req, res, state) {
   if (path === '/api/focus') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' });
     return apiFocus(req, res, state);
+  }
+  if (path === '/api/resume') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST only' });
+    return apiResume(req, res, state);
   }
   if (path === '/api/index') return apiIndex(res, state);
   if (path === '/api/view') return apiView(res, state);
@@ -280,7 +288,9 @@ function apiView(res, state) {
 }
 
 /**
- * The focus channel — and the server's first write endpoint.
+ * The focus channel — the first of the server's two write endpoints (the
+ * other is /api/resume below; both sit behind the same Origin and Host
+ * guards, and neither executes or persists request-supplied strings).
  *
  * It accepts node ids and two display strings, and its only effect is which
  * nodes a local browser tab highlights: it reads no new files and mutates
@@ -351,6 +361,58 @@ async function apiFocus(req, res, state) {
     otherClients,
     url: `${state.url}/?run=${encodeURIComponent(runId)}`,
   });
+}
+
+/**
+ * The resume channel — the second write endpoint, under the same guards as
+ * /api/focus. Nothing from the request body is ever part of the executed
+ * command: the body contributes a runId (a lookup key into the server's OWN
+ * scan) and a boolean, and the adapter builds the argv from the re-resolved
+ * RunRef. A forged local request can at worst open a terminal with a
+ * legitimately-resumed session sitting at its input prompt, executing nothing.
+ *
+ * Launcher problems never hard-fail: any spawn failure or unsupported
+ * platform answers 200 `{ launched: false, copyCommand }`, and the UI
+ * degrades to copy-with-toast.
+ */
+async function apiResume(req, res, state) {
+  const origin = req.headers.origin;
+  if (origin && !isLocalOrigin(origin, state.port)) {
+    return sendJson(res, 403, { error: 'cross-origin resume rejected' });
+  }
+  if (state.bundles) {
+    return sendJson(res, 400, {
+      error: 'these runs came from a bundle on another machine — there is no session here to resume',
+    });
+  }
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: String(err.message ?? err) });
+  }
+  const runId = typeof body?.runId === 'string' ? body.runId : null;
+  if (!runId) {
+    return sendJson(res, 400, { error: 'expected { runId: string, fork?: boolean }' });
+  }
+  const fork = body?.fork === true;
+
+  const ref = await resolveRun(state, runId);
+  if (!ref) return sendJson(res, 404, { error: `no run found with id "${runId}"` });
+  const adapter = ADAPTERS.find((a) => a.name === ref.adapter);
+  const info = adapter?.resumeInfo?.(ref) ?? null;
+  if (!info) {
+    return sendJson(res, 400, { error: `run "${runId}" cannot be resumed (${ref.kind === 'workflow' ? 'workflow runs resume via their parent session' : `no resume support in the ${ref.adapter} adapter`})` });
+  }
+  if (fork && !info.forkArgv) {
+    // Belt and braces — the UI never offers fork where the vendor lacks it.
+    return sendJson(res, 400, { error: `${ref.adapter} cannot fork a session — resume without fork` });
+  }
+
+  const argv = fork ? info.forkArgv : info.argv;
+  const copyCommand = fork ? info.forkCopyCommand : info.copyCommand;
+  const launched = await state.launch(argv, info.cwd);
+  sendJson(res, 200, launched ? { launched: true } : { launched: false, copyCommand });
 }
 
 function isLocalOrigin(origin, port) {

@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
-import { headLines, safeParseJson, statOrNull } from '../../util.js';
+import { headLines, safeParseJson, statOrNull, shellQuote } from '../../util.js';
 import { snippet } from '../../ir.js';
 
 /**
@@ -30,6 +30,7 @@ const ROLLOUT_RE = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{8,})
  * @property {string} title
  * @property {string} project      The session cwd (authoritative, from meta).
  * @property {boolean} projectFromCwd
+ * @property {boolean} projectExists  Whether `project` is a directory on disk right now.
  * @property {string} root         The sessions root — parse() resolves child
  *                                 rollouts across date dirs from here.
  * @property {string} sessionId    The thread uuid.
@@ -42,9 +43,12 @@ const ROLLOUT_RE = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{8,})
 /** Every non-subagent Codex thread under the given roots. */
 export async function detect(rootDirs) {
   const refs = [];
+  // Threads cluster on a handful of cwds — cache the existence probe per path
+  // so a large corpus costs a few stats, not one per rollout.
+  const dirExists = new Map();
   for (const root of rootDirs) {
     for (const file of await rolloutFiles(root)) {
-      const ref = await refFromRollout(root, file);
+      const ref = await refFromRollout(root, file, dirExists);
       if (ref) refs.push(ref);
     }
   }
@@ -80,20 +84,25 @@ async function rolloutFiles(root) {
   return out;
 }
 
-async function refFromRollout(root, file) {
+async function refFromRollout(root, file, dirExists = new Map()) {
   const st = await statOrNull(file);
   if (!st) return null;
   const peek = await peekRollout(file);
   if (!peek) return null; // unreadable or headless — not a run we can name
   if (peek.subagent) return null; // rendered inside its parent's graph instead
   const threadId = peek.id ?? basename(file).match(ROLLOUT_RE)?.[1] ?? basename(file, '.jsonl');
+  const project = peek.cwd || '(unknown project)';
+  if (!dirExists.has(project)) {
+    dirExists.set(project, (await statOrNull(project))?.isDirectory() ?? false);
+  }
   return {
     runId: `${ADAPTER_NAME}:${threadId}`,
     adapter: ADAPTER_NAME,
     kind: 'session',
     title: peek.title || '(codex session)',
-    project: peek.cwd || '(unknown project)',
+    project,
     projectFromCwd: Boolean(peek.cwd),
+    projectExists: dirExists.get(project),
     root,
     sessionId: threadId,
     sessionFile: file,
@@ -248,4 +257,31 @@ export function watchTargets(ref) {
  */
 export function matchesProject() {
   return false;
+}
+
+/**
+ * How to continue this thread in a real terminal. Pure string construction
+ * from the RunRef — the existence probe behind `projectExists` already ran in
+ * detect(), where the I/O lives.
+ *
+ * Verified against codex-cli 0.144.4 (2026-08-17): `codex resume <thread-id>`
+ * resumes from any directory, but the sandbox is cwd-relative — so the copy
+ * string carries a `cd` whenever the project dir still exists, and drops it
+ * (documented degradation: sandbox roots at $HOME) when it does not. A copy
+ * string that fails on paste is worse than one that degrades like the launch
+ * tier does. Codex has no fork equivalent, so no forkArgv.
+ *
+ * @param {CodexRunRef} ref
+ * @returns {{ argv: string[], cwd: string|null, copyCommand: string }|null}
+ */
+export function resumeInfo(ref) {
+  if (ref.kind !== 'session') return null;
+  const argv = ['codex', 'resume', ref.sessionId];
+  const cwd = ref.projectExists ? ref.project : null;
+  const command = argv.map(shellQuote).join(' ');
+  return {
+    argv,
+    cwd,
+    copyCommand: cwd ? `cd ${shellQuote(cwd)} && ${command}` : command,
+  };
 }

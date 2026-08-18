@@ -89,3 +89,15 @@ export async function statOrNull(path) {
     return null;
   }
 }
+
+/**
+ * POSIX single-quote escaping for one shell word. Clearly-safe strings stay
+ * unquoted so the commands users copy or read stay clean (`claude --resume
+ * <uuid>`, not a wall of quotes); anything else — spaces, quotes, an empty
+ * string — is wrapped and internal quotes escaped, so a pasted command never
+ * splits or injects.
+ */
+export function shellQuote(s) {
+  if (/^[A-Za-z0-9_\-./:@%+=,]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}

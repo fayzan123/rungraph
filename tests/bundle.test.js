@@ -336,6 +336,24 @@ describe('rungraph open — a server over bundles', () => {
     expect(body.error).toContain('send the original');
   });
 
+  // The affordance-precision analog of the clean-run test: bundles are other
+  // machines' transcripts, so a resume button on them would be a lie.
+  it('bundle index entries carry no resume block', async () => {
+    const { body } = await get('/api/index');
+    expect(body.runs.length).toBeGreaterThan(0);
+    for (const r of body.runs) expect(r).not.toHaveProperty('resume');
+  });
+
+  it('refuses to resume in bundle mode: nothing here to resume', async () => {
+    const res = await fetch(server.url + '/api/resume', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ runId: SESSION_RUN_ID }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('bundle');
+  });
+
   it('a corrupt bundle degrades to a named banner; other bundles still serve', async () => {
     const badPath = join(tmp, 'mangled.rungraph');
     await writeFile(badPath, 'this is not gzip');

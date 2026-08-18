@@ -161,13 +161,14 @@ use. Absent when there was no narration; consumers must tolerate absence.
 
 | endpoint | returns |
 |---|---|
-| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, provenance? }], errors? }` |
+| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, resume?, provenance? }], errors? }` |
 | `GET /api/graph/:runId` | the Graph IR above |
 | `GET /api/find/:runId?q=` | `{ runId, query, matched, nodeIds, nodes }` — plain substring over node labels and `files` |
 | `GET /api/detail/:nodeId?run=:runId` | a detail payload |
 | `GET /api/view` | `{ "runs": [{ runId, clientCount }] }` — what the open dashboards are showing; `[]` when no browser is connected |
 | `GET /api/watch/:runId` | SSE stream: `{type:"snapshot", graph}` first, then `{type:"delta", meta, nodes, edges, groups, signals, removedNodeIds, removedEdgeIds}` (merge by id; `signals` replaces wholesale) and `{type:"focus", runId, nodeIds, label, reason}` |
 | `POST /api/focus` | `{ runId, nodeIds, label, reason }` → broadcasts a `focus` frame; replies `{ ok, runId, clientCount, url }` |
+| `POST /api/resume` | `{ runId, fork? }` → opens a terminal window resuming that session (macOS; fork only where the vendor supports it); replies `{ launched: true }`, or `{ launched: false, copyCommand }` on any launcher problem — never a hard failure. `400` in bundle mode, for unresumable runs, and for `fork` on a fork-less vendor; `404` for an unknown runId |
 | `GET /api/export?runs=a,b&redaction=&allow=1&as=&dry=1` | the finished `.rungraph` bundle as a download; `dry=1` → `{ blocked, findings, inventory }` for the consent dialog; a scan hit → `409 { blocked, findings, inventory }` instead of the file; on a bundle server → `409` "send the original file instead" |
 | `GET /api/locate/:runId` | `{ found, url?, port?, self?, sources? }` — do I (or any live server in the registry) serve this run? The deep-link jump. |
 
@@ -175,14 +176,23 @@ The server binds `127.0.0.1` only, and **every request is `Host`-guarded**:
 anything other than `127.0.0.1`/`localhost`/`[::1]` (with the server's port)
 gets a 403. Binding alone never prevented the DNS-rebinding read — a hostile
 page resolving its own domain to 127.0.0.1 arrives same-origin, and only the
-Host header betrays it. `POST /api/focus` remains the one write endpoint: it
-accepts node ids and two display strings, its only effect is which nodes a
-local browser tab highlights, and it reads no files and mutates nothing on
-disk. Requests carrying a non-localhost `Origin` are additionally rejected
-there, so a page the user happens to be browsing cannot drive their dashboard.
+Host header betrays it. There are two write endpoints, `POST /api/focus` and
+`POST /api/resume`, both of which additionally reject requests carrying a
+non-localhost `Origin`, so a page the user happens to be browsing cannot
+drive their dashboard. Neither executes or persists request-supplied strings:
+focus accepts node ids and two display strings and only changes what a local
+browser tab highlights; resume accepts a runId (a lookup key into the
+server's own scan) and a boolean, and the command it launches is built
+entirely server-side by the run's adapter. Neither writes to disk.
 
-`provenance` appears only on bundle-served runs (see below); consumers must
-tolerate its absence — every local run lacks it. `errors` appears only when a
+`resume` appears on local runs whose adapter can resume them (never on
+workflow rows, never in bundle mode):
+`{ copyCommand, forkCopyCommand?, canLaunch }` — the pasteable command, the
+resume-as-a-copy variant where the vendor forks, and whether this platform
+supports the open-in-terminal tier (macOS in v1). `argv` and the launch cwd
+never leave the server. `provenance` appears only on bundle-served runs (see
+below); consumers must tolerate the absence of both — every local run lacks
+`provenance`, every bundle run lacks `resume`. `errors` appears only when a
 bundle file failed to decode: `[{ file, error }]`, a named banner per file.
 
 ## Bundles (`.rungraph`)
@@ -264,7 +274,9 @@ find and the agent's find cannot disagree.
 ## MCP (`rungraph mcp`)
 
 The endpoints above map 1:1 onto the MCP tools, which is why `rungraph mcp` is
-transport and almost no new logic:
+transport and almost no new logic. (`POST /api/resume` is the one deliberate
+exception — there is no `resume` tool, because the agent end of the loop is
+already inside a session; resume is the human's edge, from the dashboard.)
 
 | tool | maps to |
 |---|---|

@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
-import { headLines, tailLines, safeParseJson, statOrNull } from '../../util.js';
+import { headLines, tailLines, safeParseJson, statOrNull, shellQuote } from '../../util.js';
 import { snippet } from '../../ir.js';
 
 export const ADAPTER_NAME = 'claude-code';
@@ -17,6 +17,8 @@ const SESSION_FILE_RE = /^[0-9a-f-]{8,}\.jsonl$/;
  * @property {'session'|'workflow'} kind
  * @property {string} title
  * @property {string} project      Display path of the project (cwd when known).
+ * @property {boolean} projectFromCwd
+ * @property {boolean} projectExists  Whether `project` is a directory on disk right now.
  * @property {string} projectDir   Absolute path of the provider's project dir.
  * @property {string} sessionId
  * @property {string} sessionFile  Absolute path of the main session .jsonl.
@@ -68,6 +70,9 @@ async function detectProject(projectDir) {
   const dirs = new Set(
     entries.filter((e) => e.isDirectory()).map((e) => e.name),
   );
+  // Sessions in one provider dir usually share a cwd — cache the existence
+  // probe per path so a big project costs one stat, not one per session.
+  const dirExists = new Map();
 
   for (const file of sessionFiles) {
     const sessionId = basename(file, '.jsonl');
@@ -76,13 +81,18 @@ async function detectProject(projectDir) {
     if (!st) continue;
 
     const peek = await peekSession(sessionFile, st.size);
+    const project = peek.cwd || decodeProjectDirName(basename(projectDir));
+    if (!dirExists.has(project)) {
+      dirExists.set(project, (await statOrNull(project))?.isDirectory() ?? false);
+    }
     const ref = {
       runId: `${ADAPTER_NAME}:${basename(projectDir)}:${sessionId}`,
       adapter: ADAPTER_NAME,
       kind: 'session',
       title: peek.title || '(untitled session)',
-      project: peek.cwd || decodeProjectDirName(basename(projectDir)),
+      project,
       projectFromCwd: Boolean(peek.cwd),
+      projectExists: dirExists.get(project),
       projectDir,
       sessionId,
       sessionFile,
@@ -126,6 +136,7 @@ async function detectWorkflows(sessionRef) {
       title: (await workflowTitle(sessionRef, ent.name)) || ent.name,
       project: sessionRef.project,
       projectFromCwd: sessionRef.projectFromCwd,
+      projectExists: sessionRef.projectExists,
       projectDir: sessionRef.projectDir,
       sessionId: sessionRef.sessionId,
       sessionFile: sessionRef.sessionFile,
@@ -299,4 +310,32 @@ export function watchTargets(ref) {
  */
 export function matchesProject(ref, resolvedPath) {
   return basename(ref.projectDir) === resolvedPath.replace(/[/.]/g, '-');
+}
+
+/**
+ * How to continue this session in a real terminal. Pure string construction
+ * from the RunRef — the existence probe behind `projectExists` already ran in
+ * detect(), where the I/O lives.
+ *
+ * Verified against Claude Code ≥ 2.1.223 (2026-08-17): `claude --resume <id>`
+ * finds the session from ANY directory, so the copy string carries no `cd`;
+ * `--fork-session` resumes a copy, leaving the original transcript untouched.
+ * Workflow rows are not conversations — their parent session is the thing to
+ * resume, from its own row.
+ *
+ * @param {RunRef} ref
+ * @returns {{ argv: string[], forkArgv: string[], cwd: string|null,
+ *             copyCommand: string, forkCopyCommand: string }|null}
+ */
+export function resumeInfo(ref) {
+  if (ref.kind !== 'session') return null;
+  const argv = ['claude', '--resume', ref.sessionId];
+  const forkArgv = [...argv, '--fork-session'];
+  return {
+    argv,
+    forkArgv,
+    cwd: ref.projectExists ? ref.project : null,
+    copyCommand: argv.map(shellQuote).join(' '),
+    forkCopyCommand: forkArgv.map(shellQuote).join(' '),
+  };
 }

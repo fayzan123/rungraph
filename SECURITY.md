@@ -20,9 +20,13 @@ rungraph handles your complete agent transcripts: every prompt, tool output,
 and file path from every session on the machine. The design promises:
 
 - The server binds `127.0.0.1` only and makes **zero outbound requests**.
-- Every request is Host-header-guarded (DNS-rebinding defense) and
-  `POST /api/focus` — the only write endpoint — additionally rejects
-  non-localhost `Origin`s.
+- Every request is Host-header-guarded (DNS-rebinding defense) and the two
+  write endpoints — `POST /api/focus` and `POST /api/resume` — additionally
+  reject non-localhost `Origin`s. Neither executes or persists
+  request-supplied strings: resume takes a runId (a lookup key into the
+  server's own scan) and a boolean, and the command it launches is built
+  entirely server-side, so a forged local request can at worst open a
+  terminal with a legitimately-resumed session sitting at its prompt.
 - Nothing leaves the machine except an explicit `rungraph export`, which
   prints an inventory every time and hard-blocks on detected secrets.
 - The port registry directory is created `0o700` and ownership-verified
