@@ -24,8 +24,11 @@ That's the whole setup. It scans `~/.claude/projects`, starts a server on
 `127.0.0.1:4321`, and opens your browser. Requires Node ≥ 20.
 
 There is nothing to configure and nothing to instrument. rungraph reads the
-JSONL transcripts Claude Code already writes, so **every session you have ever
-run is already there** — including ones from before you installed it.
+JSONL transcripts Claude Code already writes, so **every session still on your
+disk is already there** — including ones from before you installed rungraph.
+(Claude Code prunes old transcripts after its `cleanupPeriodDays` retention
+setting, 30 days by default, so how far back "already there" reaches is that
+setting's call, not rungraph's.)
 
 Useful variants:
 

@@ -13,8 +13,8 @@ Your coding agent already wrote down everything it did. `rungraph` turns those
 transcripts into an interactive **directed agentic graph** — orchestrator,
 subagents, and tools as nodes; spawn/return relationships as edges; the
 course-change moments (denials, answers, retries) marked on the path. It works
-**retroactively on every session you've ever run**: no hooks, no wrappers, no
-setup, no telemetry.
+**retroactively, on every session still on your disk**: no hooks, no wrappers,
+no setup, no telemetry.
 
 ```
 npx rungraph

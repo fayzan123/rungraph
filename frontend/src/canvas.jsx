@@ -365,7 +365,7 @@ export function Canvas({
           <div class="glyph">◍ → ◍ → ◍</div>
           <div>{error ? `could not load run: ${error}` : 'select a run on the left'}</div>
           {!error && (
-            <div class="microlabel">every past session is already here — no setup</div>
+            <div class="microlabel">every session still on disk is already here — no setup</div>
           )}
         </div>
       </div>
