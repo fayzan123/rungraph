@@ -138,6 +138,12 @@ agent's transcript.
 The minimap (bottom-right) shows the whole run with errors as red beacons —
 click one to jump straight to the failure.
 
+**The run list groups by project.** With more than one agent's runs on the
+machine, a chip rail above the list filters by agent (click a chip; click it
+again — or `all` — to clear; the filter resets on reload), and runs whose
+project isn't a real directory — deleted worktrees, home-directory chats,
+`✦ Hermes tasks` — share one `✦ loose runs` group.
+
 **Pane state is remembered per browser.** If a side looks missing, you collapsed
 it earlier: press `[` or `]`.
 

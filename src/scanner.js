@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import * as claudeCode from './adapters/claude-code/index.js';
 import * as codex from './adapters/codex/index.js';
 import * as hermes from './adapters/hermes/index.js';
@@ -98,6 +98,16 @@ export function toIndexEntry(ref, now = Date.now()) {
     modifiedAt: ref.modifiedAt,
     sizeBytes: ref.sizeBytes,
     active: now - Date.parse(ref.modifiedAt) < ACTIVE_WINDOW_MS,
+    // A run is loose when its project is not a real place to stand: the
+    // adapter gave it a group *label* rather than a path ('✦ Hermes tasks',
+    // '(unknown project)'), its project is the home directory (nobody's
+    // project), or the directory no longer exists (deleted worktrees). The
+    // dashboard groups loose runs under one '✦ loose runs' bucket. Computed
+    // here — not in the frontend — so /api/index, `list --json` and MCP
+    // list_runs share the one implementation, and no vendor bucket label is
+    // ever string-matched outside its adapter. No new I/O: projectExists was
+    // probed at detect. Additive; bundle entries never carry it.
+    loose: !isAbsolute(ref.project ?? '') || ref.project === homedir() || !ref.projectExists,
     ...(info
       ? {
           resume: {

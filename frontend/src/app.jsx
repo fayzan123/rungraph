@@ -16,6 +16,7 @@ import {
   refocus,
   signalKey,
 } from './focus.js';
+import { adapterChips, groupKeyFor, groupRuns } from './picker-groups.js';
 import { buildFocusHash, descriptorFromFocus, parseFocusHash } from '../../src/deeplink.js';
 
 // Embed mode — the landing page (site/) mounts the real app inside a page that
@@ -675,19 +676,28 @@ function saveGroupPrefs(prefs) {
 
 function Picker({ index, runId, onSelect, onResume }) {
   const [prefs, setPrefs] = useState(loadGroupPrefs);
+  // The agent rail's single-select filter. Component state only — a sticky
+  // filter is a "where did my runs go" footgun days later, so a reload
+  // starts unfiltered. Group open/closed prefs stay persisted as before.
+  const [filter, setFilter] = useState(null);
   // Share mode: check off runs, hit export. Backed by GET /api/export — the
   // same export module the CLI uses, so the consent surface cannot fork.
   const [selectMode, setSelectMode] = useState(false);
   const [checked, setChecked] = useState(() => new Set());
   const [exporting, setExporting] = useState(null); // the checked entries, frozen
 
-  const selectedProject = index?.runs?.find((r) => r.runId === runId)?.project;
+  const selectedEntry = index?.runs?.find((r) => r.runId === runId);
+  // The group key doubles as the pref key, so it must come from the one
+  // implementation (bundle > loose bucket > case-merged path).
+  const selectedGroupKey = selectedEntry ? groupKeyFor(selectedEntry) : null;
   // A bundle viewer serves someone else's runs: re-export is refused there
   // ("send the original file instead"), so the affordance does not appear.
   const bundleMode = Boolean(index?.runs?.length) && index.runs.every((r) => r.provenance);
   // Adapter tags appear exactly when there is a distinction to draw: a list
   // that is all one vendor stays untagged (the strip's own rule — say
   // nothing when there is nothing to say), a mixed list tags every run.
+  // The agent rail rides the same gate: single-adapter machines (and the
+  // landing-page embed, whose baked index is single-adapter) see no rail.
   const multiAdapter = new Set((index?.runs ?? []).map((r) => r.adapter)).size > 1;
 
   const toggleChecked = (id) =>
@@ -700,17 +710,31 @@ function Picker({ index, runId, onSelect, onResume }) {
 
   // Reaching a run in a group you had closed (deep link, inspector jump) reveals it again.
   useEffect(() => {
-    if (!selectedProject) return;
+    if (!selectedGroupKey) return;
     setPrefs((cur) => {
-      if (cur[selectedProject] !== 'closed') return cur;
+      if (cur[selectedGroupKey] !== 'closed') return cur;
       const next = { ...cur };
-      delete next[selectedProject];
+      delete next[selectedGroupKey];
       return saveGroupPrefs(next);
     });
-  }, [selectedProject]);
+  }, [selectedGroupKey]);
 
-  const setGroup = (project, open) =>
-    setPrefs((cur) => saveGroupPrefs({ ...cur, [project]: open ? 'open' : 'closed' }));
+  // The rail-side twin of the reveal effect: when the selection stops
+  // matching the filter — deep link, inspector jump, a focus_nodes arrival
+  // switching the tab to another run — the filter clears. The answer the
+  // agent just pointed at must never land on a hidden row. Deliberately NOT
+  // keyed on `filter`: clicking a chip while an off-adapter run is selected
+  // is the user's own act, and must not be instantly undone.
+  useEffect(() => {
+    if (!runId) return;
+    setFilter((cur) => {
+      const entry = index?.runs?.find((r) => r.runId === runId);
+      return cur && entry && entry.adapter !== cur ? null : cur;
+    });
+  }, [runId, index]);
+
+  const setGroup = (key, open) =>
+    setPrefs((cur) => saveGroupPrefs({ ...cur, [key]: open ? 'open' : 'closed' }));
 
   if (!index) return <aside class="picker" />;
   if (!index.runs?.length) {
@@ -733,21 +757,22 @@ function Picker({ index, runId, onSelect, onResume }) {
     );
   }
 
-  const byProject = new Map();
-  for (const r of index.runs) {
-    // Bundle-served runs group under their bundle file, not a project path —
-    // the file is what the user was handed.
-    const groupKey = r.provenance ? `📦 ${r.provenance.bundle}` : r.project;
-    if (!byProject.has(groupKey)) byProject.set(groupKey, []);
-    byProject.get(groupKey).push(r);
-  }
+  // The grouping opinion lives in picker-groups.js (bundle keying, the loose
+  // bucket, case merging, recency order, the filter, the counts); this
+  // component only renders its output.
+  const groups = groupRuns(index.runs, { filter });
+  const chips = adapterChips(index.runs);
 
-  // Runs arrive newest-first, so the first group is the project worked in most recently.
-  // It and the selected run's project open by default; the rest start collapsed, which
-  // keeps the list one screen tall on machines with many projects.
-  const openByDefault = new Set(
-    [[...byProject.keys()][0], selectedProject].filter(Boolean),
-  );
+  // The first group is the project worked in most recently. It and the
+  // selected run's group open by default; the rest start collapsed, which
+  // keeps the list one screen tall on machines with many projects. An active
+  // filter opens every surviving group (it typically leaves a handful);
+  // explicit open/closed prefs still win either way.
+  const openFor = (g) => {
+    if (prefs[g.key]) return prefs[g.key] === 'open';
+    if (filter) return true;
+    return g.key === groups[0]?.key || g.key === selectedGroupKey;
+  };
 
   return (
     <aside class="picker">
@@ -757,6 +782,32 @@ function Picker({ index, runId, onSelect, onResume }) {
           <b>{e.file}</b> — {e.error}
         </div>
       ))}
+      {multiAdapter && (
+        <div class="agent-rail" role="group" aria-label="filter runs by agent">
+          <button
+            class="chip"
+            data-on={String(filter === null)}
+            onClick={() => setFilter(null)}
+            title="show every agent's runs"
+          >
+            all <span class="n">{index.runs.length}</span>
+          </button>
+          {chips.map((c) => (
+            <button
+              class="chip"
+              key={c.adapter}
+              data-adapter={c.adapter}
+              data-on={String(filter === c.adapter)}
+              onClick={() => setFilter((cur) => (cur === c.adapter ? null : c.adapter))}
+              title={`show only ${c.name} runs`}
+              aria-pressed={String(filter === c.adapter)}
+            >
+              {c.live && <span class="live">●</span>}
+              {c.name} <span class="n">{c.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!bundleMode && (
         <div class="picker-tools">
           {selectMode ? (
@@ -785,34 +836,36 @@ function Picker({ index, runId, onSelect, onResume }) {
           )}
         </div>
       )}
-      {[...byProject.entries()].map(([project, runs]) => {
-        const open = prefs[project] ? prefs[project] === 'open' : openByDefault.has(project);
-        const liveCount = runs.filter((r) => r.active).length;
-        const groupId = `project-${encodeURIComponent(project)}`;
+      {groups.map((g) => {
+        const open = openFor(g);
+        const groupId = `project-${encodeURIComponent(g.key)}`;
         return (
           <div
             class="project-group"
-            key={project}
+            key={g.key}
+            data-kind={g.kind}
             data-open={String(open)}
-            data-holds-selection={String(runs.some((r) => r.runId === runId))}
+            data-holds-selection={String(g.runs.some((r) => r.runId === runId))}
           >
             <button
               class="section project-toggle"
-              onClick={() => setGroup(project, !open)}
+              onClick={() => setGroup(g.key, !open)}
               aria-expanded={String(open)}
               aria-controls={groupId}
-              title={project}
+              title={g.label}
             >
               <span class="chev" aria-hidden="true" />
-              <ProjectLabel project={project} />
+              <ProjectLabel project={g.label} />
               <span class="count">
-                {liveCount > 0 && <span class="live">●</span>}
-                {runs.length}
+                {g.live > 0 && <span class="live">●</span>}
+                {/* Plain n when everything matches; "k of n" when the filter
+                    narrowed a mixed group. */}
+                {g.runs.length === g.total ? g.total : `${g.runs.length} of ${g.total}`}
               </span>
             </button>
             {open && (
               <div class="project-runs" id={groupId}>
-                {runs.map((r) => (
+                {g.runs.map((r) => (
                   // A wrapper, not nesting: the hover-revealed resume action is
                   // a sibling of the row button (a button inside a button is
                   // invalid HTML and breaks activation).

@@ -172,7 +172,7 @@ use. Absent when there was no narration; consumers must tolerate absence.
 
 | endpoint | returns |
 |---|---|
-| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, resume?, provenance? }], warnings?, errors? }` |
+| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, loose?, startedAt, modifiedAt, sizeBytes, active, resume?, provenance? }], warnings?, errors? }` |
 | `GET /api/graph/:runId` | the Graph IR above |
 | `GET /api/find/:runId?q=` | `{ runId, query, matched, nodeIds, nodes }` — plain substring over node labels and `files` |
 | `GET /api/detail/:nodeId?run=:runId` | a detail payload |
@@ -218,7 +218,11 @@ learns the same fact a human would read off stderr, instead of inferring
 have neither get a literal group label instead — Hermes sessions started
 from no particular directory all carry **`✦ Hermes tasks`** — and such
 bucket runs never match a `--project` filter. Bundle entries use `📦 <name>`
-the same way.
+the same way. `loose` (additive in irVersion 1; also carried by
+`rungraph list --json` and MCP `list_runs`) marks runs whose `project` is a
+group label, the home directory, or a directory that no longer exists; the
+dashboard groups them under `✦ loose runs`. Bundle entries never carry it,
+and consumers must tolerate its absence.
 
 ## Bundles (`.rungraph`)
 

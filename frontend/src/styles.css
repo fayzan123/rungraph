@@ -19,9 +19,13 @@
   --clay-dim: oklch(0.45 0.10 32);
   --violet: oklch(0.72 0.09 300);
   /* Per-adapter accents: claude wears the house amber, codex a steel blue —
-     the one hue family the palette doesn't otherwise use, so a mixed run
-     list separates at a glance. */
+     the one hue family the palette doesn't otherwise use — and hermes a
+     violet, nudged past --violet's hue so a hermes tag never reads as the
+     workflow/provenance violet. One hue per agent, worn at every point
+     identity appears: rail chip, row tag, header tag, inspector line. */
   --steel: oklch(0.72 0.075 235);
+  --hermes: oklch(0.73 0.1 310);
+  --hermes-dim: oklch(0.52 0.07 310);
 
   --node-turn: oklch(0.26 0.02 68);
   --node-agent: oklch(0.24 0.02 145);
@@ -813,11 +817,63 @@ button.ghost[data-on="true"] {
   color: var(--steel);
   border-color: color-mix(in oklch, var(--steel) 45%, transparent);
 }
+.adapter-tag[data-adapter="hermes"] {
+  color: var(--hermes);
+  border-color: color-mix(in oklch, var(--hermes-dim) 70%, transparent);
+}
 .run-item .sub .adapter { color: var(--ink-faint); }
 .run-item .sub .adapter[data-adapter="claude-code"] { color: var(--amber-dim); }
 .run-item .sub .adapter[data-adapter="codex"] { color: var(--steel); }
+.run-item .sub .adapter[data-adapter="hermes"] { color: var(--hermes); }
 .kv dd[data-adapter="codex"] { color: var(--steel); }
 .kv dd[data-adapter="claude-code"] { color: var(--amber-dim); }
+.kv dd[data-adapter="hermes"] { color: var(--hermes); }
+
+/* ---------- agent rail ---------- */
+
+/* Who made these runs. Rendered only when the index actually mixes agents
+   (the adapter tags' own gate), pinned to the top of the scrolling list so
+   the active filter stays visible however far the list scrolls — the chip is
+   what keeps "where did my runs go" answerable while a filter is on. */
+.agent-rail {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 14px 9px;
+  margin-bottom: 2px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.agent-rail .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: none;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition: color 100ms ease-out, border-color 100ms ease-out, background 100ms ease-out;
+}
+.agent-rail .chip:hover { background: var(--bg-raised); }
+.agent-rail .chip[data-adapter="claude-code"] { color: var(--amber-dim); }
+.agent-rail .chip[data-adapter="codex"] { color: var(--steel); }
+.agent-rail .chip[data-adapter="hermes"] { color: var(--hermes); }
+/* The active chip borrows its own adapter's hue (currentColor), so "which
+   agent am I filtered to" is answered by the same accent the row tags wear. */
+.agent-rail .chip[data-on="true"] {
+  border-color: color-mix(in oklch, currentColor 55%, transparent);
+  background: color-mix(in oklch, currentColor 12%, transparent);
+}
+.agent-rail .chip .n { color: var(--ink-faint); }
+.agent-rail .chip .live { color: var(--amber); font-size: 8px; }
 
 /* ---------- share & reach layer ---------- */
 

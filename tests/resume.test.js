@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../src/server.js';
 import { scan, toIndexEntry } from '../src/scanner.js';
@@ -135,6 +135,12 @@ describe('resumeInfo when the project dir exists', () => {
     expect(info.copyCommand).toBe(`claude --resume ${claudeSid}`);
   });
 
+  it('an ordinary run in a directory that exists is not loose', () => {
+    // The one real-adapter, real-filesystem road through the loose rule.
+    expect(toIndexEntry(claudeRef).loose).toBe(false);
+    expect(toIndexEntry(codexRef).loose).toBe(false);
+  });
+
   it('codex: cwd matters for the sandbox, so the copy string carries a quoted cd', () => {
     const info = codexResumeInfo(codexRef);
     expect(info.cwd).toBe(projDir);
@@ -253,6 +259,77 @@ describe('toIndexEntry resume block', () => {
       expect(entry.resume).not.toHaveProperty('argv');
       expect(entry.resume).not.toHaveProperty('forkArgv');
       expect(entry.resume).not.toHaveProperty('cwd');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The `loose` flag also rides toIndexEntry — one implementation of "this run's
+// project is not a real place to stand", shared by /api/index, `list --json`
+// and MCP list_runs. The dashboard groups loose runs under `✦ loose runs`.
+// ---------------------------------------------------------------------------
+
+describe('toIndexEntry loose flag', () => {
+  // toIndexEntry does no I/O — projectExists was probed at detect — so the
+  // rule is exercised with hand-built refs. An unregistered adapter name
+  // keeps resumeInfo out of the way.
+  const ref = (over = {}) => ({
+    runId: 'x-vendor:loose-case',
+    adapter: 'x-vendor',
+    kind: 'session',
+    title: 't',
+    project: '/somewhere/real',
+    startedAt: null,
+    modifiedAt: '2026-08-01T13:00:00.000Z',
+    sizeBytes: 1,
+    projectExists: true,
+    projectFromCwd: true,
+    ...over,
+  });
+
+  it('an existing absolute project is not loose', () => {
+    expect(toIndexEntry(ref()).loose).toBe(false);
+  });
+
+  it('a bucket label — a group label, not a path — is loose', () => {
+    expect(toIndexEntry(ref({ project: '✦ Hermes tasks', projectExists: false })).loose).toBe(true);
+    expect(toIndexEntry(ref({ project: '(unknown project)', projectExists: false })).loose).toBe(true);
+  });
+
+  it('the home directory is loose even though it exists — nobody’s project', () => {
+    expect(toIndexEntry(ref({ project: homedir(), projectExists: true })).loose).toBe(true);
+  });
+
+  it('a directory that no longer exists is loose — deleted worktrees, removed one-offs', () => {
+    expect(toIndexEntry(ref({ project: '/gone/spec-implement-review-abc', projectExists: false })).loose).toBe(true);
+  });
+
+  it('claude’s decoded-dirname fallback stays home: label-not-path, not projectFromCwd', () => {
+    // A transcript that never revealed a cwd still gets an absolute (decoded)
+    // project path — projectFromCwd false, but its siblings live there, so it
+    // is not loose while the directory stands.
+    expect(
+      toIndexEntry(ref({ projectFromCwd: false, project: '/somewhere/real', projectExists: true }))
+        .loose,
+    ).toBe(false);
+  });
+
+  it('the whole fixture corpus carries the flag, and /home/dev/acme reads as a dead dir', async () => {
+    await pinFixtureMtimes();
+    process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
+    process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
+    process.env.RUNGRAPH_HERMES_HOME = '';
+    try {
+      const { runs } = await scan();
+      for (const r of runs) {
+        // The fixture project exists on no machine running this suite, so
+        // every entry is loose the honest way: its directory is gone.
+        expect(toIndexEntry(r).loose).toBe(true);
+      }
+    } finally {
+      delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
+      delete process.env.RUNGRAPH_CODEX_SESSIONS;
+      delete process.env.RUNGRAPH_HERMES_HOME;
     }
   });
 });
