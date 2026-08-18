@@ -426,7 +426,10 @@ export function App() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (EMBED?.keysEnabled && !EMBED.keysEnabled()) return;
+      // No pane toggles in the embed: the header buttons that would undo a
+      // collapse are hidden there, so a stray "]" would trap the visitor
+      // with no sidebar and no way back.
+      if (EMBED) return;
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       if (e.key === '[') togglePane('left');
@@ -594,7 +597,11 @@ const PANES_KEY = 'rungraph.panes';
  * rather than an occasional one — and the graph is the thing people came for.
  */
 function loadPanes() {
-  if (embedNarrow()) return { left: true, right: false };
+  // The embed never reads (or trusts) persisted pane preferences: they are
+  // dashboard chrome, and with the header hidden there is no affordance to
+  // undo a stored "collapsed" state. Desktop embed: inspector always open;
+  // narrow embed: it rides the selection instead.
+  if (EMBED) return { left: true, right: !embedNarrow() };
   try {
     const raw = JSON.parse(localStorage.getItem(PANES_KEY) ?? 'null');
     return { left: raw?.left !== false, right: raw?.right !== false };
