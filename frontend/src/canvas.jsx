@@ -42,6 +42,13 @@ export function Canvas({
 }) {
   const [layout, setLayout] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
+  // The unrecognized-lines notice, dismissed per run — keyed by runId (the
+  // Canvas is not remounted on a run switch), so another run's notice still
+  // appears. Deliberately NOT resurrected when the count grows: on a live
+  // run the count climbs constantly, and a dismiss that lasts seconds is no
+  // dismiss. Session-only — the never-blank-screen rule wants degradation
+  // surfaced, so a reload starts honest again.
+  const [noticeDismissedFor, setNoticeDismissedFor] = useState(null);
   const [view, setView] = useState({ tx: 40, ty: 30, scale: 1 });
   const [box, setBox] = useState(null);
   const [mmDragging, setMmDragging] = useState(false);
@@ -449,11 +456,21 @@ export function Canvas({
         {layoutError != null && (
           <div class="banner">could not lay out this graph ({layoutError}) — try re-opening the run.</div>
         )}
-        {graph.meta.unrecognizedLineCount > 0 && (
+        {graph.meta.unrecognizedLineCount > 0 && noticeDismissedFor !== graph.meta.runId && (
           <div class="banner">
-            {graph.meta.unrecognizedLineCount} line
-            {graph.meta.unrecognizedLineCount === 1 ? '' : 's'} unrecognized — transcript
-            format may be newer than this rungraph version. Graph may be incomplete.
+            <span>
+              {graph.meta.unrecognizedLineCount} line
+              {graph.meta.unrecognizedLineCount === 1 ? '' : 's'} unrecognized — transcript
+              format may be newer than this rungraph version. Graph may be incomplete.
+            </span>
+            <button
+              class="banner-dismiss"
+              onClick={() => setNoticeDismissedFor(graph.meta.runId)}
+              title="dismiss this notice for this run"
+              aria-label="dismiss the unrecognized-lines notice"
+            >
+              ×
+            </button>
           </div>
         )}
       </div>

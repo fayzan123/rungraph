@@ -499,6 +499,9 @@ button.ghost[data-on="true"] {
   max-width: 70%;
 }
 .banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: color-mix(in oklch, var(--amber) 14%, var(--bg-raised));
   border: 1px solid color-mix(in oklch, var(--amber) 40%, transparent);
   color: var(--ink);
@@ -507,6 +510,18 @@ button.ghost[data-on="true"] {
   font-size: 12px;
   max-width: 100%;
 }
+.banner .banner-dismiss {
+  flex: none;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.banner .banner-dismiss:hover { color: var(--ink); }
 .canvas-empty {
   position: absolute;
   inset: 0;
