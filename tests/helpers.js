@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 export const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'projects');
 export const CODEX_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'codex');
+export const HERMES_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hermes');
 
 /**
  * Pin every fixture file's mtime to a fixed past instant so liveness
- * detection and index ordering are deterministic in snapshots.
+ * detection and index ordering are deterministic in snapshots. (Hermes runs
+ * derive both from DB columns, not file stats — pinned anyway for hygiene.)
  */
 export async function pinFixtureMtimes(when = new Date('2026-08-01T13:00:00Z')) {
   async function walk(dir) {
@@ -19,6 +21,7 @@ export async function pinFixtureMtimes(when = new Date('2026-08-01T13:00:00Z')) 
   }
   await walk(FIXTURE_ROOT);
   await walk(CODEX_FIXTURE_ROOT);
+  await walk(HERMES_FIXTURE_ROOT);
 }
 
 export const SESSION_RUN_ID =
@@ -44,10 +47,24 @@ export const CODEX_GRANDCHILD_THREAD_ID = 'c2c2c2c2-0000-7000-8000-00000000c42d'
 /** 0.89-era: no task events; turns bound by user_message ordering. */
 export const CODEX_OLD_RUN_ID = 'codex:c3c3c3c3-0000-7000-8000-000000000003';
 
+/** Hermes: the fixture DB corpus (tests/hermes.test.js, Node ≥ 22.13 only). */
+export const HERMES_CLEAN_RUN_ID = 'hermes:20260801_120000_c1ea01';
+export const HERMES_TROUBLE_RUN_ID = 'hermes:20260801_121500_780b1e';
+export const HERMES_DELEG_RUN_ID = 'hermes:20260801_123000_de1e60';
+export const HERMES_CHILD_A_ID = '20260801_123001_c41d01';
+export const HERMES_CHILD_B_ID = '20260801_123002_c41d02';
+export const HERMES_EMPTY_RUN_ID = 'hermes:20260801_124500_e30071';
+export const HERMES_REPO_RUN_ID = 'hermes:20260801_125000_9e0666';
+export const HERMES_GATEWAY_RUN_ID = 'hermes:20260801_125500_6a7e3a';
+export const HERMES_LEGACY_RUN_ID = 'hermes:20260701_090000_1e64c1';
+
 /**
- * Every run a full scan of both fixture roots contains: 6 Claude
- * (2 sessions + clean + trouble + secrets + 1 workflow) + 3 Codex
+ * Every run a full scan of the claude + codex fixture roots contains: 6
+ * Claude (2 sessions + clean + trouble + secrets + 1 workflow) + 3 Codex
  * (clean + subagent parent + old-format; child/grandchild rollouts are not
- * independent runs).
+ * independent runs). Hermes fixture runs are NOT in this count — the
+ * cross-cutting suites disable that adapter (RUNGRAPH_HERMES_HOME='') so
+ * they stay green on the Node 20 CI leg, and tests/hermes.test.js scans the
+ * Hermes fixtures behind its own node:sqlite gate.
  */
 export const FIXTURE_RUN_COUNT = 9;

@@ -95,3 +95,68 @@ exports[`deriveSignals over the fixture corpus > matches the snapshot for every 
   "claude-code:-home-dev-acme:55555555-5555-4555-8555-555555555555": [],
 }
 `;
+
+exports[`deriveSignals over the hermes fixture corpus > matches the snapshot for every hermes run 1`] = `
+{
+  "hermes:20260701_090000_1e64c1": [],
+  "hermes:20260801_120000_c1ea01": [],
+  "hermes:20260801_121500_780b1e": [
+    {
+      "id": "sig:retry-storm:t12",
+      "kind": "retry-storm",
+      "label": "3 failed terminal calls",
+      "nodeIds": [
+        "t12",
+      ],
+      "reason": "terminal failed 3× in a single step, so the run was retrying instead of making progress.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:intervention:denial",
+      "kind": "intervention",
+      "label": "1 denial",
+      "nodeIds": [
+        "m21",
+      ],
+      "reason": "1 denial in this run. Permission was refused, so the run had to abandon that approach mid-flight.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:unresolved-error:t22",
+      "kind": "unresolved-error",
+      "label": "unresolved patch error",
+      "nodeIds": [
+        "t22",
+      ],
+      "reason": "The last patch call in this lane failed on deploy.sh and nothing came back to fix it.",
+      "severity": "high",
+    },
+    {
+      "id": "sig:intervention:answer",
+      "kind": "intervention",
+      "label": "1 answered question",
+      "nodeIds": [
+        "m16.q",
+      ],
+      "reason": "1 answered question in this run. The run stopped to ask, and those answers steered everything after them.",
+      "severity": "info",
+    },
+    {
+      "id": "sig:course-change",
+      "kind": "course-change",
+      "label": "2 course changes",
+      "nodeIds": [
+        "m16.q",
+        "t18",
+      ],
+      "reason": "The run's own lineage explains these 2 steps: “after terminal error”, “answer: GitHub Actions”.",
+      "severity": "info",
+    },
+  ],
+  "hermes:20260801_123000_de1e60": [],
+  "hermes:20260801_124500_e30071": [],
+  "hermes:20260801_125000_9e0666": [],
+  "hermes:20260801_125500_6a7e3a": [],
+  "hermes:20260801_130000_a2c41d": [],
+}
+`;

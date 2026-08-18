@@ -69,6 +69,34 @@ describe('deriveSignals over the fixture corpus', () => {
   });
 });
 
+// The Hermes leg of the corpus-wide snapshot, behind the same node:sqlite
+// gate as tests/hermes.test.js so the Node 20 CI leg stays green. Probed
+// with require — vite-node mangles a literal `import('node:sqlite')`.
+const hasNodeSqlite = await import('node:module').then(
+  ({ createRequire }) => {
+    try {
+      createRequire(import.meta.url)('node:sqlite');
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  () => false,
+);
+
+describe.skipIf(!hasNodeSqlite)('deriveSignals over the hermes fixture corpus', () => {
+  it('matches the snapshot for every hermes run', async () => {
+    const { detect: hermesDetect, parse: hermesParse } = await import('../src/adapters/hermes/index.js');
+    const { HERMES_FIXTURE_ROOT } = await import('./helpers.js');
+    const out = {};
+    for (const ref of await hermesDetect([HERMES_FIXTURE_ROOT])) {
+      const { ir: graph } = await hermesParse(ref);
+      out[ref.runId] = deriveSignals(graph);
+    }
+    expect(out).toMatchSnapshot();
+  });
+});
+
 describe('retry-storm', () => {
   it('fires on a single tool node that failed retryErrors times', async () => {
     const { signals } = await signalsFor(TROUBLE_RUN_ID);

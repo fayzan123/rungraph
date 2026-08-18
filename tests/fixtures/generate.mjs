@@ -261,6 +261,7 @@ async function main() {
   await troubleSession();
   await secretsSession();
   await codexFixtures();
+  await hermesFixtures();
 
   console.error('fixtures written to', ROOT);
 }
@@ -472,6 +473,451 @@ async function codexFixtures() {
   L5.push(line('event_msg', { type: 'token_count', ...usage(2500, 120, 5500, 270) }));
   L5.push(line('event_msg', { type: 'agent_message', message: 'token.js owns refresh (line 12).', memory_citation: null }));
   await writeFile(join(OLD_DAY, `rollout-2026-07-30T09-00-00-${C3}.jsonl`), L5.map((x) => JSON.stringify(x)).join('\n') + '\n');
+}
+
+/**
+ * Hermes fixtures, modeled 1:1 on the real `~/.hermes/state.db` format
+ * (probed live 2026-08-18, Hermes Agent v0.20.1, schema v26): one SQLite DB
+ * per profile, epoch-seconds REAL timestamps, OpenAI-style `tool_calls`
+ * JSON on assistant rows, `role='tool'` results pairing by `tool_call_id`,
+ * `{output, exit_code, error}` terminal payloads, approval denials written
+ * into results, and delegation recorded as `parent_session_id` +
+ * `delegate_task` results + `[ASYNC DELEGATION BATCH COMPLETE — deleg_<id>]`
+ * delivery messages.
+ *
+ * The `.db` files are COMMITTED, same lifecycle as the JSONL fixtures:
+ * regenerated only when the corpus changes, never hand-edited. Regeneration
+ * requires Node ≥ 22.13 (node:sqlite) — the guard below makes that a named
+ * skip, not a crash, elsewhere.
+ *
+ * cwd values deliberately use `/home/dev`, which must NOT exist on dev or CI
+ * machines: the Hermes project rule's tier 2 stats the cwd, and an existing
+ * one would flip fixture runs out of the `✦ Hermes tasks` bucket and break
+ * the detect snapshot. (Tier 2 itself is covered by a test that builds a
+ * temp DB pointing at a real directory.)
+ */
+async function hermesFixtures() {
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = await import('node:sqlite'));
+  } catch {
+    console.error('skipping hermes fixtures: node:sqlite unavailable (regeneration needs Node 22.13+)');
+    return;
+  }
+  const HERMES_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'hermes');
+  await rm(HERMES_ROOT, { recursive: true, force: true });
+  await mkdir(join(HERMES_ROOT, 'profiles', 'legacy'), { recursive: true });
+
+  // Deterministic epoch-seconds clock — same discipline as the JSONL clocks.
+  let sec = Date.parse('2026-08-01T12:00:00Z') / 1000;
+  const t = (step = 2) => (sec += step);
+
+  const H_CLEAN = '20260801_120000_c1ea01';
+  const H_TROUBLE = '20260801_121500_780b1e';
+  const H_DELEG = '20260801_123000_de1e60';
+  const H_CHILD_A = '20260801_123001_c41d01';
+  const H_CHILD_B = '20260801_123002_c41d02';
+  const H_EMPTY = '20260801_124500_e30071';
+  const H_REPO = '20260801_125000_9e0666';
+  const H_GATEWAY = '20260801_125500_6a7e3a';
+  const H_LEGACY = '20260701_090000_1e64c1';
+
+  const db = new DatabaseSync(join(HERMES_ROOT, 'state.db'));
+  db.exec(`
+    CREATE TABLE schema_version (version INTEGER NOT NULL);
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, source TEXT NOT NULL, user_id TEXT, model TEXT,
+      parent_session_id TEXT, started_at REAL NOT NULL, ended_at REAL,
+      end_reason TEXT, message_count INTEGER DEFAULT 0,
+      tool_call_count INTEGER DEFAULT 0, input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0, estimated_cost_usd REAL, title TEXT,
+      cwd TEXT, rewind_count INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0, git_branch TEXT, git_repo_root TEXT,
+      profile_name TEXT, last_activity_at REAL, hidden INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+      role TEXT NOT NULL, content TEXT, tool_call_id TEXT, tool_calls TEXT,
+      tool_name TEXT, timestamp REAL NOT NULL, token_count INTEGER,
+      finish_reason TEXT, reasoning_content TEXT,
+      active INTEGER NOT NULL DEFAULT 1, compacted INTEGER NOT NULL DEFAULT 0,
+      display_kind TEXT, display_metadata TEXT
+    );
+    CREATE INDEX idx_sessions_started ON sessions(started_at DESC);
+    CREATE INDEX idx_messages_session_id ON messages(session_id, id);
+  `);
+  db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(26);
+
+  const addSession = db.prepare(
+    `INSERT INTO sessions (id, source, model, parent_session_id, started_at, ended_at, end_reason,
+       message_count, tool_call_count, input_tokens, output_tokens, estimated_cost_usd, title, cwd,
+       git_branch, git_repo_root, last_activity_at, archived, hidden)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const addMsg = db.prepare(
+    `INSERT INTO messages (session_id, role, content, tool_call_id, tool_calls, tool_name,
+       timestamp, token_count, finish_reason, active, display_kind)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const msg = (sessionId, row) =>
+    addMsg.run(
+      sessionId,
+      row.role,
+      row.content ?? null,
+      row.toolCallId ?? null,
+      row.toolCalls ? JSON.stringify(row.toolCalls) : null,
+      row.toolName ?? null,
+      row.ts ?? t(),
+      row.tokens ?? null,
+      row.finish ?? null,
+      row.active ?? 1,
+      row.displayKind ?? null,
+    );
+  const call = (id, name, args) => ({
+    id,
+    call_id: id,
+    response_item_id: `fc_${id}`,
+    type: 'function',
+    function: { name, arguments: JSON.stringify(args) },
+  });
+
+  // ---------- clean run: zero signals (the Hermes precision guard) ----------
+  {
+    const started = t();
+    msg(H_CLEAN, { role: 'user', content: 'Draft the launch checklist for the beta', ts: started });
+    msg(H_CLEAN, {
+      role: 'assistant',
+      content: 'Checking what the repo already has before drafting.',
+      toolCalls: [call('call_hc01', 'terminal', { command: 'ls docs/' })],
+      finish: 'tool_calls',
+      tokens: 120,
+    });
+    msg(H_CLEAN, {
+      role: 'tool',
+      toolCallId: 'call_hc01',
+      toolName: 'terminal',
+      content: JSON.stringify({ output: 'GUIDE.md\nlaunch.md', exit_code: 0, error: null }),
+    });
+    msg(H_CLEAN, {
+      role: 'assistant',
+      toolCalls: [call('call_hc02', 'read_file', { path: '/home/dev/notes/launch.md' })],
+      finish: 'tool_calls',
+    });
+    msg(H_CLEAN, {
+      role: 'tool',
+      toolCallId: 'call_hc02',
+      toolName: 'read_file',
+      content: JSON.stringify({ content: '1|# Launch\n2|- announce' }),
+    });
+    msg(H_CLEAN, {
+      role: 'assistant',
+      content: 'Checklist drafted: announce, docs pass, tag the release.',
+      finish: 'stop',
+      tokens: 80,
+    });
+    msg(H_CLEAN, { role: 'user', content: 'Looks good, save it' });
+    msg(H_CLEAN, {
+      role: 'assistant',
+      toolCalls: [call('call_hc03', 'write_file', { path: '/home/dev/notes/launch.md', content: '# Launch\n- announce\n- docs\n- tag' })],
+      finish: 'tool_calls',
+    });
+    msg(H_CLEAN, {
+      role: 'tool',
+      toolCallId: 'call_hc03',
+      toolName: 'write_file',
+      content: JSON.stringify({ success: true, path: '/home/dev/notes/launch.md' }),
+    });
+    msg(H_CLEAN, { role: 'assistant', content: 'Saved.', finish: 'stop', tokens: 40 });
+    const ended = t();
+    addSession.run(H_CLEAN, 'cli', 'deepseek-v4-flash', null, started, ended, 'cli_close', 10, 3, 4200, 900, 0.0021, 'Draft the launch checklist', '/home/dev', null, null, ended, 0, 0);
+  }
+
+  // ---------- trouble run: one of every intervention-adjacent shape ----------
+  // retry storm (terminal ×3, every call exit 1), a clarify answer, a
+  // "denied by user" result, and an unresolved patch error at EOF — plus one
+  // unknown role and one unknown display_kind (skip + count), a hidden row
+  // (skip, NOT counted), a model_switch row, and one inactive (rewound) row.
+  {
+    const started = t();
+    msg(H_TROUBLE, { role: 'user', content: 'Wire the deploy script into CI', ts: started });
+    msg(H_TROUBLE, {
+      role: 'assistant',
+      content: 'Running the deploy dry-run to see where it stands.',
+      toolCalls: [
+        call('call_ht01', 'terminal', { command: 'npm run deploy -- --dry-run' }),
+        call('call_ht02', 'terminal', { command: 'npm run deploy -- --dry-run --verbose' }),
+        call('call_ht03', 'terminal', { command: 'npm run deploy -- --dry-run --legacy' }),
+      ],
+      finish: 'tool_calls',
+    });
+    for (const id of ['call_ht01', 'call_ht02', 'call_ht03']) {
+      msg(H_TROUBLE, {
+        role: 'tool',
+        toolCallId: id,
+        toolName: 'terminal',
+        content: JSON.stringify({ output: 'deploy.sh: missing CI_TOKEN', exit_code: 1, error: null }),
+      });
+    }
+    // The clarify sits between the storm and the next terminal group — a
+    // fourth consecutive terminal call would otherwise collapse INTO the
+    // storm node and dissolve it.
+    msg(H_TROUBLE, {
+      role: 'assistant',
+      toolCalls: [call('call_ht05', 'clarify', { question: 'Which CI provider should the deploy target?', choices: ['GitHub Actions', 'Buildkite'] })],
+      finish: 'tool_calls',
+    });
+    msg(H_TROUBLE, {
+      role: 'tool',
+      toolCallId: 'call_ht05',
+      toolName: 'clarify',
+      content: JSON.stringify({
+        question: 'Which CI provider should the deploy target?',
+        choices_offered: ['GitHub Actions', 'Buildkite'],
+        user_response: 'GitHub Actions',
+      }),
+    });
+    // Advisory suffix after the JSON — the salvage path must tolerate it.
+    msg(H_TROUBLE, {
+      role: 'assistant',
+      toolCalls: [call('call_ht04', 'terminal', { command: 'cat .ci/config.yml' })],
+      finish: 'tool_calls',
+    });
+    msg(H_TROUBLE, {
+      role: 'tool',
+      toolCallId: 'call_ht04',
+      toolName: 'terminal',
+      content:
+        JSON.stringify({ output: 'token: $CI_TOKEN', exit_code: 0, error: null }) +
+        '\n\n[Tool loop warning: same_tool_failure_warning; count=3]',
+    });
+    msg(H_TROUBLE, {
+      role: 'assistant',
+      toolCalls: [call('call_ht06', 'terminal', { command: 'gh secret set CI_TOKEN' })],
+      finish: 'tool_calls',
+    });
+    msg(H_TROUBLE, {
+      role: 'tool',
+      toolCallId: 'call_ht06',
+      toolName: 'terminal',
+      content: JSON.stringify({
+        output: '',
+        exit_code: -1,
+        error: 'BLOCKED: Action denied by user. The user has NOT consented to this action. Do NOT retry this command.',
+      }),
+    });
+    msg(H_TROUBLE, {
+      role: 'assistant',
+      toolCalls: [call('call_ht07', 'patch', { path: '/home/dev/ci/deploy.sh', mode: 'replace', old_string: 'exit 1', new_string: 'exit 0' })],
+      finish: 'tool_calls',
+    });
+    msg(H_TROUBLE, {
+      role: 'tool',
+      toolCallId: 'call_ht07',
+      toolName: 'patch',
+      content: JSON.stringify({ success: false, error: 'Could not find a match for old_string in the file' }),
+    });
+    msg(H_TROUBLE, { role: 'assistant', content: 'Blocked on the token secret — stopping here.', finish: 'stop' });
+    // Format-drift rows the grammar must skip + count …
+    msg(H_TROUBLE, { role: 'system', content: 'a role this grammar does not know' });
+    msg(H_TROUBLE, { role: 'user', content: 'from the future', displayKind: 'holo_recap' });
+    // … a hidden row (skipped, NOT counted), a model switch, a rewound row.
+    msg(H_TROUBLE, { role: 'user', content: 'internal bookkeeping', displayKind: 'hidden' });
+    msg(H_TROUBLE, { role: 'user', content: 'Switched model to deepseek-v4-pro', displayKind: 'model_switch' });
+    msg(H_TROUBLE, { role: 'user', content: 'an abandoned rewound branch prompt', active: 0 });
+    const ended = t();
+    addSession.run(H_TROUBLE, 'cli', 'deepseek-v4-flash', null, started, ended, 'cli_close', 17, 7, 9800, 2100, 0.0058, 'Wire the deploy script into CI', '/home/dev', null, null, ended, 0, 0);
+  }
+
+  // ---------- delegation run: two parallel subagents, delivery, live tail ----
+  {
+    const started = t();
+    msg(H_DELEG, { role: 'user', content: 'Research both frameworks and compare them', ts: started });
+    msg(H_DELEG, {
+      role: 'assistant',
+      content: 'Fanning this out to two research subagents.',
+      toolCalls: [call('call_hd01', 'delegate_task', { goal: 'Research framework A performance', context: 'Focus on benchmarks' })],
+      finish: 'tool_calls',
+    });
+    msg(H_DELEG, {
+      role: 'tool',
+      toolCallId: 'call_hd01',
+      toolName: 'delegate_task',
+      content: JSON.stringify({
+        status: 'dispatched',
+        mode: 'background',
+        count: 2,
+        delegation_id: 'deleg_fx0001',
+        goals: ['Research framework A performance', 'Research framework B ecosystem'],
+        note: 'Subagents are running in the background.',
+      }),
+    });
+    // Agent-initiated continuation — folded into the flow, never a turn.
+    msg(H_DELEG, { role: 'user', content: '[auto-continue]', displayKind: 'auto_continue' });
+    msg(H_DELEG, {
+      role: 'user',
+      content:
+        '[ASYNC DELEGATION BATCH COMPLETE — deleg_fx0001]\n' +
+        'A background fan-out of 2 subagent(s) you dispatched earlier has finished.\n\n' +
+        '--- ✓ TASK 1/2: Research framework A performance\nFramework A wins on cold-start latency.\n\n' +
+        '--- ✓ TASK 2/2: Research framework B ecosystem\nFramework B has the larger plugin ecosystem.',
+    });
+    msg(H_DELEG, {
+      role: 'assistant',
+      content: 'Both reports are in: A is faster, B has the ecosystem.',
+      finish: 'stop',
+    });
+    msg(H_DELEG, {
+      role: 'assistant',
+      content: 'Writing the comparison up now.',
+      toolCalls: [call('call_hd02', 'write_file', { path: '/home/dev/notes/comparison.md', content: '# A vs B' })],
+      finish: 'tool_calls',
+    });
+    // No result row for call_hd02 and ended_at NULL: the live-tail shape —
+    // this exact call must parse as status 'running'.
+    const lastActivity = t();
+    addSession.run(H_DELEG, 'cli', 'deepseek-v4-flash', null, started, null, null, 8, 2, 15000, 3200, 0.011, 'Compare the two frameworks', '/home/dev', null, null, lastActivity, 0, 0);
+
+    const aStart = started + 4;
+    msg(H_CHILD_A, { role: 'user', content: 'Research framework A performance', ts: aStart });
+    msg(H_CHILD_A, {
+      role: 'assistant',
+      toolCalls: [call('call_hda1', 'terminal', { command: 'ab -n 100 http://localhost:3000/' })],
+      finish: 'tool_calls',
+      ts: aStart + 2,
+    });
+    msg(H_CHILD_A, {
+      role: 'tool',
+      toolCallId: 'call_hda1',
+      toolName: 'terminal',
+      content: JSON.stringify({ output: 'Requests per second: 4200', exit_code: 0, error: null }),
+      ts: aStart + 4,
+    });
+    msg(H_CHILD_A, { role: 'assistant', content: 'Framework A wins on cold-start latency.', finish: 'stop', ts: aStart + 6 });
+    addSession.run(H_CHILD_A, 'subagent', 'deepseek-v4-pro', H_DELEG, aStart, aStart + 8, 'agent_close', 4, 1, 5000, 400, 0.003, null, null, null, null, aStart + 8, 0, 0);
+
+    const bStart = started + 5;
+    msg(H_CHILD_B, { role: 'user', content: 'Research framework B ecosystem', ts: bStart });
+    msg(H_CHILD_B, {
+      role: 'assistant',
+      toolCalls: [call('call_hdb1', 'read_file', { path: '/home/dev/notes/plugins.md' })],
+      finish: 'tool_calls',
+      ts: bStart + 2,
+    });
+    msg(H_CHILD_B, {
+      role: 'tool',
+      toolCallId: 'call_hdb1',
+      toolName: 'read_file',
+      content: JSON.stringify({ content: '1|# Plugins\n2|- 300 entries' }),
+      ts: bStart + 4,
+    });
+    msg(H_CHILD_B, { role: 'assistant', content: 'Framework B has the larger plugin ecosystem.', finish: 'stop', ts: bStart + 6 });
+    addSession.run(H_CHILD_B, 'subagent', 'deepseek-v4-pro', H_DELEG, bStart, bStart + 8, 'agent_close', 4, 1, 3000, 250, 0.002, null, null, null, null, bStart + 8, 0, 0);
+  }
+
+  // ---------- empty session: no messages at all — title falls to the id ----
+  {
+    const started = t();
+    addSession.run(H_EMPTY, 'cli', 'deepseek-v4-flash', null, started, started + 1, 'cli_close', 0, 0, 0, 0, 0, null, '/home/dev', null, null, started + 1, 0, 0);
+  }
+
+  // ---------- repo run: git_repo_root groups it with the acme fixtures ------
+  {
+    const started = t();
+    msg(H_REPO, { role: 'user', content: 'Add a deploy script to the acme repo', ts: started });
+    msg(H_REPO, {
+      role: 'assistant',
+      toolCalls: [call('call_hr01', 'search_files', { pattern: 'deploy', path: '/home/dev/acme/scripts/deploy.sh', target: 'files' })],
+      finish: 'tool_calls',
+    });
+    msg(H_REPO, {
+      role: 'tool',
+      toolCallId: 'call_hr01',
+      toolName: 'search_files',
+      content: JSON.stringify({ total_count: 1, files: ['/home/dev/acme/scripts/deploy.sh'] }),
+    });
+    msg(H_REPO, {
+      role: 'assistant',
+      toolCalls: [call('call_hr02', 'write_file', { path: '/home/dev/acme/scripts/deploy.sh', content: '#!/bin/sh\necho deploy' })],
+      finish: 'tool_calls',
+    });
+    msg(H_REPO, {
+      role: 'tool',
+      toolCallId: 'call_hr02',
+      toolName: 'write_file',
+      content: JSON.stringify({ success: true, path: '/home/dev/acme/scripts/deploy.sh' }),
+    });
+    msg(H_REPO, { role: 'assistant', content: 'Deploy script added.', finish: 'stop' });
+    const ended = t();
+    addSession.run(H_REPO, 'cli', 'deepseek-v4-flash', null, started, ended, 'cli_close', 6, 2, 3100, 700, 0.0018, 'Add a deploy script', '/home/dev/acme', 'main', '/home/dev/acme', ended, 0, 0);
+  }
+
+  // ---------- gateway session: view-only, resume must gate it out ----------
+  {
+    const started = t();
+    msg(H_GATEWAY, { role: 'user', content: 'Remind me what shipped this week', ts: started });
+    msg(H_GATEWAY, { role: 'assistant', content: 'The beta checklist and the deploy script.', finish: 'stop' });
+    const ended = t();
+    addSession.run(H_GATEWAY, 'telegram', 'deepseek-v4-flash', null, started, ended, 'cli_close', 2, 0, 900, 120, 0.0004, 'Weekly recap over Telegram', null, null, null, ended, 0, 0);
+  }
+
+  // ---------- archived + hidden: shown-but-marked vs skipped ----------------
+  {
+    const started = t();
+    addSession.run('20260801_130000_a2c41d', 'cli', 'deepseek-v4-flash', null, started, started + 2, 'cli_close', 0, 0, 10, 5, 0.0001, 'An archived task', '/home/dev', null, null, started + 2, 1, 0);
+    addSession.run('20260801_130500_41dde0', 'cli', 'deepseek-v4-flash', null, started + 10, started + 12, 'cli_close', 0, 0, 10, 5, 0.0001, 'A hidden task', '/home/dev', null, null, started + 12, 0, 1);
+  }
+
+  db.close();
+
+  // ---------- profiles/legacy/state.db: an older, narrower schema ----------
+  // Missing cwd/git/last_activity_at/hidden on sessions and display_kind/
+  // token_count/active on messages — every read must degrade field-by-field.
+  const old = new DatabaseSync(join(HERMES_ROOT, 'profiles', 'legacy', 'state.db'));
+  old.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, source TEXT NOT NULL, model TEXT,
+      parent_session_id TEXT, started_at REAL NOT NULL, ended_at REAL,
+      end_reason TEXT, message_count INTEGER DEFAULT 0,
+      tool_call_count INTEGER DEFAULT 0, input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0, title TEXT
+    );
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+      role TEXT NOT NULL, content TEXT, tool_call_id TEXT, tool_calls TEXT,
+      tool_name TEXT, timestamp REAL NOT NULL
+    );
+  `);
+  const oldSession = old.prepare(
+    'INSERT INTO sessions (id, source, model, started_at, ended_at, end_reason, message_count, tool_call_count, input_tokens, output_tokens, title) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+  );
+  const oldMsg = old.prepare(
+    'INSERT INTO messages (session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp) VALUES (?,?,?,?,?,?,?)',
+  );
+  {
+    const started = t();
+    oldMsg.run(H_LEGACY, 'user', 'Check the backup cron still runs', null, null, null, started);
+    oldMsg.run(
+      H_LEGACY,
+      'assistant',
+      '',
+      null,
+      JSON.stringify([call('call_hl01', 'terminal', { command: 'crontab -l' })]),
+      null,
+      t(),
+    );
+    oldMsg.run(
+      H_LEGACY,
+      'tool',
+      JSON.stringify({ output: '0 3 * * * backup.sh', exit_code: 0, error: null }),
+      'call_hl01',
+      null,
+      'terminal',
+      t(),
+    );
+    const ended = t();
+    oldSession.run(H_LEGACY, 'cli', 'deepseek-v3', started, ended, 'cli_close', 3, 1, 800, 90, 'Check the backup cron');
+  }
+  old.close();
 }
 
 /**

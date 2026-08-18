@@ -332,7 +332,7 @@ const TOOLS = [
 
 async function listRuns(args, ctx) {
   const project = args.project ?? ctx.project;
-  const { runs } = await scan({ project });
+  const { runs, warnings } = await scan({ project });
   const entries = runs.map((r) => toIndexEntry(r));
   const known = new Set(entries.map((e) => e.runId));
   // Merge in what the live servers serve — bundle-served runs exist ONLY
@@ -347,7 +347,9 @@ async function listRuns(args, ctx) {
       entries.push({ ...r, dashboard: s.url });
     }
   }
-  return { runs: entries };
+  // Same additive warnings the CLI and /api/index carry — an agent deserves
+  // to know when an adapter is disabled rather than inferring "no runs".
+  return { runs: entries, ...(warnings?.length ? { warnings } : {}) };
 }
 
 function projectMatches(runProject, project) {

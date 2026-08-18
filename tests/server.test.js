@@ -19,11 +19,13 @@ beforeAll(async () => {
   await pinFixtureMtimes();
   process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
   process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
+  process.env.RUNGRAPH_HERMES_HOME = '';
   server = await startServer({ preferredPort: 4599 });
 });
 afterAll(async () => {
   delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
   delete process.env.RUNGRAPH_CODEX_SESSIONS;
+  delete process.env.RUNGRAPH_HERMES_HOME;
   await server.close();
 });
 

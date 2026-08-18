@@ -33,6 +33,17 @@ and adapters that cannot supply them simply omit both.
 | `unrecognizedLineCount` | number | Transcript lines the adapter could not interpret. `> 0` renders a banner, never an error — format drift is expected. |
 | `ext` | object (optional) | Namespaced provider extras. |
 
+Known `ext` bags (all optional; consumers must tolerate absence — and unknown
+bags):
+
+- **`meta.ext.hermes`** — `{ model, estimatedCostUsd, source, gitBranch,
+  gitRepoRoot, profile, archived, rewindCount, inactiveMessageCount,
+  modelSwitchCount?, schemaVersion }`. `source` is how the session reached
+  Hermes (`cli`, `telegram`, …); `inactiveMessageCount` counts rows a rewind
+  deactivated (the canonical `active = 1` history is what the graph draws).
+- **`node.ext.codex`** (agent nodes) — `{ nickname, agentPath, depth }`,
+  Codex's multi-agent lineage.
+
 ## nodes
 
 Common fields:
@@ -161,7 +172,7 @@ use. Absent when there was no narration; consumers must tolerate absence.
 
 | endpoint | returns |
 |---|---|
-| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, resume?, provenance? }], errors? }` |
+| `GET /api/index` | `{ "runs": [{ runId, adapter, kind, title, project, startedAt, modifiedAt, sizeBytes, active, resume?, provenance? }], warnings?, errors? }` |
 | `GET /api/graph/:runId` | the Graph IR above |
 | `GET /api/find/:runId?q=` | `{ runId, query, matched, nodeIds, nodes }` — plain substring over node labels and `files` |
 | `GET /api/detail/:nodeId?run=:runId` | a detail payload |
@@ -194,6 +205,20 @@ never leave the server. `provenance` appears only on bundle-served runs (see
 below); consumers must tolerate the absence of both — every local run lacks
 `provenance`, every bundle run lacks `resume`. `errors` appears only when a
 bundle file failed to decode: `[{ file, error }]`, a named banner per file.
+
+`warnings` (additive in irVersion 1; also carried by `rungraph list --json`
+and MCP `list_runs`) reports adapter-level scan degradations as
+`[{ adapter, reason }]` — an adapter disabled by the runtime (Hermes on a
+Node without `node:sqlite`), an unreadable database, a deduplicated runId.
+Absent when there is nothing to say. It exists so an agent reading JSON
+learns the same fact a human would read off stderr, instead of inferring
+"no runs" from silence.
+
+`project` is normally a real path (the run's cwd or repo root). Runs that
+have neither get a literal group label instead — Hermes sessions started
+from no particular directory all carry **`✦ Hermes tasks`** — and such
+bucket runs never match a `--project` filter. Bundle entries use `📦 <name>`
+the same way.
 
 ## Bundles (`.rungraph`)
 

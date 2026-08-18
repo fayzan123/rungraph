@@ -20,9 +20,12 @@ no setup, no telemetry.
 npx rungraph
 ```
 
-That's the whole quickstart. It scans `~/.claude/projects`, starts a local
+That's the whole quickstart. It scans `~/.claude/projects`, `~/.codex/sessions`
+and `~/.hermes` — Claude Code, Codex, and Hermes Agent runs — starts a local
 server, and opens your browser. Pick a run — including one that's **running
 right now**: the graph grows live as the agent works (file watching only).
+(Hermes runs need Node ≥ 22.13 for the built-in SQLite reader; on older Nodes
+they're skipped with a warning and everything else works.)
 
 The graph is also something you can **talk to**: wire the MCP server into your
 coding agent and ask it about a run — *"why did the Edit on `token.js` keep
@@ -182,9 +185,9 @@ and the whole loop works on it: signals derive on *your* rungraph, and your own
 agent can be pointed at Bilal's runs — *"what went wrong in the bundle Bilal
 sent me?"* — right alongside your own.
 
-A bundle carries the vendor-neutral IR, so a Codex run exports and opens
-identically to a Claude Code one, and opening a bundle needs no adapters at
-all. `sharedBy` is a display string, not an identity — trust a bundle the way
+A bundle carries the vendor-neutral IR, so a Codex or Hermes run exports and
+opens identically to a Claude Code one, and opening a bundle needs no adapters
+at all. `sharedBy` is a display string, not an identity — trust a bundle the way
 you trust the channel it arrived on.
 
 **Link to what you see.** *copy link* in the header captures the current view —
@@ -221,8 +224,8 @@ stream in.
 run where auth broke, the conversation from Tuesday you half-remember — and
 every local session carries the edge back to the terminal: **resume** in the
 run header, or hover a run in the list (workflow rows resume via their parent
-session's row). Copy the exact `claude --resume` /
-`codex resume` command (shown in full, so it also teaches the incantation),
+session's row). Copy the exact `claude --resume` / `codex resume` /
+`hermes --resume` command (shown in full, so it also teaches the incantation),
 or on macOS open a new Terminal window with the session already loading
 (`RUNGRAPH_TERMINAL=iTerm` targets iTerm2 instead). A live Claude run
 pre-checks **fork** — resume a copy rather than interleaving with the running
@@ -263,10 +266,12 @@ The same surface is available as MCP tools — see "Ask your agent about a run"
 above, or `rungraph mcp --install`.
 
 The IR is versioned and documented in [SCHEMA.md](SCHEMA.md). It is
-vendor-neutral, with two adapters: Claude Code (sessions, subagents, and
-Workflow runs, under `~/.claude/projects`) and Codex CLI (rollout threads and
-their spawned subagent threads, under `~/.codex/sessions`). Everything
-downstream — including `.rungraph` bundles — carries only the IR.
+vendor-neutral, with three adapters: Claude Code (sessions, subagents, and
+Workflow runs, under `~/.claude/projects`), Codex CLI (rollout threads and
+their spawned subagent threads, under `~/.codex/sessions`), and Hermes Agent
+(sessions and their delegation lanes, from the SQLite database at
+`~/.hermes/state.db`; `RUNGRAPH_HERMES_HOME` points the scan elsewhere).
+Everything downstream — including `.rungraph` bundles — carries only the IR.
 
 ## Privacy
 
@@ -283,9 +288,12 @@ resulting file is yours, not rungraph's.
 
 Claude Code writes JSONL transcripts under `~/.claude/projects` — main session
 files, per-subagent files, and workflow journals with a manifest per run.
-`rungraph` reconstructs the run graph from those files post-hoc: adapters turn
-transcript lines into a versioned, vendor-neutral IR, and everything
-downstream (web UI, CLI, HTTP API) consumes only the IR.
+Codex writes rollout JSONL under `~/.codex/sessions`. Hermes Agent keeps
+everything in one SQLite database (`~/.hermes/state.db`), which rungraph reads
+with Node's built-in `node:sqlite` — readonly, live (WAL), zero dependencies
+added. `rungraph` reconstructs the run graph from those sources post-hoc:
+adapters turn transcript lines (or rows) into a versioned, vendor-neutral IR,
+and everything downstream (web UI, CLI, HTTP API) consumes only the IR.
 
 It is built to survive real transcripts:
 

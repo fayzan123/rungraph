@@ -193,8 +193,11 @@ async function apiIndex(res, state) {
       ...(state.bundleErrors.length ? { errors: state.bundleErrors } : {}),
     });
   }
-  const { runs } = await scan({ project: state.project });
-  sendJson(res, 200, { runs: runs.map((r) => toIndexEntry(r)) });
+  const { runs, warnings } = await scan({ project: state.project });
+  sendJson(res, 200, {
+    runs: runs.map((r) => toIndexEntry(r)),
+    ...(warnings?.length ? { warnings } : {}),
+  });
 }
 
 async function resolveRun(state, runId) {

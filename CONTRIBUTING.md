@@ -24,7 +24,7 @@ Node ≥ 20. The backend runs straight from `src/` — only the frontend builds
 |---|---|
 | `src/cli.js` | every subcommand; `bin/rungraph.js` is a shim over it |
 | `src/scanner.js` | finds runs on disk, dispatches to adapters |
-| `src/adapters/claude-code/`, `src/adapters/codex/` | ALL format knowledge, one dir per vendor |
+| `src/adapters/claude-code/`, `src/adapters/codex/`, `src/adapters/hermes/` | ALL format knowledge, one dir per vendor |
 | `src/server.js` | localhost HTTP + SSE; serves the dashboard and bundles |
 | `src/watcher.js` | live tail — file watching, graph diffing |
 | `src/signals.js` | derived signals (retry storms, dead ends…) — server-side only |
@@ -99,10 +99,17 @@ Things that will bite you:
 
 - **Never edit fixture `.jsonl` by hand** — edit `tests/fixtures/generate.mjs`
   and regenerate. Snapshots embed file sizes, so even a one-byte change shows.
-- **Scan-root env vars.** `RUNGRAPH_CLAUDE_PROJECTS` and
-  `RUNGRAPH_CODEX_SESSIONS` override the scan roots, and the **empty string
-  disables that adapter's scan**. Any test that scans must set *both*, or it
-  wanders into the developer's real transcript corpus.
+  The Hermes fixtures are committed **binary SQLite files**
+  (`tests/fixtures/hermes/*.db`) with the same lifecycle: written only by the
+  generator, never hand-edited — and regenerating them needs Node ≥ 22.13
+  (`node:sqlite`), which the generator turns into a named skip elsewhere.
+- **Scan-root env vars.** `RUNGRAPH_CLAUDE_PROJECTS`, `RUNGRAPH_CODEX_SESSIONS`
+  and `RUNGRAPH_HERMES_HOME` override the scan roots, and the **empty string
+  disables that adapter's scan**. Any test that scans must set *all three*, or
+  it wanders into the developer's real transcript corpus. (The cross-cutting
+  suites set `RUNGRAPH_HERMES_HOME=''` — Hermes coverage lives in
+  `tests/hermes.test.js` behind a `node:sqlite` gate, so the Node 20 CI leg
+  stays green.)
 - **Fake secrets in fixtures must be visibly fake and must not match real
   providers' detectors.** GitHub push protection scans pushes: a Slack-shaped
   fake with a numeric workspace id will block the entire push (the generator
@@ -119,8 +126,9 @@ current best example of the shape.
 Ground rules, learned the hard way:
 
 - Build against a **real corpus** of that tool's transcripts, not the docs.
-  Both existing adapters found undocumented format generations, duplicated
-  streams, and lying timestamps only a corpus reveals.
+  Every existing adapter found things only a corpus reveals — undocumented
+  format generations, duplicated streams, lying timestamps, and (Hermes)
+  a tool's own self-description being wrong about its schema.
 - Unknown line types: skip and count (rule 4). Your parser will meet newer
   files than you've seen.
 - Pair tool calls to outputs by id, never by adjacency — parallel calls are

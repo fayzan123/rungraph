@@ -2,9 +2,10 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as claudeCode from './adapters/claude-code/index.js';
 import * as codex from './adapters/codex/index.js';
+import * as hermes from './adapters/hermes/index.js';
 
 /** Registered adapters. */
-export const ADAPTERS = [claudeCode, codex];
+export const ADAPTERS = [claudeCode, codex, hermes];
 
 /** How recently a run's files must have changed to be badged "live". */
 const ACTIVE_WINDOW_MS = 45_000;
@@ -21,6 +22,7 @@ export function defaultRootDirs() {
   return {
     'claude-code': roots('RUNGRAPH_CLAUDE_PROJECTS', join(homedir(), '.claude', 'projects')),
     codex: roots('RUNGRAPH_CODEX_SESSIONS', join(homedir(), '.codex', 'sessions')),
+    hermes: roots('RUNGRAPH_HERMES_HOME', join(homedir(), '.hermes')),
   };
 }
 
@@ -29,15 +31,23 @@ export function defaultRootDirs() {
  *
  * @param {{ rootDirs?: Record<string, string[]>, project?: string }} [opts]
  *   `project` filters to runs whose cwd is (inside) the given path.
- * @returns {Promise<{ runs: import('./adapters/claude-code/detect.js').RunRef[] }>}
+ * @returns {Promise<{ runs: import('./adapters/claude-code/detect.js').RunRef[],
+ *                     warnings?: { adapter: string, reason: string }[] }>}
  */
 export async function scan(opts = {}) {
   const roots = opts.rootDirs ?? defaultRootDirs();
   const all = [];
+  // Adapter-level scan degradations — a disabled adapter (no node:sqlite), an
+  // unreadable DB, a runId dedupe — surface as an additive top-level
+  // `warnings` array, so `list --json`, /api/runs and MCP list_runs tell
+  // agents the same fact a human would read off stderr. irVersion-safe per
+  // SCHEMA.md's additive rule; absent when there is nothing to say.
+  const warnings = [];
   for (const adapter of ADAPTERS) {
     const dirs = roots[adapter.name] ?? [];
     if (dirs.length === 0) continue;
     all.push(...(await adapter.detect(dirs)));
+    warnings.push(...(adapter.scanWarnings?.() ?? []));
   }
 
   let runs = all;
@@ -52,7 +62,7 @@ export async function scan(opts = {}) {
     });
   }
   runs.sort(byRecency);
-  return { runs };
+  return { runs, ...(warnings.length ? { warnings } : {}) };
 }
 
 /**

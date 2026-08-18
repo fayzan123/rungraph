@@ -161,10 +161,15 @@ export async function main(argv) {
 }
 
 async function cmdList(opts) {
-  const { runs } = await scan({ project: opts.project });
+  const { runs, warnings } = await scan({ project: opts.project });
   const entries = runs.map((r) => toIndexEntry(r));
+  // Adapter-level degradations (e.g. Hermes disabled on a pre-22.13 Node)
+  // ride the same JSON agents already read; humans get them on stderr.
+  for (const w of warnings ?? []) process.stderr.write(`rungraph: ⚠ ${w.adapter}: ${w.reason}\n`);
   if (opts.json) {
-    process.stdout.write(JSON.stringify({ runs: entries }) + '\n');
+    process.stdout.write(
+      JSON.stringify({ runs: entries, ...(warnings?.length ? { warnings } : {}) }) + '\n',
+    );
   } else {
     if (entries.length === 0) {
       process.stderr.write('rungraph: no runs found\n');

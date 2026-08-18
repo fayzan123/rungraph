@@ -20,12 +20,16 @@ wiring your own coding agent to it.
 npx rungraph
 ```
 
-That's the whole setup. It scans `~/.claude/projects`, starts a server on
-`127.0.0.1:4321`, and opens your browser. Requires Node ≥ 20.
+That's the whole setup. It scans `~/.claude/projects`, `~/.codex/sessions` and
+`~/.hermes`, starts a server on `127.0.0.1:4321`, and opens your browser.
+Requires Node ≥ 20 (Hermes runs need ≥ 22.13 for the built-in SQLite reader —
+on older Nodes they're skipped with a warning and everything else works;
+`RUNGRAPH_HERMES_HOME` points the scan at a different Hermes home).
 
 There is nothing to configure and nothing to instrument. rungraph reads the
-JSONL transcripts Claude Code already writes, so **every session still on your
-disk is already there** — including ones from before you installed rungraph.
+JSONL transcripts Claude Code and Codex already write — and Hermes Agent's
+SQLite database — so **every session still on your disk is already there**,
+including ones from before you installed rungraph.
 (Claude Code prunes old transcripts after its `cleanupPeriodDays` retention
 setting, 30 days by default, so how far back "already there" reaches is that
 setting's call, not rungraph's.)
@@ -280,5 +284,5 @@ rungraph mcp --check --json
 ```
 
 The IR is versioned and documented in [SCHEMA.md](../SCHEMA.md). It is
-vendor-neutral — Claude Code and Codex CLI are the two adapters today, and a
-`.rungraph` bundle opens with no adapter at all.
+vendor-neutral — Claude Code, Codex CLI, and Hermes Agent are the three
+adapters today, and a `.rungraph` bundle opens with no adapter at all.

@@ -98,7 +98,7 @@ function client(env) {
 let mcp;
 let portDir;
 let tmp;
-const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT };
+const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT, RUNGRAPH_HERMES_HOME: '' };
 
 /** Write a registry entry the way a live server would. */
 const registerServer = async (port, sources = ['local'], startedAt = new Date().toISOString(), pid = process.pid) => {
@@ -302,12 +302,14 @@ describe('MCP tools (server running)', () => {
   beforeAll(async () => {
     process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
+    process.env.RUNGRAPH_HERMES_HOME = '';
     server = await startServer({ preferredPort: 4712 });
     await registerServer(server.port);
   });
   afterAll(async () => {
     delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
+    delete process.env.RUNGRAPH_HERMES_HOME;
     await rm(join(portDir, `${server.port}.json`), { force: true });
     await server.close();
   });
@@ -352,6 +354,7 @@ describe('MCP aggregation (two servers, one a bundle viewer)', () => {
   beforeAll(async () => {
     process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
+    process.env.RUNGRAPH_HERMES_HOME = '';
     const { buildBundle } = await import('../src/bundle.js');
     const { gzipSync } = await import('node:zlib');
     const { envelope } = await buildBundle([CLEAN_RUN_ID], {
@@ -377,6 +380,7 @@ describe('MCP aggregation (two servers, one a bundle viewer)', () => {
     await bundled.close();
     delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
+    delete process.env.RUNGRAPH_HERMES_HOME;
   });
 
   it('list_runs merges both servers, tagging the bundle run with provenance and its dashboard', async () => {
