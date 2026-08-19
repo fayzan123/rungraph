@@ -106,6 +106,21 @@ npx rungraph mcp --install     # one time, then restart Claude Code
 npx rungraph mcp --check       # is it working? prints exactly what to fix
 ```
 
+The server is plain MCP over stdio, so **any MCP-capable agent can wire it —
+not just Claude Code**. Hermes, for example:
+
+```
+hermes mcp add rungraph --command npx --args -y rungraph mcp
+```
+
+Then start a new session and ask the same questions. The tool names
+(`list_runs`, `find_nodes`, `get_graph`, `get_detail`, `focus_nodes`,
+`get_current_view`, `open_visualization`) are identical on every agent, and
+so is the loop: the agent answers in your terminal, then calls `focus_nodes`
+and the open graph lights up the nodes it's talking about. (If your agent's
+Hermes/Codex runs are missing, your default Node is older than 22.13 — point
+`--command` at a Node ≥ 22.13 `npx` and they appear.)
+
 Then ask, in Claude Code, the kinds of questions a transcript can actually
 answer:
 

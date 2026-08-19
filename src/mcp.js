@@ -896,7 +896,10 @@ export async function checkMcp(opts = {}) {
     process.stdout.write(
       '\nAsk Claude Code, in a project with runs:\n' +
         '  "what went wrong in my last run?"\n' +
-        '  "which steps touched <a file you edited>?"\n',
+        '  "which steps touched <a file you edited>?"\n' +
+        '\nNot Claude Code? Any MCP-capable agent can use the same server over stdio:\n' +
+        '  Hermes: hermes mcp add rungraph --command npx --args -y rungraph mcp\n' +
+        '  then start a new session (see README, "Ask your agent about a run").\n',
     );
   }
   return ok ? 0 : 1;

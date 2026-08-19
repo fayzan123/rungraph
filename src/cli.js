@@ -36,6 +36,8 @@ OPTIONS
   --port <n>         Preferred port (default 4321; auto-increments if taken).
   --no-open          serve/open: do not open a browser; the URL is always printed.
   --install          mcp: register rungraph with Claude Code, then exit.
+                     Other agents wire 'rungraph mcp' on stdio directly
+                     (Hermes: hermes mcp add rungraph --command npx --args -y rungraph mcp).
   --check            mcp: verify the agent side end to end, then exit.
   --scope <s>        mcp --install: user (default) | project | local.
   -h, --help         This help.
