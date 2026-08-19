@@ -49,6 +49,19 @@ describe('diffGraphs', () => {
     expect(delta.signals).toEqual([SIGNAL]);
   });
 
+  // Without this, a run that drifts mid-tail would show the coverage badge only
+  // on first load: the badge reads meta, and a delta whose meta was stale would
+  // freeze the percentage at whatever the first snapshot happened to see.
+  it('carries meta.coverage on every delta, so a drifting live run updates', () => {
+    const before = graph({ meta: { runId: 'r', coverage: { records: 10, unrecognized: 0, sourcesUnread: 0 } } });
+    const after = graph({
+      meta: { runId: 'r', coverage: { records: 14, unrecognized: 3, sourcesUnread: 0 } },
+      nodes: [node('a'), node('b'), node('c')],
+    });
+    const delta = diffGraphs(before, after);
+    expect(delta.meta.coverage).toEqual({ records: 14, unrecognized: 3, sourcesUnread: 0 });
+  });
+
   it('treats a signal disappearing as a delta too', () => {
     const delta = diffGraphs(graph({ signals: [SIGNAL] }), graph({ signals: [] }));
     expect(delta).not.toBeNull();

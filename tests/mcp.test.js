@@ -13,6 +13,8 @@ import {
   SESSION_RUN_ID,
   CLEAN_RUN_ID,
   TROUBLE_RUN_ID,
+  DRIFT_QUIET_RUN_ID,
+  DRIFT_LOUD_RUN_ID,
   FIXTURE_RUN_COUNT,
 } from './helpers.js';
 
@@ -249,6 +251,60 @@ describe('MCP tools (no server running)', () => {
     const { payload } = await mcp.call('get_detail', { runId: SESSION_RUN_ID, nodeId: node.id });
     expect(payload.detail.kind).toBe('tool');
     expect(payload.detail.calls.length).toBeGreaterThan(0);
+  });
+
+  // Spec §9: the agent end of the loop must be told what it could not see. A
+  // run rungraph only partly read looks exactly like a run where nothing went
+  // wrong, and the field alone is not enough — models act on an instruction far
+  // more reliably than on a number they were never told to care about.
+  describe('coverage', () => {
+    it('rides all three read tools', async () => {
+      const graph = (await mcp.call('get_graph', { runId: DRIFT_QUIET_RUN_ID })).payload;
+      expect(graph.coverage).toEqual({ records: 23, unrecognized: 1, sourcesUnread: 0 });
+      const full = (await mcp.call('get_graph', { runId: DRIFT_QUIET_RUN_ID, detail: 'full' })).payload;
+      expect(full.coverage).toEqual(graph.coverage);
+      const found = (await mcp.call('find_nodes', { runId: DRIFT_QUIET_RUN_ID, query: 'Edit' })).payload;
+      expect(found.coverage).toEqual(graph.coverage);
+      const node = graph.nodes.find((n) => n.kind === 'tool');
+      const detail = (await mcp.call('get_detail', { runId: DRIFT_QUIET_RUN_ID, nodeId: node.id })).payload;
+      expect(detail.coverage).toEqual(graph.coverage);
+    });
+
+    it('notes quietly on a lightly drifted run, and names what went unread', async () => {
+      const { payload } = await mcp.call('get_graph', { runId: DRIFT_QUIET_RUN_ID });
+      expect(payload.note).toBe(
+        "5% of this run's records could not be parsed (flux-marker ×1). Mention this if you characterize the run as a whole.",
+      );
+    });
+
+    it('turns imperative when most of a run could not be read', async () => {
+      const { payload } = await mcp.call('get_graph', { runId: DRIFT_LOUD_RUN_ID });
+      expect(payload.note).toContain('do not call it clean');
+      expect(payload.note).toContain('21%');
+      // Same phrase family, different force — quiet must not read like loud.
+      const quiet = (await mcp.call('get_graph', { runId: DRIFT_QUIET_RUN_ID })).payload.note;
+      expect(payload.note).not.toBe(quiet);
+    });
+
+    it('says nothing at all about a fully-read run', async () => {
+      const { payload } = await mcp.call('get_graph', { runId: CLEAN_RUN_ID });
+      expect(payload.coverage.unrecognized).toBe(0);
+      expect(payload.note).toBeUndefined();
+      // …nor about a drifted run whose chips already say "look here".
+      const trouble = (await mcp.call('get_graph', { runId: SESSION_RUN_ID })).payload;
+      expect(trouble.note).toBeUndefined();
+    });
+
+    it('keeps the truncation note when both have something to say', async () => {
+      const { payload } = await mcp.call('find_nodes', {
+        runId: DRIFT_QUIET_RUN_ID,
+        query: 'e',
+        limit: 1,
+      });
+      expect(payload.truncated).toBe(true);
+      expect(payload.note).toContain('matched');
+      expect(payload.note).toContain('could not be parsed');
+    });
   });
 
   it('reports a bad runId as a readable tool error, not a protocol error', async () => {

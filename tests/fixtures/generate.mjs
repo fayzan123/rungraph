@@ -17,6 +17,8 @@ const S2 = '22222222-2222-4222-8222-222222222222';
 const S3 = '33333333-3333-4333-8333-333333333333'; // clean run — the signals precision guard
 const S4 = '44444444-4444-4444-8444-444444444444'; // trouble run — one of every high signal
 const S5 = '55555555-5555-4555-8555-555555555555'; // secrets run — one of every scanner pattern
+const S6 = '66666666-6666-4666-8666-666666666666'; // lightly drifted — the coverage QUIET trigger
+const S7 = '77777777-7777-4777-8777-777777777777'; // heavily drifted — the coverage LOUD trigger
 const WF = 'wf_12345678-abc';
 const AGENT_FLAT = 'a123456789abcdef0'; // Agent-tool subagent
 const AGENT_W1 = 'aaaa000000000001f'; // workflow agent, phase Find
@@ -164,6 +166,11 @@ async function main() {
 
   // a future line type the parser must skip + count, never crash on
   L.push({ type: 'holo-recap', sessionId: S1, payload: { verdict: 'from the future' } });
+  // The same type the clean run recognizes, but POPULATED — the shape gate
+  // must let this one fall through to unrecognized, because the day the field
+  // carries content is the day swallowing it silently would manufacture a
+  // blind spot and still report 100% coverage.
+  L.push({ type: 'atis-latch', atis: 'a payload nobody has ever seen', sessionId: S1 });
   L.push({ type: 'last-prompt', lastPrompt: "Don't touch the TTL. Just run the hardening workflow.", leafUuid: wrap.uuid, sessionId: S1 });
 
   await writeFile(join(PROJ, `${S1}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
@@ -260,6 +267,7 @@ async function main() {
   await cleanSession();
   await troubleSession();
   await secretsSession();
+  await driftSessions();
   await codexFixtures();
   await hermesFixtures();
 
@@ -950,8 +958,73 @@ async function cleanSession() {
   push({ type: 'assistant', requestId: 'req_fxC005', message: assistantMsg('claude-fable-5', { type: 'text', text: 'All 31 tests pass.' }, 'end_turn', 55) });
   push({ type: 'system', subtype: 'turn_duration', durationMs: 52000, messageCount: 3, isMeta: false });
   void done;
+  // `atis-latch` in the shape all 220 corpus samples had: contentless. The
+  // clean run is the coverage precision guard — it must stay at 100% read, so
+  // this line proves the type is recognized BY SHAPE and not merely skipped.
+  L.push({ type: 'atis-latch', atis: '', sessionId: S3 });
 
   await writeFile(join(PROJ, `${S3}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
+}
+
+/**
+ * Sessions 6 and 7 — the COVERAGE corpus, the same way S3/S4 are the signals
+ * corpus. Both derive zero signals on purpose: the coverage triggers exist for
+ * exactly the moment the UI would otherwise imply completeness, so a fixture
+ * that also has chips would test the wrong thing.
+ *
+ * S6 is the drift that actually happened: one unknown metadata type, a few
+ * percent of the transcript, nothing missing from the graph → QUIET.
+ * S7 is the drift the loud trigger exists for: the assistant records themselves
+ * gone unreadable, so most of the run is simply not there → LOUD.
+ */
+async function driftSessions() {
+  // ---------- S6: light drift, quiet ----------
+  const L = [];
+  const push = (extra) => {
+    const l = envelope(S6, L.at(-1)?.uuid ?? null, extra);
+    L.push(l);
+    return l;
+  };
+  L.push({ type: 'mode', mode: 'normal', sessionId: S6 });
+  L.push({ type: 'ai-title', aiTitle: 'Bump version to 0.3.1', sessionId: S6 });
+  // Four ordinary edit turns — enough real records that one unreadable line is
+  // a FEW PERCENT of the run, which is the drift that actually happened.
+  const files = ['package.json', 'CHANGELOG.md', 'README.md', 'docs/GUIDE.md'];
+  files.forEach((file, i) => {
+    const t = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: `Bump the version in ${file}` } });
+    const call = push({ type: 'assistant', requestId: `req_fxD${i}0`, message: assistantMsg('claude-fable-5', { type: 'tool_use', id: `toolu_fxD${i}0`, name: 'Edit', input: { file_path: `${CWD}/${file}`, old_string: '0.3.0', new_string: '0.3.1' }, caller: { type: 'direct' } }, 'tool_use') });
+    push({ type: 'user', promptId: t.promptId, sourceToolAssistantUUID: call.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_fxD${i}0`, content: `Edited ${file}` }] }, toolUseResult: { filePath: `${CWD}/${file}`, oldString: '0.3.0', newString: '0.3.1', originalFile: '', replaceAll: false, structuredPatch: [], userModified: false } });
+    push({ type: 'assistant', requestId: `req_fxD${i}1`, message: assistantMsg('claude-fable-5', { type: 'text', text: `Bumped ${file} to 0.3.1.` }, 'end_turn', 40) });
+    push({ type: 'system', subtype: 'turn_duration', durationMs: 22000, messageCount: 3, isMeta: false });
+  });
+  // The drift itself: ONE metadata type this rungraph does not know, of the
+  // kind a newly-shipped CLI version starts emitting. Contentless as far as
+  // anyone can tell — but nothing in the product could establish that, which
+  // is the entire reason the quiet trigger exists.
+  L.push({ type: 'flux-marker', flux: '', sessionId: S6 });
+  await writeFile(join(PROJ, `${S6}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- S7: heavy drift, loud ----------
+  const H = [];
+  const hpush = (extra) => {
+    const l = envelope(S7, H.at(-1)?.uuid ?? null, extra);
+    H.push(l);
+    return l;
+  };
+  H.push({ type: 'mode', mode: 'normal', sessionId: S7 });
+  const h1 = hpush({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Migrate the storage layer to the new client' } });
+  H.push({ type: 'ai-title', aiTitle: 'Migrate storage layer', sessionId: S7 });
+  const hread = hpush({ type: 'assistant', requestId: 'req_fxE001', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxE101', name: 'Read', input: { file_path: `${CWD}/src/storage/client.ts` }, caller: { type: 'direct' } }, 'tool_use') });
+  hpush({ type: 'user', promptId: h1.promptId, sourceToolAssistantUUID: hread.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxE101', content: 'export class Client {}' }] }, toolUseResult: { type: 'text', file: { filePath: `${CWD}/src/storage/client.ts`, content: 'export class Client {}', numLines: 1, startLine: 1, totalLines: 1 } } });
+  hpush({ type: 'assistant', requestId: 'req_fxE002', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Read the client. Continuing.' }, 'end_turn', 40) });
+  hpush({ type: 'system', subtype: 'turn_duration', durationMs: 31000, messageCount: 3, isMeta: false });
+  // …and then the bulk of the run, in a shape this version cannot read at all.
+  // This is the failure mode the rate gate is calibrated for: not a metadata
+  // sprinkle, but the assistant turns themselves going missing.
+  for (let i = 0; i < 26; i++) {
+    H.push({ type: 'turn-capsule', capsule: `c${i}`, sessionId: S7, timestamp: ts() });
+  }
+  await writeFile(join(PROJ, `${S7}.jsonl`), H.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 /**

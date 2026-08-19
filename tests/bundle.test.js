@@ -16,6 +16,7 @@ import { startServer } from '../src/server.js';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
 import { attachSignals } from '../src/signals.js';
 import { matchNodes } from '../src/find.js';
+import { classifyCoverage, coveragePercent } from '../src/coverage.js';
 import {
   pinFixtureMtimes,
   FIXTURE_ROOT,
@@ -26,6 +27,7 @@ import {
   CLEAN_RUN_ID,
   TROUBLE_RUN_ID,
   SECRETS_RUN_ID,
+  DRIFT_QUIET_RUN_ID,
 } from './helpers.js';
 
 let tmp;
@@ -244,6 +246,49 @@ describe('structure-only', () => {
     expect(matchNodes(g, 'Edit').length).toBeGreaterThan(0);
     // authored prompt text is gone
     expect(matchNodes(g, 'refresh API')).toEqual([]);
+  });
+});
+
+// Coverage is integers about transcript STRUCTURE plus record-type names the
+// coverage sanitizer bounds — no content, no paths — so it is safe at every
+// tier. A recipient who cannot tell "clean" from "I could not read this" is
+// exactly the person the coverage layer exists for.
+describe('coverage survives a bundle round trip', () => {
+  const roundTrip = async (redaction) => {
+    const { envelope, buffer, blocked } = await buildBundle([DRIFT_QUIET_RUN_ID], { redaction });
+    expect(blocked).toBe(false);
+    const back = decodeBundle(buffer ?? gzipSync(Buffer.from(JSON.stringify(envelope))));
+    return back.runs.find((r) => r.runId === DRIFT_QUIET_RUN_ID).ir;
+  };
+
+  for (const redaction of ['full', 'redact-secrets', 'structure-only']) {
+    it(`carries coverage and unknownTypes at redaction "${redaction}"`, async () => {
+      const ir = await roundTrip(redaction);
+      expect(ir.meta.coverage).toEqual({ records: 23, unrecognized: 1, sourcesUnread: 0 });
+      expect(ir.meta.ext.claudeCode.unknownTypes).toEqual({ 'flux-marker': 1 });
+      expect(classifyCoverage(ir.meta, 0)).toBe('quiet');
+      expect(coveragePercent(ir.meta)).toBe(95);
+    });
+  }
+
+  it('structure-only keeps unknownTypes and nothing else from the ext bags', async () => {
+    const { ir } = await parseFresh(DRIFT_QUIET_RUN_ID);
+    ir.meta.ext.claudeCode.somethingFreeForm = 'authored text nobody audited';
+    const g = structureOnly(ir);
+    expect(g.meta.ext).toEqual({ claudeCode: { unknownTypes: { 'flux-marker': 1 } } });
+  });
+
+  it('a pre-coverage bundle loads and simply renders nothing', async () => {
+    const { envelope } = await buildBundle([DRIFT_QUIET_RUN_ID]);
+    for (const run of envelope.runs) {
+      delete run.ir.meta.coverage;
+      delete run.ir.meta.ext;
+    }
+    const back = decodeBundle(gzipSync(Buffer.from(JSON.stringify(envelope))));
+    const ir = back.runs[0].ir;
+    // Unknown is never presented as complete, and never guessed at.
+    expect(coveragePercent(ir.meta)).toBe(null);
+    expect(classifyCoverage(ir.meta, 0)).toBe('none');
   });
 });
 

@@ -156,6 +156,7 @@ export async function buildBundle(runIds, opts = {}) {
  * file paths and tool labels, it just cannot answer "what did they say".
  */
 export function structureOnly(ir) {
+  const unknownTypes = unknownTypesExt(ir.meta.ext);
   const g = {
     irVersion: ir.irVersion,
     meta: {
@@ -167,6 +168,13 @@ export function structureOnly(ir) {
       ...(ir.meta.endedAt ? { endedAt: ir.meta.endedAt } : {}),
       totals: ir.meta.totals,
       unrecognizedLineCount: ir.meta.unrecognizedLineCount,
+      // Coverage survives every tier, `ext` bags dropping included: it is
+      // integers about transcript STRUCTURE plus record-type names bounded by
+      // the coverage sanitizer — no content, no paths, no secrets exposure —
+      // and a recipient who cannot tell "clean" from "unread" is exactly the
+      // person the coverage layer exists for.
+      ...(ir.meta.coverage ? { coverage: ir.meta.coverage } : {}),
+      ...(unknownTypes ? { ext: unknownTypes } : {}),
     },
     nodes: [],
     edges: [],
@@ -192,6 +200,24 @@ export function structureOnly(ir) {
     g.edges.push(pick(e, ['id', 'kind', 'from', 'to']));
   }
   return g;
+}
+
+/**
+ * The one part of an `ext` bag structure-only keeps: `unknownTypes`. The rest
+ * of the bag is free-form and unauditable, which is why the tier drops it; the
+ * type names are bounded and carry no authored text.
+ */
+function unknownTypesExt(ext) {
+  if (!ext || typeof ext !== 'object') return null;
+  // Null-prototype: vendor keys come from an IR that may have been written by
+  // another machine, and `out['__proto__'] = …` on a plain object silently
+  // reassigns a prototype instead of storing the bag.
+  const out = { __proto__: null };
+  for (const [vendor, bag] of Object.entries(ext)) {
+    const t = bag && typeof bag === 'object' ? bag.unknownTypes : null;
+    if (t && typeof t === 'object' && Object.keys(t).length > 0) out[vendor] = { unknownTypes: t };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function pick(obj, keys) {

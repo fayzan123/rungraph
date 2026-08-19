@@ -39,10 +39,11 @@ export function Canvas({
   onClearFocus,
   onOpenFind,
   inspectorOpen,
+  coverage,
 }) {
   const [layout, setLayout] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
-  // The unrecognized-lines notice, dismissed per run — keyed by runId (the
+  // The unrecognized-records notice, dismissed per run — keyed by runId (the
   // Canvas is not remounted on a run switch), so another run's notice still
   // appears. Deliberately NOT resurrected when the count grows: on a live
   // run the count climbs constantly, and a dismiss that lasts seconds is no
@@ -456,10 +457,20 @@ export function Canvas({
         {layoutError != null && (
           <div class="banner">could not lay out this graph ({layoutError}) — try re-opening the run.</div>
         )}
-        {graph.meta.unrecognizedLineCount > 0 && noticeDismissedFor !== graph.meta.runId && (
+        {/* Suppressed under a LOUD coverage badge, and only there: at that point
+            the badge is already saying this, in one line, undismissably, with a
+            percentage the raw count cannot give. Two statements of one fact —
+            the louder of them overlapping the graph — is worse than either. The
+            banner still carries the "your rungraph may be older" hint on a quiet
+            run, where the badge alone does not explain itself. "Records", not
+            "lines": a Hermes row is not a line, and the inspector and the badge
+            already speak the adapter-neutral unit. */}
+        {graph.meta.unrecognizedLineCount > 0 &&
+          coverage?.verdict !== 'loud' &&
+          noticeDismissedFor !== graph.meta.runId && (
           <div class="banner">
             <span>
-              {graph.meta.unrecognizedLineCount} line
+              {graph.meta.unrecognizedLineCount} record
               {graph.meta.unrecognizedLineCount === 1 ? '' : 's'} unrecognized — transcript
               format may be newer than this rungraph version. Graph may be incomplete.
             </span>
@@ -467,7 +478,7 @@ export function Canvas({
               class="banner-dismiss"
               onClick={() => setNoticeDismissedFor(graph.meta.runId)}
               title="dismiss this notice for this run"
-              aria-label="dismiss the unrecognized-lines notice"
+              aria-label="dismiss the unrecognized-records notice"
             >
               ×
             </button>

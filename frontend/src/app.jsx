@@ -18,6 +18,12 @@ import {
 } from './focus.js';
 import { adapterChips, groupKeyFor, groupRuns } from './picker-groups.js';
 import { buildFocusHash, descriptorFromFocus, parseFocusHash } from '../../src/deeplink.js';
+import {
+  classifyCoverage,
+  coverageLabel,
+  strongerCoverage,
+  unknownTypeSummary,
+} from '../../src/coverage.js';
 
 // Embed mode — the landing page (site/) mounts the real app inside a page that
 // owns its own URL. Set by the page before app.js loads; absent everywhere
@@ -66,6 +72,10 @@ export function App() {
   const seenHigh = useRef(new Set()); // `high` signal ids the user has looked at
   const primed = useRef(false); // has this run's baseline been taken yet
   const graphRef = useRef(null); // the SSE closure outlives every graph it sees
+  // The coverage verdict, sticky per runId. Lives here rather than in the
+  // Canvas because the graph does, and neither this component nor the Canvas
+  // is remounted on a run switch — see the caveat computed below.
+  const coverageSticky = useRef({ runId: null, verdict: 'none' });
 
   // Run index, refreshed for live badges.
   useEffect(() => {
@@ -448,6 +458,38 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Coverage: how much of this run rungraph could read at all, classified
+  // SERVER-SIDE-DERIVED-STYLE by the one shared implementation — the same
+  // `classifyCoverage` the MCP note comes from, so the badge on screen and the
+  // caveat in the terminal can never disagree about the same run.
+  //
+  // STICKY ONCE SHOWN, per runId. During live tail a signal can appear on a
+  // later tick, flipping `signalCount === 0` false and retracting the caveat at
+  // the exact moment the run gets interesting. Coverage did not improve — a
+  // different condition changed, and `unrecognized` only ever grows — so a
+  // retraction would be misinformation. It escalates (quiet → loud) but never
+  // steps back down within a run; navigating away and back recomputes and
+  // lands on the same verdict a cold open would give.
+  const coverage = (() => {
+    const meta = graph?.meta;
+    const id = meta?.runId ?? null;
+    const fresh = classifyCoverage(meta, graph?.signals?.length ?? 0);
+    const prev = coverageSticky.current.runId === id ? coverageSticky.current.verdict : 'none';
+    const verdict = strongerCoverage(prev, fresh);
+    if (coverageSticky.current.runId !== id || coverageSticky.current.verdict !== verdict) {
+      coverageSticky.current = { runId: id, verdict };
+    }
+    if (verdict === 'none') return null;
+    const types = unknownTypeSummary(meta);
+    return {
+      verdict,
+      label: coverageLabel(meta),
+      title: `${meta.coverage.unrecognized} of ${meta.coverage.records} records could not be parsed${
+        types ? ` (${types})` : ''
+      }${meta.coverage.sourcesUnread > 0 ? `; ${meta.coverage.sourcesUnread} referenced transcript(s) could not be opened` : ''}`,
+    };
+  })();
+
   return (
     <div class="app">
       <header class="header">
@@ -550,6 +592,7 @@ export function App() {
             signals={graph?.signals}
             focus={focus}
             escalated={escalated}
+            coverage={coverage}
             note={note}
             switchedFrom={switchedFrom}
             onUndoSwitch={undoSwitch}
@@ -585,6 +628,11 @@ export function App() {
               setFindSeq((n) => n + 1);
             }}
             inspectorOpen={Boolean(graph) && panes.right}
+            // The banner stands down under a loud badge — one statement of one
+            // fact. Passed rather than recomputed: a second classify call here
+            // could disagree with the strip's, which is the whole failure the
+            // shared classifier exists to prevent.
+            coverage={coverage}
           />
         </div>
         <Inspector

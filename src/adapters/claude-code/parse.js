@@ -4,8 +4,9 @@ import { readJsonLines, statOrNull } from '../../util.js';
 import { parseWorkflowRun, readManifest, parseAgentFile } from './workflow.js';
 import { runStats } from './detect.js';
 import { filePathsFromToolInput, mergeFiles } from './files.js';
+import { tallyUnknownType, mergeUnknownTypes } from '../../coverage.js';
 import {
-  KNOWN_MAIN_TYPES,
+  isKnownMainLine,
   INTERRUPT_TEXTS,
   contentText,
   isPromptLine,
@@ -46,6 +47,10 @@ async function parseSession(ref, opts) {
   const details = new Map();
 
   let unrecognized = 0;
+  // Coverage: every record this adapter EXAMINED, counted in the same loop
+  // that counts the ones it could not read. No new file reads, no second pass.
+  let records = 0;
+  const unknownTypes = {};
   const badLineNos = [];
   let maxLineNo = 0;
   const lines = [];
@@ -53,16 +58,23 @@ async function parseSession(ref, opts) {
     onBadLine: (_line, n) => badLineNos.push(n),
   })) {
     maxLineNo = Math.max(maxLineNo, lineNo);
-    if (typeof obj?.type !== 'string' || !KNOWN_MAIN_TYPES.has(obj.type)) {
+    records++;
+    if (!isKnownMainLine(obj)) {
       unrecognized++;
+      tallyUnknownType(unknownTypes, obj?.type);
       continue;
     }
     lines.push(obj);
   }
   // A malformed FINAL line is a mid-write truncation (normal during live
-  // tail) — tolerated, retried next tick, never shown as format drift.
+  // tail) — tolerated, retried next tick, never shown as format drift. It is
+  // still a record the adapter examined, so coverage counts it in `records`
+  // and (unlike every other bad line) not in `unrecognized`.
   maxLineNo = Math.max(maxLineNo, ...badLineNos, 0);
-  unrecognized += badLineNos.filter((n) => n !== maxLineNo).length;
+  records += badLineNos.length;
+  const badMidFile = badLineNos.filter((n) => n !== maxLineNo);
+  unrecognized += badMidFile.length;
+  for (let i = 0; i < badMidFile.length; i++) tallyUnknownType(unknownTypes, undefined);
 
   // ---- pass 1: titles, notifications, timestamps -------------------------
   let aiTitle, agentName, lastPrompt;
@@ -110,12 +122,26 @@ async function parseSession(ref, opts) {
   }
 
   g.meta.unrecognizedLineCount = unrecognized;
+  g.meta.coverage.records += records;
+  g.meta.coverage.unrecognized += unrecognized;
+  // Record type names are vendor vocabulary, so they live in the namespaced
+  // `ext` bag — the vendor-neutral IR rule. Merged, not assigned: the agent
+  // transcripts parsed above have already contributed to the same bag.
+  mergeIntoExt(g, unknownTypes);
   g.meta.totals = {
     tokens: sumTokens(g, b),
     toolCalls: b.toolCallCount,
     agents: g.nodes.filter((n) => n.kind === 'agent').length,
   };
   return { ir: g, details };
+}
+
+/** Fold an agent transcript's unknown types into the run's namespaced bag. */
+function mergeIntoExt(g, types) {
+  if (!types || Object.keys(types).length === 0) return;
+  const bag = g.meta.ext?.claudeCode?.unknownTypes ?? {};
+  mergeUnknownTypes(bag, types);
+  g.meta.ext = { ...(g.meta.ext ?? {}), claudeCode: { ...(g.meta.ext?.claudeCode ?? {}), unknownTypes: bag } };
 }
 
 function sumTokens(g, b) {
@@ -657,10 +683,20 @@ async function materializeAgent(spawn, ctx) {
     detail.transcript = parsed.transcript;
     resultText ??= parsed.finalText;
     g.meta.unrecognizedLineCount += parsed.unrecognized;
+    // Coverage aggregates across the run's whole file set, exactly the way
+    // `unrecognizedLineCount` already does.
+    g.meta.coverage.records += parsed.records;
+    g.meta.coverage.unrecognized += parsed.unrecognized;
+    mergeIntoExt(g, parsed.unknownTypes);
   } else if (agentId) {
     // Referenced but missing transcript → placeholder, never a crash.
     node.ext = { ...(node.ext ?? {}), transcriptMissing: true };
     detail.result = detail.result ?? '(transcript unavailable)';
+    // …and the most complete blindness available. A file nobody opened
+    // contributes to neither counter, so without this an entire unreadable
+    // subagent would score 100%. Its size is unknowable, so it is never
+    // converted into a fabricated record count.
+    g.meta.coverage.sourcesUnread++;
   }
 
   // No terminal evidence: still running while the session is live; a dead

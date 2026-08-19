@@ -3,6 +3,7 @@ import { emptyGraph, snippet } from '../../ir.js';
 import { readJsonLines, statOrNull } from '../../util.js';
 import { mergeFiles } from '../claude-code/files.js';
 import { ADAPTER_NAME, promptText, recordChildFiles, rolloutFileForThread, runStats } from './detect.js';
+import { tallyUnknownType, mergeUnknownTypes } from '../../coverage.js';
 
 /**
  * Codex rollout parser: lines in, IR out. No server imports; no I/O beyond
@@ -123,6 +124,11 @@ export async function parse(ref, opts = {}) {
   const details = new Map();
 
   let unrecognized = 0;
+  // Coverage: records EXAMINED, in this adapter's unit — non-blank lines in
+  // every rollout file the run owns. Counted in the same loops as the
+  // unreadable ones; no new reads, no second pass.
+  let records = 0;
+  const unknownTypes = {};
   const badLineNos = [];
   let maxLineNo = 0;
   const lines = [];
@@ -130,18 +136,27 @@ export async function parse(ref, opts = {}) {
     onBadLine: (_line, n) => badLineNos.push(n),
   })) {
     maxLineNo = Math.max(maxLineNo, lineNo);
+    records++;
     if (typeof obj?.type !== 'string' || !KNOWN_TYPES.has(obj.type)) {
       unrecognized++;
+      tallyUnknownType(unknownTypes, obj?.type);
       continue;
     }
     lines.push(obj);
   }
-  // A malformed FINAL line is mid-write truncation (live tail), not drift.
+  // A malformed FINAL line is mid-write truncation (live tail), not drift —
+  // still a record examined, so it counts in `records`, not `unrecognized`.
   maxLineNo = Math.max(maxLineNo, ...badLineNos, 0);
-  unrecognized += badLineNos.filter((n) => n !== maxLineNo).length;
+  records += badLineNos.length;
+  const badMidFile = badLineNos.filter((n) => n !== maxLineNo);
+  unrecognized += badMidFile.length;
+  for (let i = 0; i < badMidFile.length; i++) tallyUnknownType(unknownTypes, undefined);
 
   const b = new RolloutBuilder(g, details, collect);
+  // A line whose ENVELOPE parsed but whose payload type is unknown is still one
+  // record already counted above — the builder only adds to `unrecognized`.
   for (const line of lines) unrecognized += b.line(line);
+  mergeUnknownTypes(unknownTypes, b.unknownTypes);
 
   // Resolve the spawn TREE breadth-first, before deciding liveness: a run is
   // a file set, a child still writing keeps it alive — and children spawn
@@ -165,6 +180,8 @@ export async function parse(ref, opts = {}) {
         : null;
       if (spawn.parsed) {
         unrecognized += spawn.parsed.unrecognized;
+        records += spawn.parsed.records;
+        mergeUnknownTypes(unknownTypes, spawn.parsed.unknownTypes);
         for (const gs of spawn.parsed.spawns) {
           next.push({
             callId: gs.callId,
@@ -202,6 +219,13 @@ export async function parse(ref, opts = {}) {
   b.finish(live);
 
   g.meta.unrecognizedLineCount = unrecognized;
+  g.meta.coverage.records = records;
+  g.meta.coverage.unrecognized = unrecognized;
+  if (Object.keys(unknownTypes).length > 0) {
+    // Vendor vocabulary lives in the namespaced `ext` bag, never in the IR's
+    // shared fields.
+    g.meta.ext = { ...(g.meta.ext ?? {}), codex: { ...(g.meta.ext?.codex ?? {}), unknownTypes } };
+  }
   if (b.firstTs) g.meta.startedAt = b.firstTs;
   if (b.lastTs && !live) g.meta.endedAt = b.lastTs;
   const childTokens = g.nodes
@@ -241,6 +265,7 @@ class RolloutBuilder {
     this.title = '';
     this.firstTs = undefined;
     this.lastTs = undefined;
+    this.unknownTypes = {}; // payload types this grammar does not know
   }
 
   node(n) {
@@ -296,13 +321,19 @@ class RolloutBuilder {
       case 'response_item':
         return this.item(obj, p);
       default:
+        tallyUnknownType(this.unknownTypes, obj.type);
         return 1;
     }
   }
 
   event(obj, p) {
     const type = p?.type;
-    if (typeof type !== 'string' || !KNOWN_EVENTS.has(type)) return 1;
+    if (typeof type !== 'string' || !KNOWN_EVENTS.has(type)) {
+      // Qualified by stream, so `event_msg:foo` and `response_item:foo` never
+      // collapse into one indistinguishable bucket.
+      tallyUnknownType(this.unknownTypes, typeof type === 'string' ? `event_msg:${type}` : undefined);
+      return 1;
+    }
     switch (type) {
       case 'task_started':
         // A new task implicitly closes an unterminated one (crash/kill shape).
@@ -395,7 +426,10 @@ class RolloutBuilder {
 
   item(obj, p) {
     const type = p?.type;
-    if (typeof type !== 'string' || !KNOWN_ITEMS.has(type)) return 1;
+    if (typeof type !== 'string' || !KNOWN_ITEMS.has(type)) {
+      tallyUnknownType(this.unknownTypes, typeof type === 'string' ? `response_item:${type}` : undefined);
+      return 1;
+    }
     switch (type) {
       // The response_item stream duplicates every prompt and assistant
       // message the event stream already carries — and its user role mixes in
@@ -805,6 +839,9 @@ function materializeAgent(spawn, parsed, { g, details, b, live }) {
   } else if (!spawn.failed) {
     node.ext = { transcriptMissing: true };
     detail.result = detail.result ?? '(subagent rollout not found)';
+    // A rollout nobody opened contributes to neither counter — without this,
+    // an entirely unreadable subagent would still score 100%.
+    g.meta.coverage.sourcesUnread++;
   }
 
   node.status = terminal ?? (live ? 'running' : 'error');
@@ -848,6 +885,8 @@ export async function parseChildRollout(file, { collectTranscript = false } = {}
     durationMs: undefined,
     toolCalls: 0,
     unrecognized: 0,
+    records: 0,
+    unknownTypes: {},
     // The child's OWN spawns — depth-2 agents live in their own rollouts and
     // would otherwise be invisible everywhere.
     spawns: [],
@@ -866,8 +905,10 @@ export async function parseChildRollout(file, { collectTranscript = false } = {}
     onBadLine: (_line, n) => badLineNos.push(n),
   })) {
     maxLineNo = Math.max(maxLineNo, lineNo);
+    out.records++;
     if (typeof obj?.type !== 'string' || !KNOWN_TYPES.has(obj.type)) {
       out.unrecognized++;
+      tallyUnknownType(out.unknownTypes, obj?.type);
       continue;
     }
     if (first) {
@@ -982,7 +1023,10 @@ export async function parseChildRollout(file, { collectTranscript = false } = {}
   }
 
   maxLineNo = Math.max(maxLineNo, ...badLineNos, 0);
-  out.unrecognized += badLineNos.filter((n) => n !== maxLineNo).length;
+  out.records += badLineNos.length;
+  const badMid = badLineNos.filter((n) => n !== maxLineNo);
+  out.unrecognized += badMid.length;
+  for (let i = 0; i < badMid.length; i++) tallyUnknownType(out.unknownTypes, undefined);
   out.durationMs = msBetween(out.startedAt, out.endedAt);
   out.terminal =
     lastEvent === 'complete' ? 'completed' : lastEvent === 'aborted' || lastEvent === 'error' ? 'error' : null;

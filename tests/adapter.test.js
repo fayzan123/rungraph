@@ -2,7 +2,16 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
 import { toolNodeLabel } from '../src/adapters/claude-code/helpers.js';
 import { filePathsFromToolInput, mergeFiles } from '../src/adapters/claude-code/files.js';
-import { pinFixtureMtimes, FIXTURE_ROOT, SESSION_RUN_ID, WORKFLOW_RUN_ID, EMPTY_RUN_ID, TROUBLE_RUN_ID } from './helpers.js';
+import { isKnownMainLine } from '../src/adapters/claude-code/helpers.js';
+import {
+  pinFixtureMtimes,
+  FIXTURE_ROOT,
+  SESSION_RUN_ID,
+  WORKFLOW_RUN_ID,
+  EMPTY_RUN_ID,
+  TROUBLE_RUN_ID,
+  CLEAN_RUN_ID,
+} from './helpers.js';
 
 let refs;
 beforeAll(async () => {
@@ -45,7 +54,24 @@ describe('parse: session', () => {
 
   it('counts unknown line types instead of failing', async () => {
     const { ir } = await parse(ref(SESSION_RUN_ID));
-    expect(ir.meta.unrecognizedLineCount).toBe(1); // the "holo-recap" future line
+    expect(ir.meta.unrecognizedLineCount).toBe(2); // "holo-recap" + a populated "atis-latch"
+    // …and names them, because a count alone cannot tell one benign metadata
+    // type from four hundred missing assistant turns.
+    expect(ir.meta.ext.claudeCode.unknownTypes).toEqual({ 'holo-recap': 1, 'atis-latch': 1 });
+  });
+
+  it('recognizes a shape-gated line type only in the shape it was observed in', async () => {
+    // `atis-latch` with an empty `atis` is contentless and recognized; the same
+    // type carrying a payload is NOT, because swallowing it silently would
+    // report 100% coverage over content nobody read.
+    const clean = (await parse(ref(CLEAN_RUN_ID))).ir;
+    expect(clean.meta.unrecognizedLineCount).toBe(0);
+    expect(clean.nodes.some((n) => /atis/i.test(n.label))).toBe(false);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: '' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: 'content' })).toBe(false);
+    expect(isKnownMainLine({ type: 'not-a-thing' })).toBe(false);
+    expect(isKnownMainLine(null)).toBe(false);
   });
 
   it('surfaces human interventions as nodes', async () => {
@@ -131,6 +157,8 @@ describe('parse: session', () => {
     const { ir } = await parse(ref(EMPTY_RUN_ID));
     expect(ir.nodes).toHaveLength(0);
     expect(ir.meta.unrecognizedLineCount).toBe(0);
+    // An empty run is not a blind one: two records, both read.
+    expect(ir.meta.coverage).toEqual({ records: 2, unrecognized: 0, sourcesUnread: 0 });
   });
 });
 

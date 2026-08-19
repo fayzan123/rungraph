@@ -31,7 +31,31 @@ and adapters that cannot supply them simply omit both.
 | `startedAt` / `endedAt` | ISO 8601 string (optional) | Wall-clock bounds. `endedAt` is absent while the run looks live. |
 | `totals` | object | `{ tokens, toolCalls, agents }` — whole-run aggregates. `tokens` is input+output. |
 | `unrecognizedLineCount` | number | Transcript lines the adapter could not interpret. `> 0` renders a banner, never an error — format drift is expected. |
+| `coverage` | object (optional) | `{ records, unrecognized, sourcesUnread }` — how much of the run was read. See below. |
 | `ext` | object (optional) | Namespaced provider extras. |
+
+`coverage` is **raw counts, not a ratio**, so consumers derive what they need and
+no precision is discarded at the source. It is additive within `irVersion: 1` —
+consumers must tolerate its absence (a bundle written by an older rungraph has
+none), and must treat absence as *unknown*, never as complete.
+
+- `records` — records the adapter **examined**, in **its own unit**: non-blank
+  JSONL lines for `claude-code` and `codex`, walked rows for `hermes`. Because
+  the unit is adapter-defined, a ratio is only meaningful *within one run* and
+  `records` is never compared across adapters. A tolerated final malformed
+  record (mid-write truncation during live tail) counts here and **not** in
+  `unrecognized`, so a live session does not flicker.
+- `unrecognized` — of those, how many it could not interpret. One record can
+  raise more than one complaint (a Hermes row carrying a batch of malformed tool
+  calls), so this may exceed `records`; consumers clamp rather than throw.
+- `sourcesUnread` — referenced sources it could not open **at all** (a missing
+  agent transcript, an absent subagent rollout). Their size is unknowable, so
+  they are never converted into a fabricated record count — but any nonzero
+  value makes 100% unreachable, because an entirely unreadable subagent would
+  otherwise score as fully read.
+
+`src/coverage.js` is the one implementation of what those numbers mean —
+percentage, quiet/loud classification and the MCP note all come from it.
 
 Known `ext` bags (all optional; consumers must tolerate absence — and unknown
 bags):
@@ -43,6 +67,16 @@ bags):
   deactivated (the canonical `active = 1` history is what the graph draws).
 - **`node.ext.codex`** (agent nodes) — `{ nickname, agentPath, depth }`,
   Codex's multi-agent lineage.
+- **`meta.ext.<adapter>.unknownTypes`** — `{ "<record type>": count }`, the
+  record types that adapter could not interpret. Present on any adapter, hence
+  the `<adapter>` key (`claudeCode`, `codex`, `hermes`). Type names are vendor
+  vocabulary, which is why they live in `ext` rather than beside `coverage`: a
+  percentage alone is unactionable, because "read 95%, all of it one metadata
+  type" and "read 95%, and 400 assistant turns are missing" are the same number
+  and opposite emergencies. Keys are sanitized — `/^[a-z0-9_.:-]{1,40}$/i`, at
+  most 10 distinct keys, everything else folded into `other` — because the type
+  string comes from whatever wrote the transcript and is unvalidated by
+  definition.
 
 ## nodes
 

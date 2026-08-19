@@ -254,6 +254,23 @@ describe.skipIf(!hasNodeSqlite)('hermes parse', () => {
     expect(call.isError).toBe(false);
   });
 
+  // Hermes counts WALKED ROWS, not lines — the coverage unit is adapter-defined
+  // and never compared across adapters. `row()` is the single choke point every
+  // row passes through, in the parent backbone and in every delegation lane.
+  it('counts every walked row, in rows, with the drifted shapes named', async () => {
+    const { ir } = await parse(await refFor(HERMES_TROUBLE_RUN_ID));
+    expect(ir.meta.coverage).toEqual({ records: 18, unrecognized: 2, sourcesUnread: 0 });
+    expect(ir.meta.coverage.unrecognized).toBe(ir.meta.unrecognizedLineCount);
+    expect(ir.meta.ext.hermes.unknownTypes).toEqual({ 'role:system': 1, holo_recap: 1 });
+    // The clean hermes run is read completely, the way its Claude counterpart is.
+    const clean = (await parse(await refFor(HERMES_CLEAN_RUN_ID))).ir;
+    expect(clean.meta.coverage.unrecognized).toBe(0);
+    expect(clean.meta.coverage.records).toBeGreaterThan(3);
+    // A delegation run's lanes count into the same total as the backbone.
+    const deleg = (await parse(await refFor(HERMES_DELEG_RUN_ID))).ir;
+    expect(deleg.meta.coverage.records).toBe(15);
+  });
+
   it('rewound rows and model switches land in ext.hermes, not on the canvas', async () => {
     const { ir } = await parse(await refFor(HERMES_TROUBLE_RUN_ID));
     expect(ir.meta.ext.hermes.inactiveMessageCount).toBe(1);

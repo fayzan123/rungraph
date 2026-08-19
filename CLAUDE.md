@@ -33,6 +33,14 @@ the code. Answer first in the terminal; the highlight follows, and is a bonus, n
 answering in the terminal and the graph on screen could disagree about what is wrong with no
 way to tell which one was lying. `tests/cli.test.js` fails CI if a call site is missed.
 
+**Coverage** (`meta.coverage`) is the same discipline applied to the question underneath the
+signals: not "what went wrong" but "how much of this run could I read at all". It is counted
+by the adapters as they parse and classified by one shared function, so the badge on the
+canvas and the note on the MCP read tools fire on exactly the same verdicts. Without it a
+transcript that was 40% unreadable renders identically to a run that was read completely and
+found clean — "nothing went wrong" and "I could not see part of this" collapse into the same
+empty strip.
+
 **Precision over recall** governs the signal layer. A false flag costs more than a missed one —
 once the markers are not trusted the user is back to reading the whole graph. The clean-run
 test (a run with zero signals) is the guard; thresholds in `THRESHOLDS` are calibrated against
@@ -55,12 +63,18 @@ real sessions, never reasoned into place.
 
 ## Shared code, one implementation
 
-Three things exist exactly once because a second copy could disagree with the first:
+Four things exist exactly once because a second copy could disagree with the first:
 
 - `src/signals.js` — the run's opinion. Server-side only.
 - `src/find.js` — the matcher. **No imports at all**, so the frontend bundle imports it directly
   from `src/` and filters locally; `server.js` uses the same function for `GET /api/find` and
   the `find_nodes` MCP tool. A `node:` import here breaks the bundle (`tests/find.test.js` guards it).
+- `src/coverage.js` — what "read N% of this run" means, and whether that is worth saying.
+  **No imports at all**, same contract and same reason as `find.js`: the frontend imports it
+  from `src/` for the strip badge, `mcp.js` imports it for the agent's note. Two copies could
+  disagree about whether a run is quiet or loud, which is the failure it exists to prevent.
+  Its thresholds are calibrated (and the one judgment call is labelled as one) — read the
+  comments before touching them.
 - `frontend/src/focus.js` — the FocusSet spine. Attention markers, file clicks, text find and
   the agent's answer are not four features; they all reduce to "light up this set of nodes, and
   say why". Non-members **dim, never hide** — hiding collapses the layout and destroys the
@@ -70,8 +84,11 @@ Three things exist exactly once because a second copy could disagree with the fi
 
 Fixture-driven TDD on the parser/adapters: synthetic format-faithful transcripts in
 `tests/fixtures/` (regenerate with `node tests/fixtures/generate.mjs`), snapshot-tested IR.
-The corpus deliberately includes a **clean run** (session `3333…`, must derive zero signals)
-and a **trouble run** (session `4444…`, one of every high-severity signal). Pure frontend
+The corpus deliberately includes a **clean run** (session `3333…`, must derive zero signals
+AND zero unread records), a **trouble run** (session `4444…`, one of every high-severity
+signal), and two **drift runs** (`6666…` quiet at 95% read, `7777…` loud at 21%) — both with
+zero signals, because the coverage triggers exist for exactly the moment the UI would
+otherwise imply completeness. Pure frontend
 helpers (`viewmath`, `focus`) are unit-tested; the rendered UI is manual + demo.
 CI: GitHub Actions, Node ≥ 20.
 

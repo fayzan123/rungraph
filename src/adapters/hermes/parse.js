@@ -2,6 +2,7 @@ import { emptyGraph, snippet } from '../../ir.js';
 import { mergeFiles } from '../claude-code/files.js';
 import { openDb, tableColumns, selectList, schemaVersion, iso } from './db.js';
 import { ADAPTER_NAME } from './detect.js';
+import { tallyUnknownType } from '../../coverage.js';
 
 /**
  * Hermes parser: rows in, IR out. No server imports; no I/O beyond the run's
@@ -114,7 +115,9 @@ export async function parse(ref, opts = {}) {
       collect,
       q,
       seen: new Set([ref.sessionId]),
-      stats: { inactive: 0, modelSwitches: 0, unrecognized: 0, agents: 0 },
+      // `records` is this adapter's coverage unit: rows WALKED. Adapter-defined
+      // and never compared across adapters — a row is not a JSONL line.
+      stats: { inactive: 0, modelSwitches: 0, unrecognized: 0, agents: 0, records: 0, unknownTypes: {} },
     };
 
     const walker = new SessionWalker(ctx, { groupId: undefined, startTip: null, live });
@@ -127,6 +130,14 @@ export async function parse(ref, opts = {}) {
     const endedAt = iso(session.ended_at);
     if (endedAt) g.meta.endedAt = endedAt;
     g.meta.unrecognizedLineCount = ctx.stats.unrecognized;
+    g.meta.coverage = {
+      records: ctx.stats.records,
+      // One row can raise several complaints (a tool_calls array of six bad
+      // entries), so this can exceed `records`; consumers clamp.
+      unrecognized: ctx.stats.unrecognized,
+      // A Hermes run is one database — there is no second file to fail to open.
+      sourcesUnread: 0,
+    };
     g.meta.totals = {
       tokens: num(session.input_tokens) + num(session.output_tokens),
       toolCalls: num(session.tool_call_count),
@@ -155,6 +166,11 @@ export async function parse(ref, opts = {}) {
         inactiveMessageCount: ctx.stats.inactive,
         ...(ctx.stats.modelSwitches > 0 ? { modelSwitchCount: ctx.stats.modelSwitches } : {}),
         ...(schemaVersion(db) != null ? { schemaVersion: schemaVersion(db) } : {}),
+        // Row shapes this grammar could not place. Vendor vocabulary, hence
+        // the namespaced bag.
+        ...(Object.keys(ctx.stats.unknownTypes).length > 0
+          ? { unknownTypes: ctx.stats.unknownTypes }
+          : {}),
       },
     };
     return { ir: g, details };
@@ -258,6 +274,10 @@ class SessionWalker {
   }
 
   row(row) {
+    // THE choke point: every walked row passes through here exactly once, in
+    // the parent backbone and in every delegation lane, so coverage's
+    // `records` needs one increment and no per-branch bookkeeping.
+    this.ctx.stats.records++;
     const kind = typeof row.display_kind === 'string' ? row.display_kind : '';
     if (kind === 'hidden') return;
     if (kind === 'model_switch') return this.modelSwitch(row);
@@ -265,7 +285,7 @@ class SessionWalker {
     if (kind === 'auto_continue') return; // agent-initiated continuation — folded, not a turn
     if (kind) {
       // A display_kind this grammar doesn't know — future Hermes. Skip + count.
-      this.ctx.stats.unrecognized++;
+      this.unknown(kind);
       return;
     }
     switch (row.role) {
@@ -276,8 +296,14 @@ class SessionWalker {
       case 'tool':
         return this.toolRow(row);
       default:
-        this.ctx.stats.unrecognized++;
+        this.unknown(typeof row.role === 'string' ? `role:${row.role}` : undefined);
     }
+  }
+
+  /** Count one unreadable row shape, and remember what shape it was. */
+  unknown(type) {
+    this.ctx.stats.unrecognized++;
+    tallyUnknownType(this.ctx.stats.unknownTypes, type);
   }
 
   // ---- user rows ----------------------------------------------------------
@@ -368,14 +394,14 @@ class SessionWalker {
     if (row.tool_calls == null) return;
     const calls = safeJson(row.tool_calls);
     if (!Array.isArray(calls)) {
-      this.ctx.stats.unrecognized++;
+      this.unknown('tool_calls');
       return;
     }
     for (const call of calls) {
       const name = call?.function?.name;
       const callId = typeof call?.call_id === 'string' ? call.call_id : call?.id;
       if (typeof name !== 'string' || typeof callId !== 'string' || !callId) {
-        this.ctx.stats.unrecognized++;
+        this.unknown('tool_call');
         continue;
       }
       const args = safeJson(call.function.arguments) ?? {};
@@ -473,12 +499,12 @@ class SessionWalker {
     if (!rec) {
       // A result with no matching active call — a shape this grammar can't
       // place (rewind halves, format drift). Skip + count.
-      this.ctx.stats.unrecognized++;
+      this.unknown('orphan_tool_result');
       return;
     }
     this.pending.delete(row.tool_call_id);
     const { json, malformed } = parseResult(row.content);
-    if (malformed) this.ctx.stats.unrecognized++;
+    if (malformed) this.unknown('tool_result');
 
     if (rec.kind === 'clarify') return this.clarifyAnswered(rec, row, json);
     if (rec.kind === 'delegate') return this.delegated(rec, json);

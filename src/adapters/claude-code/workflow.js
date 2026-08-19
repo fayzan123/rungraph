@@ -12,6 +12,7 @@ import {
   WORKFLOW_QUIET_MS,
 } from './helpers.js';
 import { filePathsFromToolInput, mergeFiles } from './files.js';
+import { tallyUnknownType, mergeUnknownTypes } from '../../coverage.js';
 
 /**
  * Run manifest written at <project>/<sessionId>/workflows/<wfId>.json when the
@@ -39,6 +40,10 @@ export async function parseWorkflowRun(ref, opts = {}) {
 
   // ---- journal: attempts grouped by key ----------------------------------
   let unrecognized = 0;
+  // Coverage counts every record examined, in the same loops that count the
+  // unreadable ones — journal lines here, attempt transcript lines below.
+  let records = 0;
+  const unknownTypes = {};
   const badLineNos = [];
   let maxLineNo = 0;
   const attempts = []; // { agentId, key, order }
@@ -47,17 +52,23 @@ export async function parseWorkflowRun(ref, opts = {}) {
     onBadLine: (_line, n) => badLineNos.push(n),
   })) {
     maxLineNo = Math.max(maxLineNo, lineNo);
+    records++;
     if (obj?.type === 'started' && obj.agentId) {
       attempts.push({ agentId: obj.agentId, key: obj.key, order: attempts.length });
     } else if (obj?.type === 'result' && obj.agentId) {
       resultByAgent.set(obj.agentId, obj.result);
     } else {
       unrecognized++;
+      tallyUnknownType(unknownTypes, obj?.type);
     }
   }
-  // Malformed FINAL line = mid-write truncation, not format drift.
+  // Malformed FINAL line = mid-write truncation, not format drift. Still a
+  // record examined, so it counts in `records` and not in `unrecognized`.
   maxLineNo = Math.max(maxLineNo, ...badLineNos, 0);
-  unrecognized += badLineNos.filter((n) => n !== maxLineNo).length;
+  records += badLineNos.length;
+  const badMidFile = badLineNos.filter((n) => n !== maxLineNo);
+  unrecognized += badMidFile.length;
+  for (let i = 0; i < badMidFile.length; i++) tallyUnknownType(unknownTypes, undefined);
 
   const manifest = await readManifest(ref.projectDir, ref.sessionId, ref.wfId);
   const progressByAgent = new Map();
@@ -75,7 +86,11 @@ export async function parseWorkflowRun(ref, opts = {}) {
     att.file = join(ref.wfDir, `agent-${att.agentId}.jsonl`);
     att.st = await statOrNull(att.file);
     att.parsed = att.st ? await parseAgentFile(att.file, { collectTranscript: collect }) : null;
-    if (att.parsed) unrecognized += att.parsed.unrecognized;
+    if (att.parsed) {
+      unrecognized += att.parsed.unrecognized;
+      records += att.parsed.records;
+      mergeUnknownTypes(unknownTypes, att.parsed.unknownTypes);
+    }
   }
   const jst = await statOrNull(ref.journalFile);
   const maxMtimeMs = Math.max(
@@ -130,6 +145,7 @@ export async function parseWorkflowRun(ref, opts = {}) {
   const byKey = new Map();
   let totalToolCalls = 0;
   let totalTokens = 0;
+  let ctxSourcesUnread = 0;
 
   for (const att of attempts) {
     const prog = progressByAgent.get(att.agentId);
@@ -167,7 +183,12 @@ export async function parseWorkflowRun(ref, opts = {}) {
     // Same reason as session subagents: the work happened inside the agent's
     // own transcript, so the drill-in graph must carry it too.
     if (parsed?.files.length) node.files = parsed.files;
-    if (!st) node.ext = { transcriptMissing: true };
+    if (!st) {
+      node.ext = { transcriptMissing: true };
+      // A file nobody opened contributes to neither counter — without this,
+      // an entirely unreadable attempt would still score 100%.
+      ctxSourcesUnread++;
+    }
     g.nodes.push(node);
 
     totalToolCalls += prog?.toolCalls ?? parsed?.toolCalls ?? 0;
@@ -237,6 +258,10 @@ export async function parseWorkflowRun(ref, opts = {}) {
   }
 
   g.meta.unrecognizedLineCount = unrecognized;
+  g.meta.coverage = { records, unrecognized, sourcesUnread: ctxSourcesUnread };
+  if (Object.keys(unknownTypes).length > 0) {
+    g.meta.ext = { ...(g.meta.ext ?? {}), claudeCode: { unknownTypes } };
+  }
   g.meta.totals = {
     tokens: manifest?.totalTokens ?? totalTokens,
     toolCalls: manifest?.totalToolCalls ?? totalToolCalls,
@@ -265,6 +290,9 @@ export async function parseAgentFile(file, { collectTranscript = false } = {}) {
     files: [],
     toolCalls: 0,
     unrecognized: 0,
+    // Coverage, in the same unit the caller aggregates: non-blank lines read.
+    records: 0,
+    unknownTypes: {},
   };
   const models = new Map();
   let lastAssistant = null;
@@ -277,8 +305,10 @@ export async function parseAgentFile(file, { collectTranscript = false } = {}) {
     onBadLine: (_line, n) => badLineNos.push(n),
   })) {
     maxLineNo = Math.max(maxLineNo, lineNo);
+    out.records++;
     if (typeof obj?.type !== 'string' || !KNOWN_AGENT_TYPES.has(obj.type)) {
       out.unrecognized++;
+      tallyUnknownType(out.unknownTypes, obj?.type);
       continue;
     }
     lastLine = obj;
@@ -342,9 +372,13 @@ export async function parseAgentFile(file, { collectTranscript = false } = {}) {
     }
   }
 
-  // Malformed FINAL line = mid-write truncation, tolerated silently.
+  // Malformed FINAL line = mid-write truncation, tolerated silently — still a
+  // record examined, so it counts in `records` and not in `unrecognized`.
   maxLineNo = Math.max(maxLineNo, ...badLineNos, 0);
-  out.unrecognized += badLineNos.filter((n) => n !== maxLineNo).length;
+  out.records += badLineNos.length;
+  const badMid = badLineNos.filter((n) => n !== maxLineNo);
+  out.unrecognized += badMid.length;
+  for (let i = 0; i < badMid.length; i++) tallyUnknownType(out.unknownTypes, undefined);
 
   out.tokens = usage.outputOnlyTotals();
   out.durationMs = msBetween(out.startedAt, out.endedAt);

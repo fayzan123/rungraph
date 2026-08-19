@@ -26,6 +26,11 @@ exports[`codex parse > clean-run IR matches the snapshot 1`] = `
   "irVersion": 1,
   "meta": {
     "adapter": "codex",
+    "coverage": {
+      "records": 25,
+      "sourcesUnread": 0,
+      "unrecognized": 0,
+    },
     "endedAt": "2026-08-01T10:00:50.000Z",
     "kind": "session",
     "runId": "codex:c1c1c1c1-0000-7000-8000-000000000001",
@@ -155,7 +160,20 @@ exports[`codex parse > subagent-run IR matches the snapshot 1`] = `
   "irVersion": 1,
   "meta": {
     "adapter": "codex",
+    "coverage": {
+      "records": 57,
+      "sourcesUnread": 0,
+      "unrecognized": 2,
+    },
     "endedAt": "2026-08-01T10:01:48.000Z",
+    "ext": {
+      "codex": {
+        "unknownTypes": {
+          "event_msg:quantum_status": 1,
+          "holo-sync": 1,
+        },
+      },
+    },
     "kind": "session",
     "runId": "codex:c2c2c2c2-0000-7000-8000-000000000002",
     "startedAt": "2026-08-01T10:00:52.000Z",

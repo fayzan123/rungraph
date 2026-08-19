@@ -20,6 +20,37 @@ export const KNOWN_MAIN_TYPES = new Set([
   'summary', // legacy; tolerated
 ]);
 
+/**
+ * Types tolerated only in the SHAPE we actually observed, never by name alone.
+ *
+ * `atis-latch` appeared in Claude Code output in August 2026 and pushed the
+ * skip rate from 0% to ~5% on every new session. All 220 samples in the corpus
+ * were `{ type, atis, sessionId }` with `atis === ''` — contentless.
+ *
+ * The general policy, not a one-off: RECOGNIZE THE SHAPE YOU OBSERVED. Adding
+ * the bare name would mean that the day Claude Code starts populating the
+ * field, rungraph silently swallows real content *and reports 100% coverage* —
+ * manufacturing precisely the blind spot the coverage layer exists to remove.
+ * A populated `atis` falls through to unrecognized, where it is visible.
+ *
+ * A MAP, not an object literal, and that is load-bearing: `obj.type` is
+ * transcript-controlled, so a plain-object lookup would walk the prototype
+ * chain — `{"type":"constructor"}` would find a truthy "gate" and be counted as
+ * READ, and `{"type":"valueOf"}` would throw. Both defeat the layer this gate
+ * belongs to. The same reason `KNOWN_MAIN_TYPES` is a Set.
+ */
+export const SHAPE_GATED_MAIN_TYPES = new Map([
+  ['atis-latch', (obj) => obj.atis === undefined || obj.atis === ''],
+]);
+
+/** True if a main-session line is one this adapter understands. */
+export function isKnownMainLine(obj) {
+  if (typeof obj?.type !== 'string') return false;
+  const gate = SHAPE_GATED_MAIN_TYPES.get(obj.type);
+  if (gate) return gate(obj) === true;
+  return KNOWN_MAIN_TYPES.has(obj.type);
+}
+
 /** Line types we understand in agent transcript files. */
 export const KNOWN_AGENT_TYPES = new Set(['user', 'assistant', 'attachment']);
 

@@ -4,6 +4,7 @@ import { fmtTokens, fmtDuration } from './canvas.jsx';
 import { SIGNAL_GLYPHS } from './strip.jsx';
 import { adapterName, filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
 import { suggestQuestions } from './suggest.js';
+import { coverageStats, unknownTypeSummary } from '../../src/coverage.js';
 
 /**
  * The right pane answers "what is in this run" whenever nothing is selected and
@@ -68,6 +69,13 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
   const files = useMemo(() => filesIndex(graph), [graph]);
   const focused = useMemo(() => rankedFocusNodes(graph, focus), [graph, focus]);
   const totals = graph.meta?.totals ?? {};
+  // A boring statistic seen a hundred times is legible the day it goes
+  // non-trivial. The badge is dormant by design — on a healthy machine it
+  // renders on nothing, ever — so without a persistent surface the user would
+  // meet coverage for the first time on the day something breaks, and the
+  // unknown record types would have nowhere to be read.
+  const cov = coverageStats(graph.meta);
+  const covTypes = cov && cov.unrecognized > 0 ? unknownTypeSummary(graph.meta) : '';
 
   return (
     <>
@@ -81,6 +89,23 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
         {totals.toolCalls != null && (<><dt>tool calls</dt><dd>{totals.toolCalls}</dd></>)}
         {totals.agents != null && (<><dt>agents</dt><dd>{totals.agents}</dd></>)}
         {totals.tokens != null && (<><dt>tokens</dt><dd>{fmtTokens(totals.tokens)}</dd></>)}
+        {cov && (
+          <>
+            <dt>records</dt>
+            <dd
+              data-partial={String(cov.unrecognized > 0 || cov.sourcesUnread > 0)}
+              title="records this adapter read, out of the records it examined"
+            >
+              {cov.records - cov.unrecognized} / {cov.records}
+              {cov.sourcesUnread > 0 && (
+                <span class="microlabel">
+                  {' '}+ {cov.sourcesUnread} unread source{cov.sourcesUnread === 1 ? '' : 's'}
+                </span>
+              )}
+            </dd>
+          </>
+        )}
+        {covTypes && (<><dt>unread</dt><dd title="record types this rungraph does not understand">{covTypes}</dd></>)}
       </dl>
 
       {focus && (

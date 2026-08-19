@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
+import { classifyCoverage, coverageNote } from './coverage.js';
 import { liveServers, liveServerUrl } from './registry.js';
 import { buildFocusHash } from './deeplink.js';
 import { openInBrowser } from './open.js';
@@ -39,7 +40,7 @@ const DATE_VERSION = /^\d{4}-\d{2}-\d{2}$/;
 // decides whether to use it. The initialize-result instructions field is
 // surfaced up front even by those hosts — this is the one copy of the
 // proactive-loop contract that is guaranteed to be in context.
-const INSTRUCTIONS = `The user may have a rungraph dashboard open — a live graph view of the AI coding-agent runs on this machine. You and that dashboard are two ends of one loop: answer in the conversation first, then call focus_nodes so the graph lights up the nodes your answer is about. Do this proactively after answering any question about work done in a project — including code questions like "where was X built", where the right nodes live in the run that wrote the code (list_runs, then find_nodes, then focus_nodes). The highlight is a bonus, never the answer: with no dashboard watching, focus_nodes still succeeds with focused:false and you simply mention the highlight was skipped.`;
+const INSTRUCTIONS = `The user may have a rungraph dashboard open — a live graph view of the AI coding-agent runs on this machine. You and that dashboard are two ends of one loop: answer in the conversation first, then call focus_nodes so the graph lights up the nodes your answer is about. Do this proactively after answering any question about work done in a project — including code questions like "where was X built", where the right nodes live in the run that wrote the code (list_runs, then find_nodes, then focus_nodes). The highlight is a bonus, never the answer: with no dashboard watching, focus_nodes still succeeds with focused:false and you simply mention the highlight was skipped. The read tools return a \`coverage\` field, and a \`note\` whenever part of a run could not be parsed — state what it says before calling a run clean or complete, because a run rungraph could only partly read looks exactly like one where nothing went wrong.`;
 const DEFAULT_FIND_LIMIT = 100;
 const SERVER_BOOT_MS = 8000;
 const SERVER_CALL_MS = 3000;
@@ -235,7 +236,7 @@ const TOOLS = [
     name: 'get_graph',
     title: 'Get a run graph',
     description:
-      'Fetch the graph of one run: nodes (turns, agents, grouped tool calls, workflows, human interventions), edges, groups, derived signals (what went wrong) and per-node files[] (what was touched). Returns the COMPACT projection by default — ids, kinds, labels, status, error/call counts, files, edge reasons and all signals — which is what you want for almost every question. Pass detail:"full" only for timing or token questions; a large run in full is tens of thousands of tokens. On a big run, narrow with find_nodes first.',
+      'Fetch the graph of one run: nodes (turns, agents, grouped tool calls, workflows, human interventions), edges, groups, derived signals (what went wrong) and per-node files[] (what was touched). Returns the COMPACT projection by default — ids, kinds, labels, status, error/call counts, files, edge reasons and all signals — which is what you want for almost every question. Pass detail:"full" only for timing or token questions; a large run in full is tens of thousands of tokens. On a big run, narrow with find_nodes first. Carries meta.coverage (records examined vs. unrecognized) — say what it says before calling a run clean or complete.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -255,7 +256,7 @@ const TOOLS = [
     name: 'find_nodes',
     title: 'Find nodes in a run',
     description:
-      'Case-insensitive substring search over node labels and the file paths each node touched. Use this BEFORE get_graph on any run that is not small: it returns only the matching nodes, so you can locate "the Edit calls on token.js" or "the test runs" for a few hundred tokens instead of pulling the whole graph. Returns node ids you can pass straight to get_detail or focus_nodes.',
+      'Case-insensitive substring search over node labels and the file paths each node touched. Use this BEFORE get_graph on any run that is not small: it returns only the matching nodes, so you can locate "the Edit calls on token.js" or "the test runs" for a few hundred tokens instead of pulling the whole graph. Returns node ids you can pass straight to get_detail or focus_nodes. Carries coverage for the run — say what it says before calling a run clean or complete.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -272,7 +273,7 @@ const TOOLS = [
     name: 'get_detail',
     title: 'Get node detail',
     description:
-      'Fetch the full payload behind one node: the prompt and response of a turn, the transcript of an agent, the individual inputs/outputs of a grouped tool node, the text of a human intervention. This is where the actual error messages live — reach for it once find_nodes or the signals have told you which node to open. Strings are pre-truncated for size.',
+      'Fetch the full payload behind one node: the prompt and response of a turn, the transcript of an agent, the individual inputs/outputs of a grouped tool node, the text of a human intervention. This is where the actual error messages live — reach for it once find_nodes or the signals have told you which node to open. Strings are pre-truncated for size. Carries coverage for the run — say what it says before calling a run clean or complete.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -360,11 +361,32 @@ function projectMatches(runProject, project) {
 
 async function getGraph(args, ctx) {
   const ir = await loadIR(args.runId, ctx);
-  if (args.detail === 'full') return ir;
-  if (args.detail !== undefined && args.detail !== 'compact') {
+  if (args.detail !== undefined && args.detail !== 'full' && args.detail !== 'compact') {
     log(`get_graph: ignoring unknown detail "${args.detail}", using compact`);
   }
-  return compactGraph(ir);
+  const out = args.detail === 'full' ? { ...ir } : compactGraph(ir);
+  return withCoverage(out, ir);
+}
+
+/**
+ * Attach coverage — and, on the same verdicts as the canvas badge, the prose
+ * note — to a read tool's result.
+ *
+ * The verdict comes from the ONE shared `classifyCoverage`, so the caveat the
+ * model reads and the badge the user sees can never disagree about the same
+ * run. Firing only on `loud` would mean a 95% run shows the human a caveat and
+ * tells the agent nothing, which is exactly the terminal-vs-canvas split
+ * server-side derivation exists to prevent.
+ *
+ * Absent coverage (a pre-coverage bundle) is omitted entirely — unknown is
+ * never presented as complete, and never guessed at.
+ */
+function withCoverage(out, ir) {
+  const meta = ir?.meta;
+  if (meta?.coverage) out.coverage = meta.coverage;
+  const note = coverageNote(meta, classifyCoverage(meta, ir?.signals?.length ?? 0));
+  if (note) out.note = out.note ? `${out.note} ${note}` : note;
+  return out;
 }
 
 async function findNodes(args, ctx) {
@@ -388,7 +410,7 @@ async function findNodes(args, ctx) {
     out.truncated = true;
     out.note = `${ids.length} nodes matched; showing the first ${kept.length}. Narrow the query or raise limit.`;
   }
-  return out;
+  return withCoverage(out, ir);
 }
 
 async function getDetail(args, ctx) {
@@ -408,7 +430,7 @@ async function getDetail(args, ctx) {
           : `No node "${args.nodeId}" in run "${args.runId}". Node ids come from get_graph or find_nodes.`,
       );
     }
-    return { runId: id, nodeId: args.nodeId, detail };
+    return withCoverage({ runId: id, nodeId: args.nodeId, detail }, ir);
   }
   // Not on disk — a bundle-served run. Its details live only on the server
   // that opened the bundle, so route by runId.
@@ -424,7 +446,11 @@ async function getDetail(args, ctx) {
         : `No run found with id "${id}". Call list_runs for the current ids.`,
     );
   }
-  return { runId: id, nodeId: args.nodeId, detail };
+  // The run's coverage lives with its graph, which this path does not need —
+  // one extra localhost fetch buys the same caveat a local run gets, and a
+  // failure just leaves coverage unknown rather than failing the detail call.
+  const ir = await loadIR(id, ctx).catch(() => null);
+  return withCoverage({ runId: id, nodeId: args.nodeId, detail }, ir);
 }
 
 async function focusNodes(args, ctx) {

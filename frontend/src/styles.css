@@ -369,6 +369,36 @@ button.ghost[data-on="true"] {
   background: color-mix(in oklch, var(--amber) 12%, transparent);
 }
 
+/* Coverage: a fact about what was read, not a control. Pinned outside the chip
+   scroller so it cannot be squeezed out, and deliberately NOT a button — it
+   focuses nothing and cannot be dismissed. One phrase for both severities; the
+   difference is weight, so the user reads prominence, not a second message. */
+.strip .coverage {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 30ch;
+  color: var(--ink-dim);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: default;
+}
+.strip .coverage .glyph { flex: none; font-size: 12px; line-height: 1; }
+.strip .coverage .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip .coverage[data-verdict="loud"] {
+  margin-right: 4px;
+  color: var(--clay);
+  border-color: color-mix(in oklch, var(--clay) 55%, transparent);
+  background: color-mix(in oklch, var(--clay) 14%, transparent);
+  font-weight: 600;
+}
+
+/* The kv row is always present, at any coverage — it goes quietly amber only
+   when something actually went unread. */
+.inspector .kv dd[data-partial="true"] { color: var(--amber); }
+
 /* The undo pill sits with find, pinned right — it must survive a crowded strip
    for the same reason the note does. */
 .strip .chip.undo {

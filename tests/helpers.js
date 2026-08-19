@@ -38,6 +38,12 @@ export const TROUBLE_RUN_ID =
 /** One of every secrets-scanner pattern kind — `export` must block on it. */
 export const SECRETS_RUN_ID =
   'claude-code:-home-dev-acme:55555555-5555-4555-8555-555555555555';
+/** Lightly drifted, zero signals — the coverage QUIET trigger (95% read). */
+export const DRIFT_QUIET_RUN_ID =
+  'claude-code:-home-dev-acme:66666666-6666-4666-8666-666666666666';
+/** Heavily drifted, zero signals — the coverage LOUD trigger (21% read). */
+export const DRIFT_LOUD_RUN_ID =
+  'claude-code:-home-dev-acme:77777777-7777-4777-8777-777777777777';
 
 /** Codex: a clean run (zero signals) and a subagent run (cross-file lineage). */
 export const CODEX_CLEAN_RUN_ID = 'codex:c1c1c1c1-0000-7000-8000-000000000001';
@@ -59,12 +65,12 @@ export const HERMES_GATEWAY_RUN_ID = 'hermes:20260801_125500_6a7e3a';
 export const HERMES_LEGACY_RUN_ID = 'hermes:20260701_090000_1e64c1';
 
 /**
- * Every run a full scan of the claude + codex fixture roots contains: 6
- * Claude (2 sessions + clean + trouble + secrets + 1 workflow) + 3 Codex
+ * Every run a full scan of the claude + codex fixture roots contains: 8
+ * Claude (2 sessions + clean + trouble + secrets + 2 drift + 1 workflow) + 3 Codex
  * (clean + subagent parent + old-format; child/grandchild rollouts are not
  * independent runs). Hermes fixture runs are NOT in this count — the
  * cross-cutting suites disable that adapter (RUNGRAPH_HERMES_HOME='') so
  * they stay green on the Node 20 CI leg, and tests/hermes.test.js scans the
  * Hermes fixtures behind its own node:sqlite gate.
  */
-export const FIXTURE_RUN_COUNT = 9;
+export const FIXTURE_RUN_COUNT = 11;

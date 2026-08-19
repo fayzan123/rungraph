@@ -12,6 +12,7 @@ import {
   SESSION_RUN_ID,
   CLEAN_RUN_ID,
   TROUBLE_RUN_ID,
+  DRIFT_QUIET_RUN_ID,
   SECRETS_RUN_ID,
   FIXTURE_RUN_COUNT,
 } from './helpers.js';
@@ -94,6 +95,17 @@ describe('golden CLI (agent contract)', () => {
       expect(s).toHaveProperty('severity');
       expect(s.nodeIds.length).toBeGreaterThan(0);
     }
+  });
+
+  // Coverage rides the same channel as signals, for the same reason: an agent
+  // reading --json and a human reading the dashboard must agree about how much
+  // of the run was actually read, not just about what went wrong in it.
+  it('graph --json carries coverage', async () => {
+    const ir = JSON.parse((await run('graph', TROUBLE_RUN_ID, '--json')).stdout);
+    expect(ir.meta.coverage).toEqual({ records: 21, unrecognized: 0, sourcesUnread: 0 });
+    const drifted = JSON.parse((await run('graph', DRIFT_QUIET_RUN_ID, '--json')).stdout);
+    expect(drifted.meta.coverage.unrecognized).toBe(1);
+    expect(drifted.meta.ext.claudeCode.unknownTypes).toEqual({ 'flux-marker': 1 });
   });
 
   it('graph --json carries file attribution', async () => {

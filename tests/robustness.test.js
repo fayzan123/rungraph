@@ -35,7 +35,12 @@ describe('never blank-screen', () => {
     await pinTree(root);
     const refs = await detect([root]);
     const { ir } = await parse(refs.find((r) => r.kind === 'session' && r.sessionId === S1));
-    expect(ir.meta.unrecognizedLineCount).toBe(1); // only the holo-recap line
+    expect(ir.meta.unrecognizedLineCount).toBe(2); // holo-recap + the populated atis-latch
+    // Coverage inherits the same rule, so a live session does not flicker: the
+    // truncated final line is a record EXAMINED (it counts in `records`) but
+    // not one that failed (it stays out of `unrecognized`).
+    expect(ir.meta.coverage.records).toBe(50);
+    expect(ir.meta.coverage.unrecognized).toBe(2);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -46,7 +51,8 @@ describe('never blank-screen', () => {
     await pinTree(root);
     const refs = await detect([root]);
     const { ir } = await parse(refs.find((r) => r.kind === 'session' && r.sessionId === S1));
-    expect(ir.meta.unrecognizedLineCount).toBe(2); // holo-recap + the bad mid-file line
+    expect(ir.meta.unrecognizedLineCount).toBe(3); // holo-recap + atis-latch + the bad mid-file line
+    expect(ir.meta.coverage.unrecognized).toBe(3);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -64,6 +70,10 @@ describe('never blank-screen', () => {
     expect(agent.ext.transcriptMissing).toBe(true);
     expect(agent.status).toBe('completed'); // notification said completed
     expect(details.get(agent.id).transcript).toEqual([]);
+    // The most complete blindness available: a whole subagent nobody could
+    // open. It contributes to neither record counter, so without sourcesUnread
+    // this run would score 100% read.
+    expect(ir.meta.coverage.sourcesUnread).toBe(1);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -80,6 +90,7 @@ describe('never blank-screen', () => {
     const wf = refs.find((r) => r.kind === 'workflow');
     const { ir } = await parse(wf);
     expect(ir.meta.unrecognizedLineCount).toBe(2); // null and 42, counted not fatal
+    expect(ir.meta.coverage.unrecognized).toBe(2);
     expect(ir.nodes.some((n) => n.kind === 'agent' && n.status === 'completed')).toBe(true);
     await rm(root, { recursive: true, force: true });
   });

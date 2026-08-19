@@ -133,6 +133,11 @@ exports[`hermes parse > clean-run IR matches the snapshot 1`] = `
   "irVersion": 1,
   "meta": {
     "adapter": "hermes",
+    "coverage": {
+      "records": 10,
+      "sourcesUnread": 0,
+      "unrecognized": 0,
+    },
     "endedAt": "2026-08-01T12:00:22.000Z",
     "ext": {
       "hermes": {
@@ -301,6 +306,11 @@ exports[`hermes parse > delegation-run IR matches the snapshot 1`] = `
   "irVersion": 1,
   "meta": {
     "adapter": "hermes",
+    "coverage": {
+      "records": 15,
+      "sourcesUnread": 0,
+      "unrecognized": 0,
+    },
     "ext": {
       "hermes": {
         "archived": false,
@@ -477,6 +487,11 @@ exports[`hermes parse > trouble-run IR matches the snapshot 1`] = `
   "irVersion": 1,
   "meta": {
     "adapter": "hermes",
+    "coverage": {
+      "records": 18,
+      "sourcesUnread": 0,
+      "unrecognized": 2,
+    },
     "endedAt": "2026-08-01T12:01:02.000Z",
     "ext": {
       "hermes": {
@@ -489,6 +504,10 @@ exports[`hermes parse > trouble-run IR matches the snapshot 1`] = `
         "rewindCount": 0,
         "schemaVersion": 26,
         "source": "cli",
+        "unknownTypes": {
+          "holo_recap": 1,
+          "role:system": 1,
+        },
       },
     },
     "kind": "session",

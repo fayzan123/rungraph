@@ -60,7 +60,17 @@
  * @property {string} [endedAt]
  * @property {{tokens: number, toolCalls: number, agents: number}} totals
  * @property {number} unrecognizedLineCount
+ * @property {Coverage} [coverage]  How much of the run was read — see coverage.js.
  * @property {Object} [ext]
+ *
+ * @typedef {Object} Coverage
+ * @property {number} records        Records the adapter EXAMINED, in its own unit
+ *                                   (non-blank JSONL lines, walked DB rows, …).
+ *                                   Adapter-defined; never compared across adapters.
+ * @property {number} unrecognized   …of those, how many it could not interpret.
+ * @property {number} sourcesUnread  Referenced sources it could not open at all
+ *                                   (e.g. a missing agent transcript). Their size is
+ *                                   unknowable, so they are never turned into records.
  *
  * @typedef {Object} IRSignal
  * @property {string} id            Stable across re-parses (derived from node ids).
@@ -80,6 +90,8 @@
  * @property {IRSignal[]} [signals] Derived, not parsed — see signals.js. Additive in
  *                                  irVersion 1; consumers must tolerate absence.
  */
+
+import { emptyCoverage } from './coverage.js';
 
 export const IR_VERSION = 1;
 
@@ -101,6 +113,10 @@ export function emptyGraph(meta) {
       title: '',
       totals: { tokens: 0, toolCalls: 0, agents: 0 },
       unrecognizedLineCount: 0,
+      // Raw counts, not a ratio: consumers derive what they need and no
+      // precision is discarded at the source. Additive to irVersion 1 —
+      // consumers must tolerate its absence (older bundles have none).
+      coverage: emptyCoverage(),
       ...meta,
     },
     nodes: [],

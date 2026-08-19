@@ -62,6 +62,12 @@ describe('deriveSignals over the fixture corpus', () => {
     const { ir: graph, signals } = await signalsFor(CLEAN_RUN_ID);
     expect(graph.nodes.length).toBeGreaterThan(3); // not vacuously clean
     expect(signals).toEqual([]);
+    // …and it was READ completely. Without this, "derives zero signals" could
+    // silently come to mean "read almost nothing and found nothing in it" —
+    // the precision guard would pass on a run the parser had gone blind to.
+    expect(graph.meta.coverage.unrecognized).toBe(0);
+    expect(graph.meta.coverage.sourcesUnread).toBe(0);
+    expect(graph.meta.coverage.records).toBeGreaterThan(3);
   });
 
   it('an empty run produces no signals and does not throw', () => {

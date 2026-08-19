@@ -87,6 +87,16 @@ quiet. Across 60 real sessions the median run produces 2 signals and *zero*
 high-severity ones; roughly a quarter produce none at all. If you see a chip, it
 earned its place.
 
+That claim is only worth something if rungraph actually read the run, so every
+run also carries **coverage** — how many records it examined and how many it
+could not interpret. The inspector shows it always (`records  1075 / 1075`,
+plus the record types it did not understand when that number is short), and the
+strip says `read 95% of this run` when something went unread on a run that
+otherwise looks clean, louder when most of the run is missing. Transcript
+formats are undocumented and unversioned: this is how "nothing went wrong" stays
+distinguishable from "I could not see part of this". Your agent is handed the
+same numbers and told to say so before calling a run clean.
+
 Only `high` severity (retry storm, unresolved error, denial, interrupt) gets a
 badge on the canvas. `outlier` never does — in a long session the biggest node
 is usually just the biggest node — so it lives in the inspector list instead.
@@ -241,7 +251,8 @@ asking questions never requires the dashboard to be open.
 | `the claude CLI is not on PATH` | `--install` prints the exact JSON to paste into your MCP config. |
 | the highlight never appears | nothing was open. It now opens a tab for you; if not, `--check` the dashboard line. |
 | a pane is missing | you collapsed it — `[` or `]`. Remembered per browser. |
-| a run shows a banner about unrecognized lines | your Claude Code is newer than your rungraph. The graph still renders; `npx rungraph@latest`. |
+| a run shows a banner about unrecognized records | your Claude Code is newer than your rungraph. The graph still renders; `npx rungraph@latest`. |
+| the strip says `read 62% of this run` | same cause, worse: enough of the transcript is unreadable that the graph is genuinely incomplete. Upgrade; the inspector's `unread` row names the record types, which is what an issue report needs. |
 | the graph is empty | that session has no turns yet (a headless or just-started run). |
 | port 4321 in use | it auto-increments; the printed URL is authoritative. |
 | a bundle file shows a red banner | it didn't decode (corrupt, or written by a newer rungraph — the banner says which). Other bundles still serve. |

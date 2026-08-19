@@ -96,6 +96,23 @@ The same focus mechanism backs everything else that points at nodes:
   something else while the agent works; the strip goes loud only when something
   new has actually gone wrong.
 
+### …and what rungraph couldn't read
+
+An empty strip is a claim, and it is only worth something if rungraph actually
+read the run. Transcript formats are undocumented and unversioned: a vendor
+ships a release, adds a record type, and a run quietly starts arriving with
+holes in it. Nothing about that shows up in the signals — they can only speak
+about records that parsed.
+
+So every run also carries **coverage**: how many records rungraph examined and
+how many it could not interpret. The inspector shows it on every run, always
+(`records  1075 / 1075`), and the strip says `read 95% of this run` when
+something went unread on a run that otherwise looks clean — louder when most of
+the run is missing. Below 100% it also names the record types it did not
+understand, because "one unknown metadata type" and "four hundred missing
+assistant turns" are the same percentage and opposite emergencies. Your agent
+gets the same numbers and is told to say so before calling a run clean.
+
 ## Ask your agent about a run
 
 The dashboard is for you; the MCP server is for your agent. They are two ends of
@@ -146,7 +163,7 @@ conversation. The read-only tools work with no server running at all.
 | tool | does |
 |---|---|
 | `list_runs` | the run index |
-| `get_graph` | one run's graph, compact by default (signals + files included) |
+| `get_graph` | one run's graph, compact by default (signals + files + coverage included) |
 | `find_nodes` | narrow before you pull — a big graph is 20k+ tokens |
 | `get_detail` | the actual error text behind one node |
 | `focus_nodes` | light up the open dashboard; returns a pastable deep link |
@@ -266,7 +283,8 @@ npx rungraph list --json
 
 npx rungraph graph 'claude-code:…:5822df8b-…' --json
 # The full Graph IR for that run on stdout:
-# {"irVersion":1,"meta":{"runId":"…","kind":"session","title":"…","totals":{"tokens":184230,"toolCalls":57,"agents":4},…},
+# {"irVersion":1,"meta":{"runId":"…","kind":"session","title":"…","totals":{"tokens":184230,"toolCalls":57,"agents":4},
+#                        "coverage":{"records":1075,"unrecognized":0,"sourcesUnread":0},…},
 #  "nodes":[{"id":"…","kind":"agent","label":"Investigate flaky test","status":"completed",
 #            "files":["/home/you/dev/app/src/auth/token.js"],"tokens":{…}},…],
 #  "edges":[{"kind":"spawn","from":"…","to":"…","label":"Investigate why auth.spec.ts flakes"},…],
