@@ -180,16 +180,26 @@
 <section class="band" id="share">
   <div class="band-inner">
     <div class="microlabel section-tag">5 · SHARING</div>
-    <h2 class="display-2">A run can leave the machine —<br />as a file, on your terms.</h2>
+    <h2 class="display-2">A run can leave the machine —<br />and someone else can question it.</h2>
     <p class="body-lg">
-      <code>rungraph export</code> writes a <code>.rungraph</code> bundle you send
-      over whatever you already trust. The inventory prints every time — and the
-      export <b>blocks</b> outright when it finds a high-confidence secret.
+      <code>rungraph export</code> writes a <code>.rungraph</code> bundle over
+      whatever channel you already trust — Slack, a repo, AirDrop. On the other
+      end, <code>rungraph open</code> serves the same interactive graph on their
+      own local dashboard, provenance intact ("shared by Bilal"), and their agent
+      can be pointed at your runs the same way yours can be — right alongside
+      their own history. The inventory prints every time, and export
+      <b>blocks</b> outright when it finds a high-confidence secret.
     </p>
     <div class="terminal static" data-export-terminal>
       <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
       <pre class="term-body"></pre>
     </div>
+    <p class="fineprint">
+      Attach the bundle to a PR instead of a wall of screenshots — or skip the
+      file and hand over a link. <i>copy link</i> in the header (and
+      <code>focus_nodes</code>, for your agent) captures the exact run, node,
+      and focus as a URL that reopens right there.
+    </p>
   </div>
 </section>
 
