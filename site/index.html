@@ -325,6 +325,29 @@ npx rungraph serve --no-open
             </div>
           </details>
 
+          <details class="qa" id="q-when-computed">
+            <summary>When is the graph computed — during the run or after it?</summary>
+            <div class="a">
+              <p>
+                Neither, exactly: it is computed <b>on demand, from files your agent
+                already wrote</b>. Claude Code, Codex and Hermes each write a full
+                transcript as they work. rungraph parses that transcript when you open
+                the run, and the server keeps an mtime-keyed cache, so a run that has
+                not changed is never parsed twice.
+              </p>
+              <p>
+                Live is the same code path rather than a second mode — <code>fs.watch</code>
+                on the run's own files, debounced, re-parse, push. The graph does grow
+                while the agent works, but nothing is instrumented inside the loop:
+                liveness here just means re-reading a file that is being appended to.
+              </p>
+              <p>
+                It is fast enough not to be a cost you think about. A 795-record session
+                parses end to end in under half a second.
+              </p>
+            </div>
+          </details>
+
           <details class="qa" id="q-retroactive">
             <summary>Does it work on sessions I already ran?</summary>
             <div class="a">
@@ -349,6 +372,44 @@ npx rungraph serve --no-open
               <p>
                 Signals re-derive on every update, so you can go do something else
                 and glance back only when the strip goes loud.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-token-cost">
+            <summary>How many tokens does this add to a run?</summary>
+            <div class="a">
+              <p>
+                <b>Zero.</b> Not 10%, not 1%. A run costs exactly the same whether
+                rungraph is installed or not.
+              </p>
+              <p>
+                No hooks, no wrapper, no proxy, no injected prompt — your agent has no
+                idea rungraph exists while it is running. That is the whole reason for
+                reconstructing after the fact instead of instrumenting the loop. A
+                tracing-style tool, where the model annotates spans as it goes, is
+                exactly where a "+10% of the run" estimate would be right.
+              </p>
+              <p>
+                The one place tokens enter is entirely opt-in: the <a href="#q-mcp-for">MCP
+                server</a>, when you ask your agent about a run. Measured on one real
+                session of 795 records that spent 127k tokens of its own:
+              </p>
+              <ul>
+                <li>
+                  the 7 tool definitions plus server instructions — <b>~1,600 tokens</b>,
+                  loaded once per session, not per question
+                </li>
+                <li><code>find_nodes</code>, the search you normally start with — <b>~440 tokens</b></li>
+                <li>
+                  <code>get_graph</code>, the compact projection of that entire run —
+                  <b>~4,900 tokens</b>
+                </li>
+              </ul>
+              <p>
+                So a typical question costs one to three thousand tokens of tool
+                results, against a session that spent 127k on itself. And you pay it
+                when you ask a question, never when you run.
               </p>
             </div>
           </details>
