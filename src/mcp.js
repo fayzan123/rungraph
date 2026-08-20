@@ -1,7 +1,9 @@
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
+import { homedir } from 'node:os';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { statOrNull } from './util.js';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
@@ -60,7 +62,14 @@ const SERVER_CALL_MS = 3000;
 // Edge `id` is dropped deliberately: at ~17% of a graph's bytes it is the
 // single most expensive field, and it is unusable — no tool accepts an edge id,
 // and it only ever concatenates two node ids that are already right there.
-const COMPACT_NODE_KEYS = ['id', 'kind', 'label', 'status', 'errorCount', 'callCount', 'files', 'group', 'runRef'];
+//
+// `reverted` is here for a reason the rest of the list does not need: the
+// canvas dims/marks reverted nodes, and if the compact projection dropped the
+// field the two ends of the loop would describe the same run differently —
+// the human seeing struck-through work the agent has no way to know about.
+// It is present only on runs that have a revert, so it costs nothing anywhere
+// else.
+const COMPACT_NODE_KEYS = ['id', 'kind', 'label', 'status', 'errorCount', 'callCount', 'files', 'group', 'runRef', 'reverted'];
 const COMPACT_EDGE_KEYS = ['kind', 'from', 'to', 'reason'];
 
 class RpcError extends Error {
@@ -420,9 +429,31 @@ async function getGraph(args, ctx) {
 function withCoverage(out, ir) {
   const meta = ir?.meta;
   if (meta?.coverage) out.coverage = meta.coverage;
-  const note = coverageNote(meta, classifyCoverage(meta, ir?.signals?.length ?? 0));
-  if (note) out.note = out.note ? `${out.note} ${note}` : note;
+  for (const note of [coverageNote(meta, classifyCoverage(meta, ir?.signals?.length ?? 0)), revertNote(meta)]) {
+    if (note) out.note = out.note ? `${out.note} ${note}` : note;
+  }
   return out;
+}
+
+/**
+ * The run-level warning for a run whose work was partly rolled back.
+ *
+ * Belt and braces beside the per-node `reverted` field, and it matters most
+ * for `get_detail`, whose result carries no nodes at all — an agent that only
+ * ever opens one node would otherwise describe discarded work as if it stood.
+ *
+ * Read by SHAPE (`bag.revert`), never by vendor key, exactly as
+ * `unknownTypes` is: this file names no adapter.
+ */
+function revertNote(meta) {
+  const ext = meta?.ext;
+  if (!ext || typeof ext !== 'object') return null;
+  for (const bag of Object.values(ext)) {
+    if (bag && typeof bag === 'object' && bag.revert && typeof bag.revert === 'object') {
+      return 'Part of this run was REVERTED by the user — the nodes carrying `reverted: true` are work that was rolled back and no longer stands. Say so before describing what the run changed.';
+    }
+  }
+  return null;
 }
 
 async function findNodes(args, ctx) {
@@ -803,20 +834,51 @@ function sleep(ms) {
 /* ------------------------------------------------------------------ install */
 
 const SCOPES = new Set(['user', 'project', 'local']);
+export const INSTALL_CLIENTS = new Set(['claude', 'opencode']);
+
+/**
+ * The imperative line that actually closes the loop from the agent's side.
+ *
+ * Measured, not decorative: agents skip `focus_nodes` by default because
+ * nothing in an ordinary task says to call it. The MCP server's own
+ * `instructions` carry one copy; a line in the repo's instruction file is the
+ * other, and it is the one that survives a host which lazy-loads tool schemas.
+ */
+const AGENTS_SNIPPET = `## rungraph
+
+When the rungraph MCP tools are available, close the loop: after answering any
+question about work done in this project, call \`focus_nodes\`
+(\`list_runs\` → \`find_nodes\` → \`focus_nodes\`) so an open dashboard shows the
+nodes your answer is about. Answer in the terminal first; the highlight
+follows, and is a bonus, never the answer.`;
 
 /**
  * `rungraph mcp --install` — the one-time registration that is otherwise a real
  * dent in the zero-setup promise.
  *
- * Delegates to the `claude` CLI because it owns the config format and will keep
- * owning it; writing ~/.claude.json ourselves would be a standing bet against
- * that. Every failure path ends in a command and a JSON block the user can
- * paste — never a prompt, never an editor.
+ * Two clients, and `--client` is EXPLICIT rather than sniffed: guessing which
+ * agent to register with would guess wrong on a machine that has both, and
+ * guessing at an install target contradicts the agent-first rule that nothing
+ * is implicit. The default stays `claude`, so today's behaviour is unchanged.
  *
- * @param {{ json?: boolean, scope?: 'user'|'project'|'local' }} [opts]
+ * The Claude path delegates to the `claude` CLI because it owns the config
+ * format and will keep owning it; writing ~/.claude.json ourselves would be a
+ * standing bet against that. The opencode path cannot delegate — see
+ * installOpencode — so it goes straight to the paste tier. Every path ends in
+ * something the user can paste, and none of them is a prompt or an editor.
+ *
+ * @param {{ json?: boolean, scope?: 'user'|'project'|'local', client?: string }} [opts]
  * @returns {Promise<number>} exit code
  */
 export async function installMcp(opts = {}) {
+  const client = opts.client ?? 'claude';
+  if (!INSTALL_CLIENTS.has(client)) {
+    process.stderr.write(
+      `rungraph: invalid --client "${client}" (${[...INSTALL_CLIENTS].join(' or ')})\n`,
+    );
+    return 1;
+  }
+  if (client === 'opencode') return installOpencode(opts);
   // Default 'user': rungraph is a machine-wide tool, and per-project
   // registration would have to be repeated in every repo forever.
   const scope = opts.scope ?? 'user';
@@ -835,6 +897,7 @@ export async function installMcp(opts = {}) {
   const installed = result.code === 0;
 
   const report = {
+    client: 'claude',
     installed,
     alreadyInstalled: already && !installed,
     scope,
@@ -879,6 +942,98 @@ export async function installMcp(opts = {}) {
     process.stderr.write(`\nOr paste this into your MCP config:\n${JSON.stringify(config, null, 2)}\n`);
   }
   return 1; // the already-registered case returned above
+}
+
+/**
+ * `rungraph mcp --install --client opencode` — the PASTE tier, on purpose.
+ *
+ * opencode's own `opencode mcp add` is an interactive TUI wizard: `--help`
+ * documents no positional or flag arguments, and running it with stdin closed
+ * against a throwaway config produced zero output and hung until killed. It
+ * cannot be delegated to non-interactively, so there is nothing to delegate
+ * to and the honest move is to print the exact block.
+ *
+ * Nothing is written, and that is three decisions rather than laziness:
+ * opencode loads `config.json`, `opencode.json` AND `opencode.jsonc` from its
+ * config dir (so the target file is ambiguous), the observed file is `.jsonc`
+ * so comments are legal, and rungraph has no JSONC parser because it has zero
+ * runtime dependencies — a `JSON.parse` round-trip would silently delete the
+ * user's comments.
+ *
+ * Non-interactive, no prompts, exit 0: the CLI contract is preserved.
+ */
+async function installOpencode(opts) {
+  const candidates = opencodeConfigCandidates();
+  let existing = null;
+  for (const path of candidates) {
+    if (await statOrNull(path)) {
+      existing = path;
+      break;
+    }
+  }
+  // The MCP key is `mcp`, NOT `mcpServers`, and `command` is an ARRAY —
+  // verified against https://opencode.ai/config.json, where McpLocalConfig
+  // requires `type` and `command: string[]`.
+  const config = {
+    mcp: {
+      rungraph: { type: 'local', command: [process.execPath, BIN_PATH, 'mcp'], enabled: true },
+    },
+  };
+  const report = {
+    client: 'opencode',
+    installed: false,
+    wrote: false,
+    tier: 'paste',
+    reason:
+      "opencode's own `opencode mcp add` is an interactive TUI wizard with no flags, so rungraph prints the block instead of writing your config",
+    configPath: existing ?? candidates[0],
+    configExists: Boolean(existing),
+    candidates,
+    config,
+    instructions: AGENTS_SNIPPET,
+    instructionsFile: 'AGENTS.md',
+  };
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(report) + '\n');
+    return 0;
+  }
+
+  process.stdout.write(
+    `Add rungraph to opencode by pasting this into ${report.configPath}` +
+      `${existing ? '' : ' (create it)'}:\n\n${JSON.stringify(config, null, 2)}\n`,
+  );
+  if (candidates.length > 1 && !existing) {
+    process.stdout.write(
+      `\nopencode also reads ${candidates.slice(1).join(' and ')} — any one of them works.\n`,
+    );
+  }
+  process.stdout.write(
+    `\nThen add this to your repo's AGENTS.md, so opencode closes the loop back to the dashboard:\n\n${AGENTS_SNIPPET}\n`,
+  );
+  process.stderr.write(
+    'rungraph: nothing was written — opencode config files are JSONC (comments are legal) ' +
+      'and rungraph has no JSONC parser, so rewriting yours would destroy them\n',
+  );
+  process.stderr.write(
+    'rungraph: this is one paste rather than one command because `opencode mcp add` is an interactive wizard\n',
+  );
+  process.stderr.write(
+    'rungraph: opencode reads AGENTS.md first and CLAUDE.md as a compat path (unless OPENCODE_DISABLE_CLAUDE_CODE is set), so an existing CLAUDE.md line already reaches it\n',
+  );
+  return 0;
+}
+
+/**
+ * Where opencode looks for its config, most specific first. `OPENCODE_CONFIG`
+ * names the file outright; otherwise it is the XDG config dir, where all three
+ * names are legal — which is exactly why rungraph names them and writes none.
+ */
+function opencodeConfigCandidates() {
+  const explicit = process.env.OPENCODE_CONFIG;
+  if (explicit) return [explicit];
+  const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode');
+  return [join(dir, 'opencode.jsonc'), join(dir, 'opencode.json'), join(dir, 'config.json')];
 }
 
 /* -------------------------------------------------------------------- check */

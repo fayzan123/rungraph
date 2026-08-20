@@ -19,13 +19,25 @@
   --clay-dim: oklch(0.45 0.10 32);
   --violet: oklch(0.72 0.09 300);
   /* Per-adapter accents: claude wears the house amber, codex a steel blue —
-     the one hue family the palette doesn't otherwise use — and hermes a
-     violet, nudged past --violet's hue so a hermes tag never reads as the
-     workflow/provenance violet. One hue per agent, worn at every point
-     identity appears: rail chip, row tag, header tag, inspector line. */
+     the one hue family the palette doesn't otherwise use — hermes a violet,
+     nudged past --violet's hue so a hermes tag never reads as the
+     workflow/provenance violet, and opencode a teal. One hue per agent, worn
+     at every point identity appears: rail chip, row tag, header tag,
+     inspector line.
+
+     Teal is not a taste call, it is the last real gap. Every hue this palette
+     already spends sits at 32 (clay/error), 58–78 (the warm neutrals plus
+     amber), 145–148 (sage/completed), 235 (steel), and 300–310 (violet and
+     hermes). The one arc nothing occupies runs 148 → 235, and 192 is its
+     midpoint: 44° off sage and 43° off steel, the farthest an agent colour can
+     get from both neighbours at once. That distance is the whole point — sage
+     means "completed" and clay means "error" on the very same canvas, so an
+     agent hue that drifted toward either would be read as a status. */
   --steel: oklch(0.72 0.075 235);
   --hermes: oklch(0.73 0.1 310);
   --hermes-dim: oklch(0.52 0.07 310);
+  --opencode: oklch(0.74 0.09 192);
+  --opencode-dim: oklch(0.53 0.065 192);
 
   --node-turn: oklch(0.26 0.02 68);
   --node-agent: oklch(0.24 0.02 145);
@@ -629,6 +641,25 @@ button.ghost[data-on="true"] {
 }
 .node[data-kind="human"] text.kindtag { fill: color-mix(in oklch, var(--amber) 75%, var(--ink-faint)); }
 
+/* Revert renders ORTHOGONALLY to focus, and this is load-bearing: opacity is
+   the FocusSet's exclusive vocabulary (members light, non-members recede), and
+   a second meaning on that one channel would leave the reader unable to tell
+   "not part of the answer" from "thrown away". So rolled-back work keeps its
+   opacity and gets a struck label plus a ↩ badge instead — which means a
+   reverted node that IS a focus member still renders LIT, with its mark.
+   NOTHING HERE MAY SET `opacity`. tests/opencode.test.js asserts it. */
+.node[data-reverted="true"] text.label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  fill: var(--ink-dim);
+}
+.node .revert-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--ink-dim);
+  text-anchor: end;
+}
+
 /* ---------- SVG edges ---------- */
 .edge { transition: opacity 160ms ease-out; }
 .edge path {
@@ -866,13 +897,19 @@ button.ghost[data-on="true"] {
   color: var(--hermes);
   border-color: color-mix(in oklch, var(--hermes-dim) 70%, transparent);
 }
+.adapter-tag[data-adapter="opencode"] {
+  color: var(--opencode);
+  border-color: color-mix(in oklch, var(--opencode-dim) 70%, transparent);
+}
 .run-item .sub .adapter { color: var(--ink-faint); }
 .run-item .sub .adapter[data-adapter="claude-code"] { color: var(--amber-dim); }
 .run-item .sub .adapter[data-adapter="codex"] { color: var(--steel); }
 .run-item .sub .adapter[data-adapter="hermes"] { color: var(--hermes); }
+.run-item .sub .adapter[data-adapter="opencode"] { color: var(--opencode); }
 .kv dd[data-adapter="codex"] { color: var(--steel); }
 .kv dd[data-adapter="claude-code"] { color: var(--amber-dim); }
 .kv dd[data-adapter="hermes"] { color: var(--hermes); }
+.kv dd[data-adapter="opencode"] { color: var(--opencode); }
 
 /* ---------- agent rail ---------- */
 
@@ -911,6 +948,7 @@ button.ghost[data-on="true"] {
 .agent-rail .chip[data-adapter="claude-code"] { color: var(--amber-dim); }
 .agent-rail .chip[data-adapter="codex"] { color: var(--steel); }
 .agent-rail .chip[data-adapter="hermes"] { color: var(--hermes); }
+.agent-rail .chip[data-adapter="opencode"] { color: var(--opencode); }
 /* The active chip borrows its own adapter's hue (currentColor), so "which
    agent am I filtered to" is answered by the same accent the row tags wear. */
 .agent-rail .chip[data-on="true"] {

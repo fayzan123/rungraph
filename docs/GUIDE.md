@@ -20,16 +20,18 @@ wiring your own coding agent to it.
 npx rungraph
 ```
 
-That's the whole setup. It scans `~/.claude/projects`, `~/.codex/sessions` and
-`~/.hermes`, starts a server on `127.0.0.1:4321`, and opens your browser.
-Requires Node ≥ 20 (Hermes runs need ≥ 22.13 for the built-in SQLite reader —
-on older Nodes they're skipped with a warning and everything else works;
-`RUNGRAPH_HERMES_HOME` points the scan at a different Hermes home).
+That's the whole setup. It scans `~/.claude/projects`, `~/.codex/sessions`,
+`~/.hermes` and `~/.local/share/opencode`, starts a server on
+`127.0.0.1:4321`, and opens your browser. Requires Node ≥ 20 (Hermes and
+opencode runs need ≥ 22.13 for the built-in SQLite reader — on older Nodes
+they're skipped with a warning and everything else works;
+`RUNGRAPH_HERMES_HOME` and `RUNGRAPH_OPENCODE_HOME` point the scan elsewhere,
+and opencode's own `XDG_DATA_HOME` is honoured).
 
 There is nothing to configure and nothing to instrument. rungraph reads the
-JSONL transcripts Claude Code and Codex already write — and Hermes Agent's
-SQLite database — so **every session still on your disk is already there**,
-including ones from before you installed rungraph.
+JSONL transcripts Claude Code and Codex already write — and Hermes Agent's and
+opencode's SQLite databases — so **every session still on your disk is already
+there**, including ones from before you installed rungraph.
 (Claude Code prunes old transcripts after its `cleanupPeriodDays` retention
 setting, 30 days by default, so how far back "already there" reaches is that
 setting's call, not rungraph's.)
@@ -172,6 +174,19 @@ npx rungraph mcp --install     # registers with Claude Code, user scope
 npx rungraph mcp --check       # confirm it worked
 ```
 
+For **opencode**, which speaks MCP and so closes the same loop:
+
+```bash
+npx rungraph mcp --install --client opencode
+```
+
+That one prints a config block to paste and **writes nothing** — opencode's own
+`opencode mcp add` is an interactive wizard with no flags, and its config files
+are JSONC, where a rewrite without a JSONC parser would eat your comments. It
+also prints an `AGENTS.md` line that tells opencode to call `focus_nodes` after
+it answers. `--client` is never guessed: a machine with both agents installed
+has no right answer to sniff for.
+
 `--check` is the honest answer to "is this working?":
 
 ```
@@ -304,5 +319,5 @@ rungraph mcp --check --json
 ```
 
 The IR is versioned and documented in [SCHEMA.md](../SCHEMA.md). It is
-vendor-neutral — Claude Code, Codex CLI, and Hermes Agent are the three
+vendor-neutral — Claude Code, Codex CLI, Hermes Agent and opencode are the four
 adapters today, and a `.rungraph` bundle opens with no adapter at all.

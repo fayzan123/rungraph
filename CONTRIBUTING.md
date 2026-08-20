@@ -24,7 +24,8 @@ Node ≥ 20. The backend runs straight from `src/` — only the frontend builds
 |---|---|
 | `src/cli.js` | every subcommand; `bin/rungraph.js` is a shim over it |
 | `src/scanner.js` | finds runs on disk, dispatches to adapters |
-| `src/adapters/claude-code/`, `src/adapters/codex/`, `src/adapters/hermes/` | ALL format knowledge, one dir per vendor |
+| `src/adapters/claude-code/`, `src/adapters/codex/`, `src/adapters/hermes/`, `src/adapters/opencode/` | ALL format knowledge, one dir per vendor |
+| `src/sqlite.js` | the ONE `node:sqlite` touchpoint, shared by both SQLite adapters |
 | `src/server.js` | localhost HTTP + SSE; serves the dashboard and bundles |
 | `src/watcher.js` | live tail — file watching, graph diffing |
 | `src/signals.js` | derived signals (retry storms, dead ends…) — server-side only |
@@ -68,8 +69,18 @@ how good the feature is, so check the list first:
    the guard.
 7. **One implementation per opinion.** Signals derive server-side at every
    IR hand-off point, never in the frontend; the matcher, the deep-link codec,
-   and the focus spine each exist exactly once. A second copy that could
+   the coverage classifier, the secrets patterns, the focus spine and the
+   `node:sqlite` seam each exist exactly once. A second copy that could
    disagree with the first is a bug even while it agrees.
+
+   `src/sqlite.js` is the newest entry and shows the rule's shape well. It
+   holds the Node ≥ 22.13 gate, the readonly open, the crash-recovery copy and
+   the schema-tolerance helpers — and it names no adapter and knows no schema.
+   Every column list, query and table name stays in its adapter. It was
+   extracted from the Hermes adapter the day a second SQLite adapter arrived,
+   because a second copy of the recovery policy could disagree with the first;
+   the extraction's own test is that `tests/hermes.test.js` passed unmodified
+   across it.
 
 ## Signals and thresholds: measured, not reasoned
 

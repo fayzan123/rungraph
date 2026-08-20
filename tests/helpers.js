@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 export const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'projects');
 export const CODEX_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'codex');
 export const HERMES_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hermes');
+export const OPENCODE_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'opencode');
 
 /**
  * Pin every fixture file's mtime to a fixed past instant so liveness
@@ -22,6 +23,7 @@ export async function pinFixtureMtimes(when = new Date('2026-08-01T13:00:00Z')) 
   await walk(FIXTURE_ROOT);
   await walk(CODEX_FIXTURE_ROOT);
   await walk(HERMES_FIXTURE_ROOT);
+  await walk(OPENCODE_FIXTURE_ROOT);
 }
 
 export const SESSION_RUN_ID =
@@ -65,12 +67,43 @@ export const HERMES_GATEWAY_RUN_ID = 'hermes:20260801_125500_6a7e3a';
 export const HERMES_LEGACY_RUN_ID = 'hermes:20260701_090000_1e64c1';
 
 /**
+ * opencode: the fixture DB corpus (tests/opencode.test.js, Node ≥ 22.13 only).
+ * Ids are deliberately NOT in time order — real opencode session ids sort
+ * DESCENDING with time, so anything that orders by id fails on this corpus.
+ */
+export const OC_CLEAN_RUN_ID = 'opencode:ses_fx9000000000000000clean';
+export const OC_BATCH_RUN_ID = 'opencode:ses_fxd0000000000000batch';
+export const OC_TROUBLE_RUN_ID = 'opencode:ses_fx8000000000000trouble';
+export const OC_SUBAGENT_RUN_ID = 'opencode:ses_fx7000000000000000task';
+export const OC_CHILD_ID = 'ses_fx7a00000000000child01';
+export const OC_ORPHAN_CHILD_ID = 'ses_fx7b00000000000child02';
+export const OC_MISSING_CHILD_ID = 'ses_fx7c00000000000missing';
+export const OC_DRIFT_QUIET_RUN_ID = 'opencode:ses_fx6000000000000quiet0';
+export const OC_DRIFT_LOUD_RUN_ID = 'opencode:ses_fx5000000000000000loud';
+export const OC_TRUNCATION_RUN_ID = 'opencode:ses_fx4000000000000trunca';
+export const OC_SECRETS_RUN_ID = 'opencode:ses_fx3000000000000secret';
+export const OC_ARCHIVED_RUN_ID = 'opencode:ses_fx2000000000000archiv';
+export const OC_REVERTED_RUN_ID = 'opencode:ses_fx1000000000000revert';
+export const OC_INTERRUPTED_RUN_ID = 'opencode:ses_fx0000000000000000int';
+export const OC_FORK_RUN_ID = 'opencode:ses_fxa000000000000000fork';
+export const OC_COMPACTION_RUN_ID = 'opencode:ses_fxb00000000000compact';
+export const OC_SHAPE_RUN_ID = 'opencode:ses_fxc0000000000000shape';
+/** Revert crossing a subagent lane — the lane must inherit the boundary. */
+export const OC_REVERT_LANE_RUN_ID = 'opencode:ses_fxe0000000000revertlane';
+export const OC_LANE_CHILD_ID = 'ses_fxe1000000000lanechild';
+/** A refused `task`, an in-flight one, and a refused parallel batch. */
+export const OC_DENY_TASK_RUN_ID = 'opencode:ses_fxf00000000000denytask';
+
+/**
  * Every run a full scan of the claude + codex fixture roots contains: 8
  * Claude (2 sessions + clean + trouble + secrets + 2 drift + 1 workflow) + 3 Codex
  * (clean + subagent parent + old-format; child/grandchild rollouts are not
  * independent runs). Hermes fixture runs are NOT in this count — the
- * cross-cutting suites disable that adapter (RUNGRAPH_HERMES_HOME='') so
- * they stay green on the Node 20 CI leg, and tests/hermes.test.js scans the
- * Hermes fixtures behind its own node:sqlite gate.
+ * cross-cutting suites disable BOTH SQLite adapters (RUNGRAPH_HERMES_HOME=''
+ * and RUNGRAPH_OPENCODE_HOME='') so they stay green on the Node 20 CI leg,
+ * and tests/hermes.test.js / tests/opencode.test.js scan those fixtures
+ * behind their own node:sqlite gates. Disabling them also keeps a suite from
+ * wandering into the developer's REAL opencode database, which is one global
+ * file in a fixed location rather than a per-project tree.
  */
 export const FIXTURE_RUN_COUNT = 11;

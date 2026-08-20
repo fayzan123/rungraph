@@ -65,11 +65,47 @@ bags):
   modelSwitchCount?, schemaVersion }`. `source` is how the session reached
   Hermes (`cli`, `telegram`, …); `inactiveMessageCount` counts rows a rewind
   deactivated (the canonical `active = 1` history is what the graph draws).
+- **`meta.ext.opencode`** — `{ version, agent, model, directory, cost?, billed?,
+  archived?, archivedAt?, archivedAtMs?, revert?, copiedHistory?, compaction?,
+  truncated?, orphanLanes?, unresolvedTasks?, missingChildSessions?,
+  unknownTypes?, shapeWarnings? }`.
+  - `version` is `session.version`, the opencode that wrote the run. Stamped on
+    every run: when the numbers look wrong, "…and this was written by opencode
+    1.22.0" is the lead a human or an agent actually needs.
+  - `billed` is `{ input, output, cacheRead, cacheWrite }` — opencode's own
+    column sums, the figures `opencode stats` prints. **They are expected to
+    disagree with the IR's `tokens`, and both are right**: `tokens.input` on a
+    turn is the MAXIMUM context that turn reached (each opencode step re-sends
+    the whole conversation, so context is a high-water mark, not an additive
+    quantity), while `billed` is summed volume. Peak size and billed volume are
+    different questions.
+  - `revert` is `{ messageID, snapshot }` — the boundary, for consumers that
+    want it; the per-node truth is the core `reverted` field.
+  - `copiedHistory` marks a run whose messages predate its own session row — a
+    causal impossibility unless they were copied, which is what an
+    `opencode --fork` produces. It deliberately **names no origin**: nothing in
+    opencode's schema records one.
+  - `shapeWarnings` is one narrow drift assertion, not schema validation: a run
+    whose assistant steps report no numeric `tokens.input` says so, because a
+    renamed JSON key yields a smaller-but-plausible number that coverage cannot
+    catch by construction (coverage measures unreadable records, not misread
+    ones).
+  - `truncated` counts calls whose output opencode discarded. It is **not** a
+    coverage event — opencode's spill files do not survive, so there is nothing
+    rungraph failed to read.
+  - `orphanLanes` counts subagent sessions whose dispatch record was pruned;
+    they still get a lane, and cost coverage nothing (the child itself was read
+    completely). `unresolvedTasks` counts dispatches opencode had not yet
+    recorded a child session for — also free, for the same reason: nothing was
+    written, so nothing went unread. Only `missingChildSessions` — a dispatch
+    naming a session row that is *gone* — is charged to `sourcesUnread`.
+- **`node.ext.opencode.truncated`** (tool nodes) — how many of that group's
+  collapsed calls carry a preview instead of full output.
 - **`node.ext.codex`** (agent nodes) — `{ nickname, agentPath, depth }`,
   Codex's multi-agent lineage.
 - **`meta.ext.<adapter>.unknownTypes`** — `{ "<record type>": count }`, the
   record types that adapter could not interpret. Present on any adapter, hence
-  the `<adapter>` key (`claudeCode`, `codex`, `hermes`). Type names are vendor
+  the `<adapter>` key (`claudeCode`, `codex`, `hermes`, `opencode`). Type names are vendor
   vocabulary, which is why they live in `ext` rather than beside `coverage`: a
   percentage alone is unactionable, because "read 95%, all of it one metadata
   type" and "read 95%, and 400 assistant turns are missing" are the same number
@@ -94,6 +130,7 @@ Common fields:
 | `group` | string (optional) | Id of the `groups[]` entry (e.g. workflow phase) containing this node. |
 | `hasDetail` | boolean (optional) | `true` → `GET /api/detail/:nodeId?run=<runId>` returns a lazy detail payload. |
 | `files` | string[] (optional) | **File attribution** — paths this node touched. `tool` and `agent` nodes only; **absent**, never `[]`, when nothing was touched. |
+| `reverted` | boolean (optional) | **This node's work was rolled back by the user.** Present only when `true`. |
 | `ext` | object (optional) | Provider extras (namespaced). |
 
 `files` are stored exactly as the adapter observed them (absolute, as the
@@ -120,6 +157,39 @@ Kind-specific fields:
 - **`human`** — a human intervention: `interventionKind` is `"answer"`
   (question answered), `"denial"` (permission refused), or `"interrupt"`
   (mid-turn interruption). These are the course-change moments.
+
+### `reverted`
+
+Additive in `irVersion` 1 — absent on every graph written before it existed, and
+absent on every run with no revert in it, so a normal graph carries zero bytes
+for it. Populated by the opencode adapter today (`session.revert`, whose
+`messageID` names the TURN the revert rolled back to); the concept is general —
+Claude Code has rewind, Hermes carries `rewind_count` — so other adapters may
+populate it later without a schema change.
+
+It is a **core field rather than an `ext` key**, and that is load-bearing: the
+MCP compact projection carries no `ext`, and compact is the default the tool
+descriptions steer agents toward. An `ext` key would reach the canvas and never
+reach the agent, leaving the two ends of the loop describing one run
+differently.
+
+Two rules govern it downstream:
+
+- **Renders as a MARK, never as opacity.** Opacity is the FocusSet's exclusive
+  vocabulary (members light, non-members dim), and a second meaning on that one
+  channel would leave the reader unable to tell "not part of the answer" from
+  "thrown away". Reverted nodes are struck through and badged `↩`, and a
+  reverted node that IS a focus member renders lit.
+- **Excluded from work-quality signals, NOT from interventions.**
+  `retry-storm`, `unresolved-error` and `outlier` skip reverted nodes, because
+  those are claims about output the revert discarded. Interventions (denial,
+  interrupt, answer) survive it: a revert rolls back work, not the record of
+  what a person decided.
+
+It is deliberately **not** a coverage input. Coverage answers "how much could I
+read", and a reverted run was read completely — an accuracy caveat and a
+readability one are different questions, and collapsing them would corrupt the
+one meaning coverage has.
 
 ## edges
 

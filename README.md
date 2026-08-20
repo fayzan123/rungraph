@@ -21,12 +21,13 @@ hands back a link that reopens that view for anyone you send it to. See
 npx rungraph
 ```
 
-That's the whole quickstart. It scans `~/.claude/projects`, `~/.codex/sessions`
-and `~/.hermes` — Claude Code, Codex, and Hermes Agent runs — starts a local
-server, and opens your browser. Pick a run — including one that's **running
-right now**: the graph grows live as the agent works (file watching only).
-(Hermes runs need Node ≥ 22.13 for the built-in SQLite reader; on older Nodes
-they're skipped with a warning and everything else works.)
+That's the whole quickstart. It scans `~/.claude/projects`, `~/.codex/sessions`,
+`~/.hermes` and `~/.local/share/opencode` — Claude Code, Codex, Hermes Agent and
+opencode runs — starts a local server, and opens your browser. Pick a run —
+including one that's **running right now**: the graph grows live as the agent
+works (file watching only). (Hermes and opencode runs need Node ≥ 22.13 for the
+built-in SQLite reader; on older Nodes they're skipped with a warning and
+everything else works.)
 
 What you get is an interactive **directed agentic graph** — orchestrator,
 subagents, and tools as nodes; spawn/return relationships as edges; the
@@ -131,12 +132,30 @@ not just Claude Code**. Hermes, for example:
 hermes mcp add rungraph --command npx --args -y rungraph mcp
 ```
 
+**opencode** closes the same two-ended loop — ask in its TUI, get answered
+there, watch the dashboard light up — and rungraph prints exactly what to add:
+
+```
+npx rungraph mcp --install --client opencode
+```
+
+That one is a **paste rather than a command**, and the reason is opencode's, not
+rungraph's: `opencode mcp add` is an interactive TUI wizard with no flags, so
+there is nothing to delegate to. rungraph prints the `mcp` block for your
+`~/.config/opencode/opencode.jsonc` and the `AGENTS.md` line that makes opencode
+call `focus_nodes` after it answers — and **writes nothing**, because opencode's
+config files are JSONC (comments are legal) and rewriting one without a JSONC
+parser would destroy them. `--client` is never guessed: a machine with both
+agents installed has no right answer to sniff for. (opencode reads `AGENTS.md`
+first and `CLAUDE.md` as a compat path, unless `OPENCODE_DISABLE_CLAUDE_CODE` is
+set — so an existing `CLAUDE.md` line already reaches it.)
+
 Then start a new session and ask the same questions. The tool names
 (`list_runs`, `find_nodes`, `get_graph`, `get_detail`, `focus_nodes`,
 `get_current_view`, `open_visualization`) are identical on every agent, and
 so is the loop: the agent answers in your terminal, then calls `focus_nodes`
 and the open graph lights up the nodes it's talking about. (If your agent's
-Hermes/Codex runs are missing, your default Node is older than 22.13 — point
+Hermes/opencode runs are missing, your default Node is older than 22.13 — point
 `--command` at a Node ≥ 22.13 `npx` and they appear.)
 
 Then ask, in Claude Code, the kinds of questions a transcript can actually
@@ -255,7 +274,7 @@ stream in.
 
 The **runs pane** groups sessions by project; when runs from more than one
 agent are on the machine, a chip rail above the list filters by agent
-(`all · claude · codex · hermes`), and runs with no real project to stand in —
+(`all · claude · codex · hermes · opencode`), and runs with no real project to stand in —
 deleted worktrees, home-directory chats, Hermes tasks started from nowhere —
 gather under a single `✦ loose runs` group.
 
@@ -264,7 +283,8 @@ run where auth broke, the conversation from Tuesday you half-remember — and
 every local session carries the edge back to the terminal: **resume** in the
 run header, or hover a run in the list (workflow rows resume via their parent
 session's row). Copy the exact `claude --resume` / `codex resume` /
-`hermes --resume` command (shown in full, so it also teaches the incantation),
+`hermes --resume` / `opencode --session` command (shown in full, so it also
+teaches the incantation),
 or on macOS open a new Terminal window with the session already loading
 (`RUNGRAPH_TERMINAL=iTerm` targets iTerm2 instead). A live Claude run
 pre-checks **fork** — resume a copy rather than interleaving with the running
@@ -306,11 +326,14 @@ The same surface is available as MCP tools — see "Ask your agent about a run"
 above, or `rungraph mcp --install`.
 
 The IR is versioned and documented in [SCHEMA.md](SCHEMA.md). It is
-vendor-neutral, with three adapters: Claude Code (sessions, subagents, and
+vendor-neutral, with four adapters: Claude Code (sessions, subagents, and
 Workflow runs, under `~/.claude/projects`), Codex CLI (rollout threads and
-their spawned subagent threads, under `~/.codex/sessions`), and Hermes Agent
+their spawned subagent threads, under `~/.codex/sessions`), Hermes Agent
 (sessions and their delegation lanes, from the SQLite database at
-`~/.hermes/state.db`; `RUNGRAPH_HERMES_HOME` points the scan elsewhere).
+`~/.hermes/state.db`; `RUNGRAPH_HERMES_HOME` points the scan elsewhere), and
+opencode (sessions and their subagent lanes, from the one global SQLite
+database at `~/.local/share/opencode/opencode.db` — `XDG_DATA_HOME` is
+honoured, and `RUNGRAPH_OPENCODE_HOME` points the scan elsewhere).
 Everything downstream — including `.rungraph` bundles — carries only the IR.
 
 ## Privacy
@@ -337,9 +360,13 @@ clean one. The dashboard still shows the real values: those never leave
 Claude Code writes JSONL transcripts under `~/.claude/projects` — main session
 files, per-subagent files, and workflow journals with a manifest per run.
 Codex writes rollout JSONL under `~/.codex/sessions`. Hermes Agent keeps
-everything in one SQLite database (`~/.hermes/state.db`), which rungraph reads
-with Node's built-in `node:sqlite` — readonly, live (WAL), zero dependencies
-added. `rungraph` reconstructs the run graph from those sources post-hoc:
+everything in one SQLite database (`~/.hermes/state.db`), and opencode keeps
+every session on the machine in one more
+(`~/.local/share/opencode/opencode.db`) — both read with Node's built-in
+`node:sqlite`: readonly, live (WAL), zero dependencies added. opencode records
+several things the other adapters have to infer — the exact parent/child
+session id for every subagent, the agent that ran each session, and the
+absolute file list behind every patch — so those are read rather than guessed. `rungraph` reconstructs the run graph from those sources post-hoc:
 adapters turn transcript lines (or rows) into a versioned, vendor-neutral IR,
 and everything downstream (web UI, CLI, HTTP API) consumes only the IR.
 
@@ -367,11 +394,13 @@ rungraph serve [--no-open]     start server; prints {"url": …}
 rungraph export <runId…>       write a shareable .rungraph bundle (see --help)
 rungraph open <bundle…>        serve bundle files, ephemerally
 rungraph mcp [--install]       MCP server on stdio; --install registers it once
+                               (--client opencode prints a block to paste instead)
 rungraph mcp --check           verify the agent side end to end
   --project <path>             only runs for this project directory
   --port <n>                   preferred port (auto-increments if taken)
   --last <n>                   export: the n most recent runs of this project
-  --scope <s>                  mcp --install: user (default) | project | local
+  --client <c>                 mcp --install: claude (default) | opencode
+  --scope <s>                  mcp --install --client claude: user (default) | project | local
 ```
 
 Requires Node ≥ 20.

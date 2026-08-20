@@ -76,6 +76,7 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
   // unknown record types would have nowhere to be read.
   const cov = coverageStats(graph.meta);
   const covTypes = cov && cov.unrecognized > 0 ? unknownTypeSummary(graph.meta) : '';
+  const revertedCount = graph.nodes.filter((n) => n.reverted).length;
 
   return (
     <>
@@ -106,6 +107,19 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
           </>
         )}
         {covTypes && (<><dt>unread</dt><dd title="record types this rungraph does not understand">{covTypes}</dd></>)}
+        {/* A run-level count, because a reverted region can be off screen. This
+            is an ACCURACY caveat, deliberately kept off the coverage badge:
+            "how much could I read" and "how much of this still stands" are
+            different questions, and collapsing them would corrupt the one
+            meaning coverage has. */}
+        {revertedCount > 0 && (
+          <>
+            <dt>reverted</dt>
+            <dd title="nodes whose work the user rolled back — still recorded, no longer standing">
+              {revertedCount} node{revertedCount === 1 ? '' : 's'} rolled back
+            </dd>
+          </>
+        )}
       </dl>
 
       {focus && (
@@ -302,6 +316,16 @@ function NodeDetail({
         {node.durationMs != null && (<><dt>duration</dt><dd>{fmtDuration(node.durationMs)}</dd></>)}
         {node.callCount > 1 && (<><dt>calls</dt><dd>{node.callCount}</dd></>)}
         {node.startedAt && (<><dt>started</dt><dd>{fmtTime(node.startedAt)}</dd></>)}
+        {/* Stated in words, not only as a struck label: this is the one place
+            the user can find out what "struck through" meant. */}
+        {node.reverted && (
+          <>
+            <dt>reverted</dt>
+            <dd title="the user rolled this work back — it is still recorded, but it no longer stands">
+              rolled back by the user
+            </dd>
+          </>
+        )}
       </dl>
 
       {/* Why the canvas marked this node — and, for `info` signals, why it did

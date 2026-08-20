@@ -35,11 +35,15 @@ OPTIONS
   --project <path>   Only runs whose project cwd is (inside) this path.
   --port <n>         Preferred port (default 4321; auto-increments if taken).
   --no-open          serve/open: do not open a browser; the URL is always printed.
-  --install          mcp: register rungraph with Claude Code, then exit.
+  --install          mcp: register rungraph with the agent named by --client, then exit.
                      Other agents wire 'rungraph mcp' on stdio directly
                      (Hermes: hermes mcp add rungraph --command npx --args -y rungraph mcp).
+  --client <c>       mcp --install: claude (default) | opencode. Never guessed —
+                     a machine with both installed has no right answer. opencode
+                     prints a config block to paste (its own 'mcp add' is an
+                     interactive wizard) and writes nothing.
   --check            mcp: verify the agent side end to end, then exit.
-  --scope <s>        mcp --install: user (default) | project | local.
+  --scope <s>        mcp --install --client claude: user (default) | project | local.
   -h, --help         This help.
   -v, --version      Version.
 
@@ -91,6 +95,7 @@ export async function main(argv) {
         install: { type: 'boolean', default: false },
         check: { type: 'boolean', default: false },
         scope: { type: 'string' },
+        client: { type: 'string' },
         last: { type: 'string' },
         out: { type: 'string' },
         as: { type: 'string' },
@@ -124,6 +129,7 @@ export async function main(argv) {
     install: args.values.install,
     check: args.values.check,
     scope: args.values.scope,
+    client: args.values.client,
     last: args.values.last,
     out: args.values.out,
     as: args.values.as,

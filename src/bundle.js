@@ -185,6 +185,15 @@ export function structureOnly(ir) {
   const NODE_KEEP = [
     'id', 'kind', 'status', 'startedAt', 'endedAt', 'durationMs', 'tokens', 'model',
     'agentId', 'callCount', 'errorCount', 'runRef', 'interventionKind', 'group', 'files',
+    // `reverted` is derived and mechanical — a boolean, no authored text — so
+    // it survives by this tier's own rule. It is also the only field here
+    // whose absence would ADD a signal rather than lose one: the recipient's
+    // server re-derives signals at open time, and `rolledBack()` reads exactly
+    // this field, so dropping it fires a HIGH retry-storm on work the sender's
+    // user explicitly threw away. Every other structure-only loss is
+    // subtractive; this one would invent a false flag, which is the direction
+    // the precision rule cares about most.
+    'reverted',
   ];
   const HUMAN_LABELS = { denial: 'denial', interrupt: 'interrupt', answer: 'answered a question' };
   for (const n of ir.nodes ?? []) {
