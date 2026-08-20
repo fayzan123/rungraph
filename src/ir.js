@@ -30,6 +30,21 @@
  * @property {number} [errorCount]  tool nodes: how many of those calls errored.
  * @property {string} [runRef]      workflow nodes: runId of the drill-in subgraph.
  * @property {'answer'|'denial'|'interrupt'} [interventionKind]  human nodes.
+ * @property {boolean} [reverted]   This node's work was rolled back by the user
+ *                                  (an opencode revert, a Claude Code rewind, a
+ *                                  Hermes rewind). Present only when true, so a
+ *                                  normal run carries zero bytes for it.
+ *                                  Vendor-neutral by the same test
+ *                                  `interventionKind` passes: "this work was
+ *                                  undone" is a general fact about agent runs.
+ *                                  It is a CORE field rather than an `ext` key
+ *                                  because `COMPACT_NODE_KEYS` in mcp.js carries
+ *                                  no `ext`, so an ext key would reach the canvas
+ *                                  and never reach the agent — leaving the two
+ *                                  ends of the loop describing one run
+ *                                  differently. Renders as a MARK (struck label +
+ *                                  ↩), never as opacity: opacity belongs to the
+ *                                  FocusSet alone.
  * @property {string} [group]       id of the group (phase) this node belongs to.
  * @property {boolean} [hasDetail]  true if /api/detail can expand this node.
  * @property {string[]} [files]     tool/agent nodes: paths this node touched, as the

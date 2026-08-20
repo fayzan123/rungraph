@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { layoutGraph, edgePath } from './layout.js';
-import { badgedNodeIds } from './focus.js';
+import { badgedNodeIds, nodeMarks } from './focus.js';
 import {
   zoomAtPoint,
   normalizeWheel,
@@ -438,15 +438,16 @@ export function Canvas({
             graph.nodes.map((n) => {
               const pos = layout.nodes.get(n.id);
               if (!pos) return null;
-              const focused = focusIds ? focusIds.has(n.id) : false;
+              const marks = nodeMarks(n, focusIds);
               return (
                 <NodeView
                   key={n.id}
                   node={n}
                   pos={pos}
                   selected={selection?.type === 'node' && selection.id === n.id}
-                  focused={focused}
-                  dim={Boolean(focusIds) && !focused}
+                  focused={marks.focused}
+                  dim={marks.dim}
+                  reverted={marks.reverted}
                   badge={badged.has(n.id)}
                 />
               );
@@ -647,7 +648,7 @@ function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onD
   );
 }
 
-function NodeView({ node, pos, selected, focused, dim, badge }) {
+function NodeView({ node, pos, selected, focused, dim, reverted, badge }) {
   const meta = nodeMeta(node);
   const clip = `clip-${node.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   return (
@@ -660,6 +661,10 @@ function NodeView({ node, pos, selected, focused, dim, badge }) {
       // dimmed, never removed: hiding collapses the layout and destroys the
       // spatial memory the graph exists to build
       data-dim={String(Boolean(dim))}
+      // Rolled-back work is MARKED, never hidden and never dimmed — opacity is
+      // the FocusSet's channel alone, and this node may well be a focus
+      // member (interventions survive a revert). See nodeMarks().
+      data-reverted={String(Boolean(reverted))}
       data-node-id={node.id}
       transform={`translate(${pos.x} ${pos.y})`}
     >
@@ -676,7 +681,7 @@ function NodeView({ node, pos, selected, focused, dim, badge }) {
           {node.kind === 'human' ? node.interventionKind ?? 'human' : KIND_TAGS[node.kind]}
           {node.kind === 'workflow' ? '  ⌄ drill in' : ''}
         </text>
-        <text x="12" y={meta ? pos.h - 22 : pos.h / 2 + 9}>{node.label}</text>
+        <text class="label" x="12" y={meta ? pos.h - 22 : pos.h / 2 + 9}>{node.label}</text>
         {meta && (
           <text class="meta" x="12" y={pos.h - 8}>{meta}</text>
         )}
@@ -689,7 +694,13 @@ function NodeView({ node, pos, selected, focused, dim, badge }) {
           <text x={pos.w - 4} y="7">!</text>
         </g>
       )}
-      <title>{node.label}</title>
+      {/* Outside the clip group on purpose: the mark must survive a long
+          label, which is exactly when a reader most needs to know the work
+          was thrown away. */}
+      {reverted && (
+        <text class="revert-badge" x={pos.w - 5} y={pos.h - 6} aria-hidden="true">↩</text>
+      )}
+      <title>{reverted ? `${node.label} — reverted` : node.label}</title>
     </g>
   );
 }

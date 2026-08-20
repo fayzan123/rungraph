@@ -36,6 +36,7 @@ beforeAll(async () => {
   process.env.RUNGRAPH_CLAUDE_PROJECTS = FIXTURE_ROOT;
   process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
   process.env.RUNGRAPH_HERMES_HOME = '';
+  process.env.RUNGRAPH_OPENCODE_HOME = '';
   tmp = await mkdtemp(join(tmpdir(), 'rg-bundle-'));
   // Redirect registry discovery so locate tests can never probe (or delete
   // the entry of) a rungraph the developer happens to be running.
@@ -45,6 +46,7 @@ afterAll(async () => {
   delete process.env.RUNGRAPH_CLAUDE_PROJECTS;
   delete process.env.RUNGRAPH_CODEX_SESSIONS;
   delete process.env.RUNGRAPH_HERMES_HOME;
+  delete process.env.RUNGRAPH_OPENCODE_HOME;
   delete process.env.RUNGRAPH_PORT_DIR;
   await rm(tmp, { recursive: true, force: true });
 });

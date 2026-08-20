@@ -147,6 +147,37 @@ export function signalsForNode(ir, nodeId) {
   return (ir?.signals ?? []).filter((s) => (s.nodeIds ?? []).includes(nodeId));
 }
 
+/**
+ * How one node renders, on TWO INDEPENDENT CHANNELS.
+ *
+ * `focused`/`dim` is the FocusSet channel and it owns opacity exclusively:
+ * members light, everyone else recedes, `null` means no focus at all.
+ * `reverted` is a different fact — the user rolled this work back — and it
+ * renders as a MARK (a struck label plus a ↩ badge), never as opacity.
+ *
+ * Keeping them apart is not tidiness. Interventions deliberately SURVIVE a
+ * revert (a revert rolls back work, not the record of what a person decided),
+ * so a reverted node inside a focus set is guaranteed, not hypothetical — and
+ * routing revert through opacity would leave the user unable to tell "not in
+ * the answer" from "thrown away". All four combinations must read correctly:
+ *
+ *   no focus + reverted     → normal opacity, struck + ↩
+ *   focus member + reverted → LIT, struck + ↩
+ *   non-member + reverted   → dimmed *because unfocused*, struck + ↩
+ *   non-member + not        → dimmed
+ *
+ * Pure, so `tests/opencode.test.js` can pin the matrix and a future change
+ * cannot quietly route revert through opacity.
+ */
+export function nodeMarks(node, focusIds) {
+  const focused = focusIds ? focusIds.has(node?.id) : false;
+  return {
+    focused,
+    dim: Boolean(focusIds) && !focused,
+    reverted: node?.reverted === true,
+  };
+}
+
 /** Node ids that carry a canvas badge: `high` severity only, by display budget. */
 export function badgedNodeIds(ir) {
   const out = new Set();

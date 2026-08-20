@@ -3,9 +3,10 @@ import { isAbsolute, join, resolve } from 'node:path';
 import * as claudeCode from './adapters/claude-code/index.js';
 import * as codex from './adapters/codex/index.js';
 import * as hermes from './adapters/hermes/index.js';
+import * as opencode from './adapters/opencode/index.js';
 
 /** Registered adapters. */
-export const ADAPTERS = [claudeCode, codex, hermes];
+export const ADAPTERS = [claudeCode, codex, hermes, opencode];
 
 /** How recently a run's files must have changed to be badged "live". */
 const ACTIVE_WINDOW_MS = 45_000;
@@ -23,6 +24,19 @@ export function defaultRootDirs() {
     'claude-code': roots('RUNGRAPH_CLAUDE_PROJECTS', join(homedir(), '.claude', 'projects')),
     codex: roots('RUNGRAPH_CODEX_SESSIONS', join(homedir(), '.codex', 'sessions')),
     hermes: roots('RUNGRAPH_HERMES_HOME', join(homedir(), '.hermes')),
+    // opencode keeps ONE global database in its XDG data dir. The env var it
+    // honours for that dir is XDG_DATA_HOME, so rungraph follows it rather
+    // than hard-coding ~/.local/share — otherwise a user who moved their data
+    // dir would be told they have no opencode runs.
+    opencode: roots(
+      'RUNGRAPH_OPENCODE_HOME',
+      // `||`, not `??`: an exported-but-EMPTY XDG_DATA_HOME is how a shell
+      // spells "unset", and opencode itself treats it that way. With `??` the
+      // empty string survives and the scan root becomes the RELATIVE path
+      // "opencode" — resolved against whatever directory rungraph happens to
+      // be run from, which finds nothing and reports no opencode runs.
+      join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), 'opencode'),
+    ),
   };
 }
 

@@ -74,18 +74,26 @@ export function deriveSignals(ir) {
   const ordered = runOrder(nodes);
   const pos = new Map(ordered.map((n, i) => [n.id, i]));
   const lane = lanesOf(nodes, edges);
-  const refused = humanRefused(nodes, edges);
+  // Two independent reasons a node's failure must not be read as trouble: a
+  // person refused the call, or a person threw the whole turn away. Both are
+  // decisions, and in both cases a work-quality chip would describe work that
+  // no longer stands. The split below is deliberate — see rolledBack().
+  const excused = union(humanRefused(nodes, edges), rolledBack(ordered));
 
   const out = [];
-  const storms = retryStorms(ordered, lane, refused);
+  const storms = retryStorms(ordered, lane, excused);
   out.push(...storms);
   // One place, one chip: a node inside a storm does not also get an
   // unresolved-error marker for the same failure.
-  out.push(...unresolvedErrors(ordered, lane, idsOf(storms), refused));
+  out.push(...unresolvedErrors(ordered, lane, idsOf(storms), excused));
+  // INTERVENTIONS ARE NOT EXCUSED. They record a decision a person made, and
+  // that decision happened regardless of what later became of the files —
+  // reverting an edit does not un-happen someone pressing Esc. Dropping them
+  // would make the graph less true, not more.
   out.push(...interventions(ordered));
 
   const loud = idsOf(out.filter((s) => s.severity === 'high'));
-  const hot = outliers(ordered);
+  const hot = outliers(ordered.filter((n) => n.reverted !== true));
   if (hot) out.push(hot);
   const moved = courseChanges(ordered, edges, pos, loud);
   if (moved) out.push(moved);
@@ -122,7 +130,7 @@ export function attachSignals(ir) {
  * each carrying errors. One signal per storm, because a storm is a *location*
  * in the run, not a category of problem.
  */
-function retryStorms(ordered, lane, refused) {
+function retryStorms(ordered, lane, excused) {
   const out = [];
   // Walk each FAMILY's own subsequence within a lane, not the whole tool
   // subsequence. Measured against real sessions, a spiral almost never looks
@@ -140,7 +148,7 @@ function retryStorms(ordered, lane, refused) {
       run = [];
     };
     for (const n of family) {
-      if (!isStormNode(n) || refused.has(n.id)) flush();
+      if (!isStormNode(n) || excused.has(n.id)) flush();
       else run.push(n);
     }
     flush();
@@ -187,7 +195,7 @@ function stormFrom(run) {
  * of its family in its lane. Nothing came back to fix it, so whatever it was
  * doing is still broken at the end of the run.
  */
-function unresolvedErrors(ordered, lane, covered, refused) {
+function unresolvedErrors(ordered, lane, covered, excused) {
   const last = new Map();
   for (const n of ordered) {
     if (n.kind !== 'tool') continue;
@@ -195,7 +203,7 @@ function unresolvedErrors(ordered, lane, covered, refused) {
   }
   const out = [];
   for (const n of last.values()) {
-    if (n.status !== 'error' || covered.has(n.id) || refused.has(n.id)) continue;
+    if (n.status !== 'error' || covered.has(n.id) || excused.has(n.id)) continue;
     const family = toolFamily(n) || 'tool';
     out.push({
       id: `sig:unresolved-error:${n.id}`,
@@ -396,6 +404,37 @@ function humanRefused(nodes, edges) {
     if (!from || from.kind !== 'tool' || to?.kind !== 'human') continue;
     if (to.interventionKind === 'denial' || to.interventionKind === 'interrupt') out.add(from.id);
   }
+  return out;
+}
+
+/**
+ * Nodes whose work the user ROLLED BACK — an opencode revert, and any future
+ * adapter that populates the same core `reverted` field.
+ *
+ * Excluded from the work-quality signals (retry-storm, unresolved-error,
+ * outlier) because those are claims about OUTPUT: "the last edit failed and
+ * nothing came back to fix it" is genuinely falsified once that edit has been
+ * thrown away. Interventions are deliberately NOT excluded — see deriveSignals.
+ *
+ * That split is not hypothetical. The reference opencode corpus has a run
+ * whose interrupt sits INSIDE its reverted region; a blanket exclusion would
+ * silently delete one of only three high-severity signals in the whole corpus,
+ * which is both a real loss and exactly the kind of invisible subtraction the
+ * precision rule cuts the other way on.
+ *
+ * @returns {Set<string>}
+ */
+function rolledBack(nodes) {
+  const out = new Set();
+  for (const n of nodes) {
+    if (n?.reverted === true) out.add(n.id);
+  }
+  return out;
+}
+
+function union(a, b) {
+  const out = new Set(a);
+  for (const x of b) out.add(x);
   return out;
 }
 

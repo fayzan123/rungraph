@@ -400,6 +400,10 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
           RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT,
           RUNGRAPH_CODEX_SESSIONS: '',
           RUNGRAPH_HERMES_HOME: tmp,
+          // The warnings assertions below count degradations. opencode is the
+          // OTHER node:sqlite adapter and would add its own on a machine that
+          // has it installed, so this suite must not depend on that.
+          RUNGRAPH_OPENCODE_HOME: '',
         },
       });
       const data = JSON.parse(stdout);
@@ -420,6 +424,7 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
       claude: process.env.RUNGRAPH_CLAUDE_PROJECTS,
       codex: process.env.RUNGRAPH_CODEX_SESSIONS,
       hermes: process.env.RUNGRAPH_HERMES_HOME,
+      opencode: process.env.RUNGRAPH_OPENCODE_HOME,
     };
     let server;
     try {
@@ -427,6 +432,7 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
       process.env.RUNGRAPH_CLAUDE_PROJECTS = '';
       process.env.RUNGRAPH_CODEX_SESSIONS = '';
       process.env.RUNGRAPH_HERMES_HOME = tmp;
+      process.env.RUNGRAPH_OPENCODE_HOME = '';
       const { startServer } = await import('../src/server.js');
       server = await startServer({ preferredPort: 4991 });
       const index = await (await fetch(`${server.url}/api/index`)).json();
@@ -437,6 +443,7 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
         ['RUNGRAPH_CLAUDE_PROJECTS', saved.claude],
         ['RUNGRAPH_CODEX_SESSIONS', saved.codex],
         ['RUNGRAPH_HERMES_HOME', saved.hermes],
+        ['RUNGRAPH_OPENCODE_HOME', saved.opencode],
       ]) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
@@ -706,6 +713,10 @@ describe('hermes graceful degrade (adapter self-disables)', () => {
           RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT,
           RUNGRAPH_CODEX_SESSIONS: '',
           RUNGRAPH_HERMES_HOME: HERMES_FIXTURE_ROOT,
+          // Without this, a machine with opencode installed emits a SECOND
+          // node:sqlite warning here and the count assertion fails — the
+          // Hermes suite must not depend on which other agents are installed.
+          RUNGRAPH_OPENCODE_HOME: '',
         },
       },
     );

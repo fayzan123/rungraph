@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   LOOSE_BUCKET,
   adapterChips,
   groupKeyFor,
   groupRuns,
 } from '../frontend/src/picker-groups.js';
+import { ADAPTERS } from '../src/scanner.js';
+import { adapterName } from '../frontend/src/focus.js';
 
 // Index entries as /api/index (and list --json) deliver them — only the
 // fields the grouping reads, with the rest of the entry shape irrelevant here.
@@ -172,5 +177,67 @@ describe('adapterChips', () => {
   it('tolerates an empty index', () => {
     expect(adapterChips([])).toEqual([]);
     expect(adapterChips(undefined)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adapter identity is a COLOUR, worn everywhere. A new adapter that ships
+// without one renders in --ink-faint at some of these points and in a real hue
+// at others, so the same agent looks like two different things depending on
+// which pane you are reading — and the agent rail, whose whole job is telling
+// vendors apart, is the pane that loses most.
+// ---------------------------------------------------------------------------
+
+describe('adapter accents', () => {
+  const CSS = readFile(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'src', 'styles.css'),
+    'utf8',
+  );
+
+  // The four places identity appears: header tag, picker row, inspector line,
+  // rail chip.
+  const SELECTORS = ['.adapter-tag', '.run-item .sub .adapter', '.kv dd', '.agent-rail .chip'];
+
+  it('every registered adapter has an accent at all four identity points', async () => {
+    const css = await CSS;
+    expect(ADAPTERS.length).toBeGreaterThan(3);
+    for (const adapter of ADAPTERS) {
+      for (const selector of SELECTORS) {
+        expect(
+          css.includes(`${selector}[data-adapter="${adapter.name}"]`),
+          `${adapter.name} has no rule for ${selector}[data-adapter="${adapter.name}"]`,
+        ).toBe(true);
+      }
+      // …and the display name the chip actually renders is non-empty, since a
+      // blank chip is a colour nobody can attach a vendor to.
+      expect(adapterName(adapter.name)).toBeTruthy();
+    }
+  });
+
+  it('no two adapters share a hue', async () => {
+    const css = await CSS;
+    // Each accent resolves through a custom property; read the hue off its
+    // definition rather than the usage, so a var renamed in one place cannot
+    // silently collapse two agents onto one colour.
+    const hues = new Map();
+    for (const adapter of ADAPTERS) {
+      const use = css.match(
+        new RegExp(`\\.agent-rail \\.chip\\[data-adapter="${adapter.name}"\\][^}]*color:\\s*var\\((--[a-z-]+)\\)`),
+      );
+      expect(use, `${adapter.name}'s rail chip does not resolve through a custom property`).toBeTruthy();
+      const def = css.match(new RegExp(`${use[1]}:\\s*oklch\\([0-9.]+ [0-9.]+ ([0-9.]+)\\)`));
+      expect(def, `${use[1]} is used but never defined`).toBeTruthy();
+      const hue = Number(def[1]);
+      for (const [other, otherHue] of hues) {
+        // 30° is the floor at which two accents stay tellable apart side by
+        // side in the rail. The shipped set clears it comfortably: the tightest
+        // pair is 43° (opencode↔steel).
+        expect(
+          Math.min(Math.abs(hue - otherHue), 360 - Math.abs(hue - otherHue)),
+          `${adapter.name} (${hue}°) and ${other} (${otherHue}°) are too close to tell apart`,
+        ).toBeGreaterThan(30);
+      }
+      hues.set(adapter.name, hue);
+    }
   });
 });

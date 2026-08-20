@@ -270,6 +270,7 @@ async function main() {
   await driftSessions();
   await codexFixtures();
   await hermesFixtures();
+  await opencodeFixtures();
 
   console.error('fixtures written to', ROOT);
 }
@@ -1130,3 +1131,754 @@ async function troubleSession() {
 }
 
 await main();
+
+/**
+ * opencode fixtures, modeled 1:1 on the real
+ * `~/.local/share/opencode/opencode.db` format (probed live 2026-08-20
+ * against a corpus spanning opencode 1.15.6 → 1.18.19): ONE global SQLite
+ * database with `project` / `session` / `message` / `part` tables, epoch-
+ * MILLISECOND timestamps, JSON `data` blobs on messages and parts, subagent
+ * sessions carrying `parent_id`, and `task` tool parts naming their child
+ * session outright in `state.metadata.sessionId`.
+ *
+ * The `.db` file is COMMITTED, same lifecycle as the JSONL fixtures:
+ * regenerated only when the corpus changes, never hand-edited. Regeneration
+ * requires Node ≥ 22.13 (node:sqlite) — the guard below makes that a named
+ * skip, not a crash, elsewhere.
+ *
+ * Deliberate shapes worth knowing before editing:
+ * - Session ids are NOT in time order. Real opencode ids sort DESCENDING with
+ *   time while message and part ids sort ascending, so the fixture ids are
+ *   scrambled on purpose: any ordering that reads ids instead of
+ *   `time_created` fails on this corpus.
+ * - Worktrees use `/home/dev/…`, which must NOT exist on dev or CI machines,
+ *   exactly as the Hermes fixtures do.
+ * - `session.time_created` sits ~30ms BEFORE the session's first message on
+ *   every genuine run (the row is written just before the message). Only the
+ *   fork inverts that, which is what `copiedHistory` detects.
+ */
+async function opencodeFixtures() {
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = await import('node:sqlite'));
+  } catch {
+    console.error('skipping opencode fixtures: node:sqlite unavailable (regeneration needs Node 22.13+)');
+    return;
+  }
+  const OC_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'opencode');
+  await rm(OC_ROOT, { recursive: true, force: true });
+  await mkdir(OC_ROOT, { recursive: true });
+
+  const db = new DatabaseSync(join(OC_ROOT, 'opencode.db'));
+  // The 1.18.19 shape, including the columns 1.15.x did not have
+  // (`workspace_id`, `path`, `agent`, `model`, `cost`, the five `tokens_*`,
+  // and `metadata`). The narrower 1.15.x schema is covered by a temp DB in
+  // tests/opencode.test.js — one committed fixture cannot hold two schemas.
+  db.exec(`
+    CREATE TABLE project (
+      id TEXT PRIMARY KEY, worktree TEXT NOT NULL, vcs TEXT, name TEXT,
+      icon_url TEXT, icon_color TEXT, time_created INTEGER, time_updated INTEGER,
+      time_initialized INTEGER, sandboxes TEXT, commands TEXT, icon_url_override TEXT
+    );
+    CREATE TABLE session (
+      id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, slug TEXT,
+      directory TEXT, title TEXT, version TEXT, share_url TEXT,
+      summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER,
+      summary_diffs INTEGER, revert TEXT, permission TEXT,
+      time_created INTEGER NOT NULL, time_updated INTEGER, time_compacting INTEGER,
+      time_archived INTEGER, workspace_id TEXT, path TEXT, agent TEXT, model TEXT,
+      cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER,
+      tokens_cache_read INTEGER, tokens_cache_write INTEGER, metadata TEXT
+    );
+    CREATE TABLE message (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER, data TEXT NOT NULL
+    );
+    CREATE TABLE part (
+      id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER, data TEXT NOT NULL
+    );
+    CREATE TABLE session_message (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT, data TEXT
+    );
+    CREATE INDEX idx_part_session ON part(session_id);
+    CREATE INDEX idx_part_message ON part(message_id, id);
+    CREATE INDEX idx_message_session ON message(session_id, time_created, id);
+    CREATE INDEX idx_session_project ON session(project_id);
+    CREATE INDEX idx_session_parent ON session(parent_id);
+  `);
+  // The transient table exists and is deliberately POPULATED: the adapter
+  // must issue no query against it, and a fixture that left it empty could
+  // not tell "not read" from "nothing to read".
+  db.prepare('INSERT INTO session_message (id, session_id, type, data) VALUES (?,?,?,?)').run(
+    'smsg_fx000001', 'ses_fx9000000000000000clean', 'agent-switched', '{"agent":"plan"}',
+  );
+
+  const ACME = '/home/dev/acme';
+  const NOTES = '/home/dev/notes';
+  const insProject = db.prepare(
+    'INSERT INTO project (id, worktree, vcs, name, time_created, time_updated) VALUES (?,?,?,?,?,?)',
+  );
+  const insSession = db.prepare(
+    `INSERT INTO session (id, project_id, parent_id, directory, title, version, revert,
+       time_created, time_updated, time_archived, agent, model, cost,
+       tokens_input, tokens_output, tokens_cache_read, tokens_cache_write)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const insMessage = db.prepare(
+    'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)',
+  );
+  const insPart = db.prepare(
+    'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?,?)',
+  );
+
+  // Deterministic epoch-MILLISECOND clock — opencode's unit.
+  let clockMs = Date.parse('2026-08-01T12:00:00Z');
+  const t = (step = 2000) => (clockMs += step);
+  let msgN = 0;
+  let prtN = 0;
+  const mid = () => `msg_fx${String(++msgN).padStart(8, '0')}`;
+  const pid = () => `prt_fx${String(++prtN).padStart(8, '0')}`;
+  const MODEL = { id: 'nemotron-3.5-lightning-free', providerID: 'opencode', variant: 'default' };
+
+  insProject.run('prj_fxacme', ACME, 'git', 'acme', clockMs, clockMs);
+  insProject.run('prj_fxnotes', NOTES, 'git', 'notes', clockMs, clockMs);
+
+  /** One `part` row. */
+  const part = (sid, messageId, data, at = t(200)) => {
+    const id = pid();
+    insPart.run(id, messageId, sid, at, at, JSON.stringify(data));
+    return id;
+  };
+  /** A `role='user'` message plus its text part — a turn. */
+  const userMsg = (sid, text, over = {}) => {
+    const id = over.id ?? mid();
+    const at = over.at ?? t();
+    insMessage.run(id, sid, at, at, JSON.stringify({
+      role: 'user',
+      time: { created: at },
+      agent: over.agent ?? 'build',
+      model: { providerID: MODEL.providerID, modelID: MODEL.id, variant: MODEL.variant },
+      summary: { diffs: 0 },
+    }));
+    if (typeof text === 'string') part(sid, id, { type: 'text', text }, at + 10);
+    return id;
+  };
+  /**
+   * A `role='assistant'` message — a STEP, not a turn. `tokens.input` is the
+   * UNCACHED delta; true context is input + cache.read + cache.write, which
+   * is what the adapter must take a per-turn MAX of.
+   */
+  const assistantMsg = (sid, parentID, over = {}) => {
+    const id = over.id ?? mid();
+    const at = over.at ?? t();
+    // `tokensRaw` writes the block verbatim — the only way to produce a
+    // `tokens` object with NO `input` key, which is the shape the drift
+    // assertion exists for.
+    const tokens = over.tokensRaw !== undefined
+      ? over.tokensRaw
+      : {
+          total: 0,
+          input: over.input ?? 500,
+          output: over.output ?? 50,
+          reasoning: 0,
+          cache: { write: over.cacheWrite ?? 0, read: over.cacheRead ?? 0 },
+        };
+    const data = {
+      parentID,
+      role: 'assistant',
+      mode: over.agent ?? 'build',
+      agent: over.agent ?? 'build',
+      variant: 'default',
+      path: { cwd: over.cwd ?? ACME, root: over.cwd ?? ACME },
+      cost: 0,
+      ...(tokens ? { tokens } : {}),
+      modelID: MODEL.id,
+      providerID: MODEL.providerID,
+      time: { created: at, completed: at + 800 },
+      // An aborted message carries an `error` key and NO `finish` at all —
+      // the exact shape a deliberate Esc produced on 1.18.19.
+      ...(over.error ? { error: over.error } : { finish: over.finish === undefined ? 'stop' : over.finish }),
+    };
+    insMessage.run(id, sid, at, at, JSON.stringify(data));
+    return id;
+  };
+  /** step-start / step-finish, one pair per uninterrupted assistant message. */
+  const stepStart = (sid, m) => part(sid, m, { type: 'step-start' }, t(30));
+  const stepFinish = (sid, m, reason = 'stop') =>
+    part(sid, m, { type: 'step-finish', reason, snapshot: 'a1b2c3d4e5f6', tokens: {}, cost: 0 }, t(30));
+  /** One `tool` part. `title` absent → the label derives from the input. */
+  let callN = 0;
+  const toolPart = (sid, m, tool, input, over = {}) => {
+    const start = t(300);
+    const state = over.error !== undefined
+      // The error shape has NO title, output or metadata — measured, not assumed.
+      ? { status: 'error', input, error: over.error, time: { start, end: start + 200 } }
+      : {
+          status: over.status ?? 'completed',
+          input,
+          output: over.output ?? 'ok',
+          metadata: { truncated: false, ...over.metadata },
+          ...(over.title !== undefined ? { title: over.title } : {}),
+          time: { start, end: start + 200 },
+        };
+    return part(sid, m, { type: 'tool', tool, callID: `call_fx${String(++callN).padStart(6, '0')}`, state }, start);
+  };
+  const session = (id, over = {}) => {
+    const created = over.created ?? clockMs;
+    insSession.run(
+      id,
+      over.projectId ?? 'prj_fxacme',
+      over.parent ?? null,
+      over.directory ?? ACME,
+      over.title ?? null,
+      over.version ?? '1.18.19',
+      over.revert ?? null,
+      created,
+      over.updated ?? clockMs,
+      over.archived ?? null,
+      over.agent === undefined ? 'build' : over.agent,
+      over.model === undefined ? JSON.stringify(MODEL) : over.model,
+      over.cost ?? 0.0042,
+      over.tokensInput ?? 0,
+      over.tokensOutput ?? 0,
+      over.cacheRead ?? 0,
+      over.cacheWrite ?? 0,
+    );
+  };
+
+  // ---------- clean: zero signals, zero unread, and the MAX-vs-SUM turn ----
+  {
+    const S = 'ses_fx9000000000000000clean';
+    const first = t();
+    const u1 = userMsg(S, 'Add a CHANGELOG entry for the 0.2 release', { at: first });
+    // Six steps whose TRUE context climbs 8k → 13k while raw input is noise.
+    // SUM(context) is 63,000 and MAX is 13,000 — a 4.85× gap. A parser that
+    // summed would report 63k here, which is both wrong and enough to trip
+    // the outlier floor on an entirely ordinary turn.
+    const steps = [
+      { input: 8000, cacheRead: 0 },
+      { input: 1000, cacheRead: 8000 },
+      { input: 1200, cacheRead: 8800 },
+      { input: 1000, cacheRead: 10000 },
+      { input: 900, cacheRead: 11100 },
+      { input: 800, cacheRead: 12200 },
+    ];
+    steps.forEach((tok, i) => {
+      const a = assistantMsg(S, u1, { ...tok, output: 50, finish: i === steps.length - 1 ? 'stop' : 'tool-calls' });
+      stepStart(S, a);
+      if (i === 0) part(S, a, { type: 'reasoning', text: 'Read the changelog first.', time: { start: clockMs, end: clockMs } }, t(30));
+      if (i === 0) part(S, a, { type: 'text', text: 'Checking what the changelog already has.' }, t(30));
+      // `title` present on this one: opencode writes it on ~98% of tool parts
+      // and it is the label SUBJECT wherever it is non-empty.
+      if (i === 1) toolPart(S, a, 'read', { filePath: `${ACME}/CHANGELOG.md` }, { title: 'CHANGELOG.md', output: '# Changelog\n\n## 0.1.2' });
+      if (i === 3) {
+        toolPart(S, a, 'edit', { filePath: `${ACME}/CHANGELOG.md`, oldString: '## 0.1.2', newString: '## 0.2.0\n\n## 0.1.2' }, { output: 'ok' });
+        part(S, a, { type: 'patch', hash: 'f00dcafe', files: [`${ACME}/CHANGELOG.md`] }, t(30));
+      }
+      if (i === steps.length - 1) part(S, a, { type: 'text', text: 'Added the 0.2.0 heading above 0.1.2.' }, t(30));
+      stepFinish(S, a, i === steps.length - 1 ? 'stop' : 'tool-calls');
+    });
+    const u2 = userMsg(S, 'Now run the tests');
+    const a2 = assistantMsg(S, u2, { input: 3000, cacheRead: 0, output: 40 });
+    stepStart(S, a2);
+    toolPart(S, a2, 'bash', { command: 'npm test', description: 'Run the suite' }, { output: '31 passed' });
+    part(S, a2, { type: 'text', text: 'All 31 tests pass.' }, t(30));
+    stepFinish(S, a2);
+    session(S, { created: first - 30, updated: t(), title: 'Add a CHANGELOG entry', version: '1.18.19', tokensInput: 12900, tokensOutput: 340, cacheRead: 50100 });
+  }
+
+  // ---------- batch: 14 reads, 5 errors, on DIFFERENT paths -----------------
+  // The node-status invariant's regression guard. Every one of the five misses
+  // is a different non-existent file — the model probing a namespace, retrying
+  // nothing — so the node is `completed` and fires no retry-storm. Under the
+  // naive reading ("any error makes the node an error") it would clear
+  // retryErrors: 3 and report a storm that did not happen.
+  {
+    const S = 'ses_fxd0000000000000batch';
+    const first = t();
+    const u = userMsg(S, 'Read every component stylesheet', { at: first });
+    const a = assistantMsg(S, u, { input: 4000, cacheRead: 1000, output: 60 });
+    stepStart(S, a);
+    for (let i = 1; i <= 9; i++) {
+      toolPart(S, a, 'read', { filePath: `${ACME}/client/src/components/Comp${i}.tsx` }, { output: 'export default …' });
+    }
+    for (const name of ['WorkflowNode', 'NodePanel', 'EdgePanel', 'SkillsPanel', 'DiscoverTab']) {
+      toolPart(S, a, 'read', { filePath: `${ACME}/client/src/components/${name}.css` }, {
+        error: `File not found: ${ACME}/client/src/components/${name}.css`,
+      });
+    }
+    part(S, a, { type: 'text', text: 'Nine components have styles; five have none.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 28, updated: t(), title: 'Read component stylesheets' });
+  }
+
+  // ---------- trouble: one of every reachable high-severity signal ----------
+  {
+    const S = 'ses_fx8000000000000trouble';
+    const first = t();
+    // turn 1 — retry storm, an answered question, and a denial
+    const u1 = userMsg(S, 'Wire the deploy script into CI', { at: first });
+    const a1 = assistantMsg(S, u1, { input: 18000, cacheRead: 2000, output: 80, finish: 'tool-calls' });
+    stepStart(S, a1);
+    part(S, a1, { type: 'text', text: 'Patching the deploy script now.' }, t(30));
+    for (let i = 0; i < 3; i++) {
+      toolPart(S, a1, 'edit', { filePath: `${ACME}/ci/deploy.sh`, oldString: 'exit 1', newString: 'exit 0' }, {
+        error: 'Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.',
+      });
+    }
+    toolPart(S, a1, 'question', {
+      questions: [{
+        question: 'Which CI provider should the deploy target?',
+        header: 'CI provider',
+        options: [{ label: 'GitHub Actions', description: 'Use Actions' }, { label: 'Buildkite', description: 'Use Buildkite' }],
+      }],
+    }, {
+      output: 'User has answered your questions: "Which CI provider should the deploy target?"="GitHub Actions".',
+      // The REAL shape: one array per question, holding the labels picked for
+      // it. A flat filter over this yields '' and the chip reads "answered:"
+      // with nothing after it.
+      metadata: { answers: [['GitHub Actions']] },
+    });
+    toolPart(S, a1, 'read', { filePath: `${ACME}/.ci/config.yml` }, { output: 'token: $CI_TOKEN' });
+    toolPart(S, a1, 'glob', { pattern: '**/*.pem' }, {
+      error: 'The user rejected permission to use this specific tool call.',
+    });
+    stepFinish(S, a1, 'tool-calls');
+
+    // turn 2 — the outlier, and the interrupt (after a websearch, so the
+    // unresolved bash below is still the LAST bash in the lane)
+    const u2 = userMsg(S, 'Ship it');
+    const a2 = assistantMsg(S, u2, { input: 40000, cacheRead: 160000, output: 200, finish: 'tool-calls' });
+    stepStart(S, a2);
+    toolPart(S, a2, 'websearch', { query: 'github actions oidc deploy' }, { output: '3 results' });
+    stepFinish(S, a2, 'tool-calls');
+    const a2b = assistantMsg(S, u2, {
+      input: 900, cacheRead: 200, output: 0,
+      error: { name: 'MessageAbortedError', data: { message: 'Aborted' } },
+    });
+    stepStart(S, a2b); // deliberately unmatched — no step-finish on an abort
+
+    // turn 3 — small, so the run's median stays low enough for turn 2 to read
+    // as outsized against it
+    const u3 = userMsg(S, 'Never mind the search, just check the file');
+    const a3 = assistantMsg(S, u3, { input: 14000, cacheRead: 1000, output: 40 });
+    stepStart(S, a3);
+    toolPart(S, a3, 'read', { filePath: `${ACME}/ci/deploy.sh` }, { output: '#!/bin/sh' });
+    stepFinish(S, a3);
+
+    // turn 4 — the unresolved trailing error
+    const u4 = userMsg(S, 'Run the deploy dry-run');
+    const a4 = assistantMsg(S, u4, { input: 11000, cacheRead: 1000, output: 30 });
+    stepStart(S, a4);
+    toolPart(S, a4, 'bash', { command: 'npm run deploy -- --dry-run', description: 'Deploy dry-run' }, {
+      error: 'Command failed with exit code 1: deploy.sh: missing CI_TOKEN',
+    });
+    part(S, a4, { type: 'text', text: 'Blocked on the token secret — stopping here.' }, t(30));
+    stepFinish(S, a4);
+    session(S, { created: first - 33, updated: t(), title: 'Wire the deploy script into CI', tokensInput: 84800, tokensOutput: 350, cacheRead: 164200 });
+  }
+
+  // ---------- subagent: both reconciliation mismatches, in one run ---------
+  {
+    const S = 'ses_fx7000000000000000task';
+    const CHILD = 'ses_fx7a00000000000child01';
+    const ORPHAN = 'ses_fx7b00000000000child02';
+    const MISSING = 'ses_fx7c00000000000missing';
+    const first = t();
+    const u = userMsg(S, 'Map the auth module, then fix the session bug', { at: first });
+    const a = assistantMsg(S, u, { input: 9000, cacheRead: 1000, output: 90, finish: 'tool-calls' });
+    stepStart(S, a);
+    part(S, a, { type: 'text', text: 'Fanning this out to an explore subagent.' }, t(30));
+    toolPart(S, a, 'task', { description: 'Explore project structure', prompt: 'Map src/auth and report each file.', subagent_type: 'explore' }, {
+      output: `task_id: ${CHILD} (for resuming to continue this task if needed)\n\n<task_result>\ntoken.js owns refresh; session.ts:41 resets the TTL.\n</task_result>`,
+      metadata: { truncated: false, sessionId: CHILD, parentSessionId: S, model: 'opencode/nemotron-3.5-lightning-free' },
+    });
+    // A task part naming a session row that no longer exists: `sourcesUnread`
+    // +1 — a referenced source rungraph could not open AT ALL.
+    toolPart(S, a, 'task', { description: 'Audit the token store', prompt: 'Audit src/auth/token.js.', subagent_type: 'explore' }, {
+      output: `task_id: ${MISSING}`,
+      metadata: { truncated: false, sessionId: MISSING, parentSessionId: S },
+    });
+    part(S, a, { type: 'text', text: 'The map is in — session.ts:41 is the bug.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 40, updated: t(), title: 'Map the auth module' });
+
+    const cFirst = t();
+    const cu = userMsg(CHILD, 'Map src/auth and report each file.', { at: cFirst, agent: 'explore' });
+    const ca = assistantMsg(CHILD, cu, { agent: 'explore', input: 5000, cacheRead: 0, output: 120 });
+    stepStart(CHILD, ca);
+    toolPart(CHILD, ca, 'read', { filePath: `${ACME}/src/auth/token.js` }, { output: 'export function refresh() {}' });
+    part(CHILD, ca, { type: 'text', text: 'token.js owns refresh; session.ts:41 resets the TTL.' }, t(30));
+    stepFinish(CHILD, ca);
+    session(CHILD, { created: cFirst - 8, updated: t(), parent: S, agent: 'explore', title: 'Explore project structure (@explore subagent)' });
+
+    // A child with parent_id but NO surviving task part — compaction pruned
+    // it. It still gets a lane, with a synthetic spawn edge, and NO coverage
+    // penalty: the child itself was read completely.
+    const oFirst = t();
+    const ou = userMsg(ORPHAN, 'Check the redirect helper.', { at: oFirst, agent: 'explore' });
+    const oa = assistantMsg(ORPHAN, ou, { agent: 'explore', input: 3000, cacheRead: 0, output: 60 });
+    stepStart(ORPHAN, oa);
+    toolPart(ORPHAN, oa, 'read', { filePath: `${ACME}/src/auth/redirect.ts` }, { output: 'export function go() {}' });
+    part(ORPHAN, oa, { type: 'text', text: 'redirect.ts is sound.' }, t(30));
+    stepFinish(ORPHAN, oa);
+    session(ORPHAN, { created: oFirst - 9, updated: t(), parent: S, agent: 'explore', title: 'Check the redirect helper (@explore subagent)' });
+  }
+
+  // ---------- drift: quiet (one unknown type) and loud (most of the run) ---
+  {
+    const S = 'ses_fx6000000000000quiet0';
+    const first = t();
+    const bumped = ['package.json', 'CHANGELOG.md', 'README.md', 'docs/GUIDE.md'];
+    for (const [i, file] of bumped.entries()) {
+      const u = userMsg(S, `Bump the version in ${file}`, i === 0 ? { at: first } : {});
+      const a = assistantMsg(S, u, { input: 2000, cacheRead: 500, output: 30 });
+      stepStart(S, a);
+      toolPart(S, a, 'edit', { filePath: `${ACME}/${file}`, oldString: '0.3.0', newString: '0.3.1' }, { output: 'ok' });
+      part(S, a, { type: 'patch', hash: 'beefbeef', files: [`${ACME}/${file}`] }, t(30));
+      part(S, a, { type: 'text', text: `Bumped ${file} to 0.3.1.` }, t(30));
+      stepFinish(S, a);
+    }
+    // ONE part type this rungraph does not know, of the kind a newly-shipped
+    // opencode version starts emitting. A few percent of the run, nothing
+    // missing from the graph → the coverage QUIET trigger.
+    const uq = userMsg(S, 'Anything else?');
+    const aq = assistantMsg(S, uq, { input: 800, cacheRead: 200, output: 20 });
+    stepStart(S, aq);
+    part(S, aq, { type: 'flux-marker', flux: '' }, t(30));
+    part(S, aq, { type: 'text', text: 'That is all four files.' }, t(30));
+    stepFinish(S, aq);
+    session(S, { created: first - 25, updated: t(), title: 'Bump version to 0.3.1' });
+  }
+  {
+    const S = 'ses_fx5000000000000000loud';
+    const first = t();
+    const u = userMsg(S, 'Migrate the storage layer to the new client', { at: first });
+    const a = assistantMsg(S, u, { input: 3000, cacheRead: 0, output: 40 });
+    stepStart(S, a);
+    toolPart(S, a, 'read', { filePath: `${ACME}/src/storage/client.ts` }, { output: 'export class Client {}' });
+    // …and then the bulk of the run, in a shape this version cannot read at
+    // all. Not a metadata sprinkle: the working records themselves are gone.
+    for (let i = 0; i < 30; i++) {
+      part(S, a, { type: 'turn-capsule', capsule: `c${i}` }, t(30));
+    }
+    session(S, { created: first - 31, updated: t(), title: 'Migrate storage layer' });
+  }
+
+  // ---------- truncation: preview only, and NO spill file ------------------
+  // The only real case. opencode's `tool-output/` spill files do not survive
+  // (two existed at 16:16 and the directory was empty afterwards while 58
+  // truncated parts still referenced content), so the preview is the ceiling
+  // and coverage must stay clean: rungraph did not fail to read anything.
+  {
+    const S = 'ses_fx4000000000000trunca';
+    const first = t();
+    const u = userMsg(S, 'Show me the whole build log', { at: first });
+    const a = assistantMsg(S, u, { input: 6000, cacheRead: 1000, output: 40 });
+    stepStart(S, a);
+    toolPart(S, a, 'bash', { command: 'npm run build', description: 'Build the bundle' }, {
+      output: '',
+      metadata: { truncated: true, loaded: false, display: true, preview: '> build\n> vite build\n\ntransforming (1) index.html' },
+    });
+    toolPart(S, a, 'read', { filePath: `${ACME}/dist/bundle.js` }, {
+      output: '',
+      metadata: { truncated: true, loaded: false, preview: '(function(){"use strict";' },
+    });
+    part(S, a, { type: 'text', text: 'The build succeeded; the log was too long to keep.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 22, updated: t(), title: 'Show the build log' });
+  }
+
+  // ---------- secrets: every pattern kind, across all five outgoing sites --
+  // The fifth site is a NODE LABEL, which for opencode comes from
+  // `state.title` — attacker-influenced (a file path, a search query). Labels
+  // reach find_nodes and get_graph with no payload fetched at all, which is
+  // what pins redaction to the callTool choke point rather than to get_detail.
+  {
+    const S = 'ses_fx3000000000000secret';
+    const F4 = 'FAKE';
+    const FAKE20 = F4.repeat(5);
+    const FAKE36 = F4.repeat(9);
+    const FAKE40 = F4.repeat(10);
+    const first = t();
+    const u = userMsg(S, `I leaked AKIA${F4.repeat(4)} and ghp_${FAKE36} in the logs — rotate both and scrub the repo`, { at: first });
+    const a = assistantMsg(S, u, { input: 5000, cacheRead: 0, output: 60, finish: 'tool-calls' });
+    stepStart(S, a);
+    // site 2 — tool OUTPUT
+    toolPart(S, a, 'bash', { command: 'env | grep -i token', description: 'Find what else is exposed' }, {
+      output: `SLACK_TOKEN=xoxb-FAKE-FAKE-${FAKE20}\nNPM_TOKEN=npm_${FAKE36}\nANTHROPIC_API_KEY=sk-ant-api03-${FAKE20}\nOPENAI_API_KEY=sk-proj-${FAKE20}`,
+    });
+    // site 3 — tool INPUT
+    toolPart(S, a, 'edit', {
+      filePath: `${ACME}/.env.local`,
+      oldString: 'GOOGLE_KEY=',
+      newString: `GOOGLE_KEY=AIza${'0'.repeat(31)}FAKE\nSTRIPE_KEY=sk_live_${FAKE20}`,
+    }, { output: 'ok' });
+    // site 4 — file content read back
+    toolPart(S, a, 'read', { filePath: `${ACME}/ops/deploy.key` }, {
+      output: `-----BEGIN RSA PRIVATE KEY-----\n${FAKE40}\n-----END RSA PRIVATE KEY-----\nSENDGRID=SG.${'A'.repeat(22)}.${'B'.repeat(43)}\nGITLAB=glpat-${FAKE20}\nGH_PAT=github_pat_${'0'.repeat(22)}\nLEGACY=sk-${'A'.repeat(20)}T3BlbkFJ${'B'.repeat(20)}\naws_secret_access_key = ${FAKE40}`,
+    });
+    // site 5 — the NODE LABEL, via state.title. AWS is deliberate: the label
+    // is capped at 40 chars and a 20-char AKIA key is one of the few patterns
+    // short enough to survive the cut intact.
+    toolPart(S, a, 'grep', { pattern: `AKIA${F4.repeat(4)}`, path: ACME }, {
+      title: `AKIA${F4.repeat(4)}`,
+      output: 'src/legacy/deploy.sh:3',
+    });
+    part(S, a, { type: 'text', text: 'All of these need rotation before anything else happens.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 19, updated: t(), title: 'Rotate leaked credentials', projectId: 'prj_fxnotes', directory: NOTES });
+  }
+
+  // ---------- archived: a plain timestamp, shown and flagged ---------------
+  // Transcribed from the real archived capture session: `PATCH /session/:id`
+  // with `{time:{archived:<epoch ms>}}` writes the number straight through.
+  // There is no soft-delete and no separate archive endpoint.
+  {
+    const S = 'ses_fx2000000000000archiv';
+    const first = t();
+    const u = userMsg(S, 'Remind me what shipped this week', { at: first });
+    const a = assistantMsg(S, u, { input: 1200, cacheRead: 0, output: 25 });
+    stepStart(S, a);
+    part(S, a, { type: 'text', text: 'The beta checklist and the deploy script.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 16, updated: t(), archived: 1787258000000, title: 'Command session archiving' });
+  }
+
+  // ---------- reverted: the exclusion SPLIT, both halves in one run --------
+  // Work-quality signals skip reverted nodes because they are claims about
+  // output the revert discarded. Interventions survive, because a revert rolls
+  // back work, not the record of what a person decided. Asserting only the
+  // first half would let a blanket exclusion pass.
+  {
+    const S = 'ses_fx1000000000000revert';
+    const first = t();
+    const u1 = userMsg(S, 'Add a health endpoint to the server', { at: first });
+    const a1 = assistantMsg(S, u1, { input: 7000, cacheRead: 500, output: 60, finish: 'tool-calls' });
+    stepStart(S, a1);
+    toolPart(S, a1, 'read', { filePath: `${ACME}/src/server.ts` }, { output: 'export function serve() {}' });
+    toolPart(S, a1, 'edit', { filePath: `${ACME}/src/server.ts`, oldString: 'serve()', newString: 'serve() // health' }, { output: 'ok' });
+    part(S, a1, { type: 'patch', hash: 'aa11bb22', files: [`${ACME}/src/server.ts`] }, t(30));
+    stepFinish(S, a1, 'tool-calls');
+
+    // Everything from HERE was rolled back. `revert.messageID` names the
+    // TURN, not a step: opencode resolves an assistant id to the user message
+    // that began the turn.
+    const boundary = mid();
+    userMsg(S, 'Now rip out the old router', { id: boundary });
+    const a2 = assistantMsg(S, boundary, { input: 8000, cacheRead: 1000, output: 70, finish: 'tool-calls' });
+    stepStart(S, a2);
+    for (let i = 0; i < 3; i++) {
+      toolPart(S, a2, 'edit', { filePath: `${ACME}/src/router.ts`, oldString: 'legacyRoute(', newString: 'route(' }, {
+        error: 'Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.',
+      });
+    }
+    toolPart(S, a2, 'bash', { command: 'rm -rf src/router', description: 'Delete the old router' }, {
+      error: 'The user rejected permission to use this specific tool call.',
+    });
+    stepFinish(S, a2, 'tool-calls');
+    session(S, {
+      created: first - 23,
+      updated: t(),
+      title: 'Add a health endpoint',
+      revert: JSON.stringify({ messageID: boundary, snapshot: '72752f23e1e5fd98ead02b11d98dcc903c7c7095', diff: '' }),
+    });
+  }
+
+  // ---------- interrupted: the marker, and the near-miss that must not fire -
+  {
+    const S = 'ses_fx0000000000000000int';
+    const first = t();
+    const u1 = userMsg(S, 'Rewrite the whole test suite in one go', { at: first });
+    const a1 = assistantMsg(S, u1, { input: 9000, cacheRead: 400, output: 40, finish: 'tool-calls' });
+    stepStart(S, a1);
+    toolPart(S, a1, 'bash', { command: 'rm -rf tests && mkdir tests', description: 'Start the suite over' }, { output: '' });
+    stepFinish(S, a1, 'tool-calls');
+    const a1b = assistantMsg(S, u1, {
+      input: 500, cacheRead: 9000, output: 0,
+      error: { name: 'MessageAbortedError', data: { message: 'Aborted' } },
+    });
+    stepStart(S, a1b); // unmatched on purpose: 2 starts, 1 finish in this turn
+
+    // The NEAR MISS: a missing `finish` with no MessageAbortedError. On a live
+    // tail that means "still generating", so firing an interrupt chip at it
+    // would be exactly the false flag the precision rule forbids.
+    const u2 = userMsg(S, 'Just show me the config instead');
+    const a2 = assistantMsg(S, u2, { input: 2000, cacheRead: 500, output: 20, finish: null });
+    stepStart(S, a2);
+    toolPart(S, a2, 'read', { filePath: `${ACME}/vitest.config.ts` }, { output: 'export default {}' });
+    stepFinish(S, a2);
+    session(S, { created: first - 27, updated: t(), title: 'Rewrite the test suite' });
+  }
+
+  // ---------- fork: a root session that COPIED another's history ------------
+  // `POST /session/:id/fork` produces parent_id NULL, every message and part
+  // copied, and NO lineage field of any kind. The only provable trace is that
+  // the rows predate the session row — a causal impossibility unless they were
+  // copied, which is why the SIGN of the delta is the rule and not its size.
+  // It also does not inherit `agent`, which is why the agent falls back to the
+  // modal message agent.
+  {
+    const S = 'ses_fxa000000000000000fork';
+    const first = t();
+    const u = userMsg(S, 'Read notes.txt and summarise it', { at: first });
+    const a = assistantMsg(S, u, { input: 4000, cacheRead: 200, output: 45 });
+    stepStart(S, a);
+    toolPart(S, a, 'read', { filePath: `${NOTES}/notes.txt` }, { output: 'buy milk' });
+    part(S, a, { type: 'text', text: 'It is a shopping list.' }, t(30));
+    stepFinish(S, a);
+    session(S, {
+      created: first + 1533672, // AFTER its own first message — the fork tell
+      updated: t(),
+      title: 'Reading notes.txt contents (fork #1)',
+      agent: null,
+      model: null,
+      projectId: 'prj_fxnotes',
+      directory: NOTES,
+    });
+  }
+
+  // ---------- compaction: a turn nobody typed, and the pseudo-agent --------
+  // Compaction writes a `role=user` message holding exactly one `compaction`
+  // part and NO text part, then one `role=assistant` message stamped
+  // `agent: "compaction"`. The discriminator is structural, not textual.
+  //
+  // It lands FIRST here on purpose: a session resumed over the context limit
+  // compacts before the user types, and that is the only order in which the
+  // "a compaction never supplies an untitled run's title" rule is actually
+  // exercised.
+  {
+    const S = 'ses_fxb00000000000compact';
+    const first = t();
+    const uc = mid();
+    insMessage.run(uc, S, first, first, JSON.stringify({
+      role: 'user', time: { created: first }, agent: 'build',
+      model: { providerID: MODEL.providerID, modelID: MODEL.id, variant: MODEL.variant },
+      summary: { diffs: 0 },
+    }));
+    part(S, uc, { type: 'compaction', auto: true, overflow: false, tail_start_id: 'msg_fx00000000' }, first + 5);
+    const ac = assistantMsg(S, uc, { agent: 'compaction', input: 90000, cacheRead: 5000, output: 900 });
+    stepStart(S, ac);
+    part(S, ac, { type: 'text', text: 'Summary of the conversation so far: …' }, t(30));
+    stepFinish(S, ac);
+
+    const u = userMsg(S, 'Carry on with the migration');
+    const a = assistantMsg(S, u, { input: 3000, cacheRead: 90000, output: 50 });
+    stepStart(S, a);
+    toolPart(S, a, 'write', { filePath: `${ACME}/src/migrate.ts`, content: 'export {}' }, { output: 'ok' });
+    part(S, a, { type: 'text', text: 'Migration file written.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 18, updated: t(), title: null, agent: null });
+  }
+
+  // ---------- revert ACROSS a subagent lane --------------------------------
+  // `revert` is written on the session row the user was looking at, never on
+  // the child it dispatched — so a lane inside a reverted region has no
+  // boundary of its own and must INHERIT the parent's. Without that the agent
+  // node is struck through while every node inside its lane renders
+  // unqualified, and work-quality signals fire on work that was thrown away.
+  {
+    const S = 'ses_fxe0000000000revertlane';
+    const CHILD = 'ses_fxe1000000000lanechild';
+    const first = t();
+    const u1 = userMsg(S, 'Add request logging to the server', { at: first });
+    const a1 = assistantMsg(S, u1, { input: 6000, cacheRead: 400, output: 50, finish: 'tool-calls' });
+    stepStart(S, a1);
+    toolPart(S, a1, 'read', { filePath: `${ACME}/src/server.ts` }, { output: 'export function serve() {}' });
+    stepFinish(S, a1, 'tool-calls');
+
+    // Everything from HERE was rolled back — the dispatch included.
+    const boundary = mid();
+    userMsg(S, 'Now have a subagent rewrite the router', { id: boundary });
+    const a2 = assistantMsg(S, boundary, { input: 7000, cacheRead: 800, output: 60, finish: 'tool-calls' });
+    stepStart(S, a2);
+    toolPart(S, a2, 'task', { description: 'Rewrite the router', prompt: 'Replace legacyRoute with route.', subagent_type: 'build' }, {
+      output: `task_id: ${CHILD}\n\n<task_result>\nCould not find the old router calls.\n</task_result>`,
+      metadata: { truncated: false, sessionId: CHILD, parentSessionId: S },
+    });
+    stepFinish(S, a2, 'tool-calls');
+    session(S, {
+      created: first - 26,
+      updated: t(),
+      title: 'Add request logging',
+      revert: JSON.stringify({ messageID: boundary, snapshot: 'c0ffee11c0ffee11c0ffee11c0ffee11c0ffee11', diff: '' }),
+    });
+
+    const cFirst = t();
+    const cu = userMsg(CHILD, 'Replace legacyRoute with route.', { at: cFirst });
+    const ca = assistantMsg(CHILD, cu, { input: 4000, cacheRead: 200, output: 40, finish: 'tool-calls' });
+    stepStart(CHILD, ca);
+    // Three failing edits: a textbook retry-storm, on work the user reverted.
+    for (let i = 0; i < 3; i++) {
+      toolPart(CHILD, ca, 'edit', { filePath: `${ACME}/src/router.ts`, oldString: 'legacyRoute(', newString: 'route(' }, {
+        error: 'Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.',
+      });
+    }
+    stepFinish(CHILD, ca, 'tool-calls');
+    session(CHILD, { created: cFirst - 11, updated: t(), parent: S, title: 'Rewrite the router (@build subagent)' });
+  }
+
+  // ---------- a REFUSED task, an in-flight one, and a refused batch --------
+  // opencode permission-gates `task` BEFORE it creates the child session row,
+  // so a refused subagent lands with the exact rejection string and no
+  // `metadata.sessionId`. Routing every `task` to the lane builder swallows the
+  // whole intervention AND charges coverage for a session that was never
+  // written — rendering "the user refused a subagent" as "nothing happened,
+  // and something was unreadable".
+  {
+    const S = 'ses_fxf00000000000denytask';
+    const first = t();
+    const u1 = userMsg(S, 'Fan this out to a subagent', { at: first });
+    const a1 = assistantMsg(S, u1, { input: 5000, cacheRead: 300, output: 40, finish: 'tool-calls' });
+    stepStart(S, a1);
+    toolPart(S, a1, 'task', { description: 'Audit the auth module', prompt: 'Audit src/auth.', subagent_type: 'explore' }, {
+      error: 'The user rejected permission to use this specific tool call.',
+    });
+    stepFinish(S, a1, 'tool-calls');
+
+    // A dispatch opencode has not recorded a child for yet — the live-tail
+    // moment between the tool call and `metadata({sessionId})`. Nothing was
+    // written, so nothing was unread.
+    const u2 = userMsg(S, 'Fine, try the other one');
+    const a2 = assistantMsg(S, u2, { input: 5200, cacheRead: 400, output: 30, finish: 'tool-calls' });
+    stepStart(S, a2);
+    toolPart(S, a2, 'task', { description: 'Audit the router', prompt: 'Audit src/router.', subagent_type: 'explore' }, {
+      status: 'running',
+      output: '',
+      metadata: { truncated: false },
+    });
+
+    // A refused PARALLEL BATCH: three denied calls in one step must read as
+    // ONE person saying no, not three.
+    const u3 = userMsg(S, 'Then just find the pem files');
+    const a3 = assistantMsg(S, u3, { input: 5400, cacheRead: 500, output: 30, finish: 'tool-calls' });
+    stepStart(S, a3);
+    for (const n of [1, 2, 3]) {
+      toolPart(S, a3, 'glob', { pattern: `**/*${n}.pem` }, {
+        error: 'The user rejected permission to use this specific tool call.',
+      });
+    }
+    stepFinish(S, a3, 'tool-calls');
+    session(S, { created: first - 17, updated: t(), title: 'Fan out to a subagent' });
+  }
+
+  // ---------- shape drift: tokens present, `input` gone --------------------
+  // The one narrow assertion. `selectList` protects SQL columns; a renamed key
+  // inside a JSON blob yields a smaller-but-plausible number with
+  // `unrecognized` still at 0, and coverage cannot catch it by construction.
+  {
+    const S = 'ses_fxc0000000000000shape';
+    const first = t();
+    const u = userMsg(S, 'Summarise the release notes', { at: first });
+    const a = assistantMsg(S, u, {
+      tokensRaw: { total: 0, promptTokens: 4000, output: 50, reasoning: 0, cache: { write: 0, read: 0 } },
+    });
+    stepStart(S, a);
+    part(S, a, { type: 'text', text: 'Three fixes and one feature.' }, t(30));
+    stepFinish(S, a);
+    session(S, { created: first - 21, updated: t(), title: 'Summarise the release notes' });
+  }
+
+  db.close();
+}
