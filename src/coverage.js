@@ -58,6 +58,13 @@ export const COVERAGE = {
  * by definition — an unknown type is unknown. These bounds keep both the IR's
  * size and any chance of a transcript smuggling content through a type string
  * under control.
+ *
+ * DO NOT RELAX THIS ALPHABET. These names are interpolated into `coverageNote`,
+ * which the MCP read tools hand straight to an agent as an instruction — so a
+ * type string is untrusted input landing in a model's context. No whitespace
+ * and a 40-character cap means an injected instruction cannot be written in it
+ * at all. Allowing spaces "because it is just a type name" reopens that path,
+ * and nothing downstream would catch it.
  */
 export const UNKNOWN_TYPE_KEY_RE = /^[a-z0-9_.:-]{1,40}$/i;
 export const MAX_UNKNOWN_TYPE_KEYS = 10;

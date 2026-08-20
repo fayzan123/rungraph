@@ -6,6 +6,7 @@ import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
 import { classifyCoverage, coverageNote } from './coverage.js';
+import { redactTree, redactSecrets } from './secrets.js';
 import { liveServers, liveServerUrl } from './registry.js';
 import { buildFocusHash } from './deeplink.js';
 import { openInBrowser } from './open.js';
@@ -197,13 +198,48 @@ async function callTool(params, ctx) {
   if (!tool) throw new RpcError(-32602, `unknown tool "${params?.name}"`);
   try {
     const payload = await tool.run(params?.arguments ?? {}, ctx);
-    return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(withoutSecrets(payload)) }] };
   } catch (err) {
     // A failed tool is a result, not a protocol error: the model reads this
     // text and recovers (or tells the user), which an -32603 would deny it.
     log(`${tool.name}: ${err instanceof ToolError ? err.message : (err?.stack ?? err)}`);
-    return { content: [{ type: 'text', text: String(err?.message ?? err) }], isError: true };
+    // Error text is a way out of the process too — a message that quotes a
+    // failing command or an upstream body would otherwise skip the guard.
+    const message = redactSecrets(String(err?.message ?? err)).text;
+    return { content: [{ type: 'text', text: message }], isError: true };
   }
+}
+
+/**
+ * The export path's secrets block, applied to the OTHER way content leaves
+ * this machine: an MCP tool result travels in an API request to a model
+ * provider and is written into the calling session's own transcript, so a key
+ * read once in one run would come to rest in a second one. `rungraph serve`
+ * is deliberately NOT treated this way — it renders to the user's own browser
+ * over 127.0.0.1, where the bytes never leave and where seeing the real value
+ * is how you rotate it. The line is "redact wherever content leaves the
+ * machine", and this is the only place in this process that it does.
+ *
+ * Applied at callTool rather than inside get_detail because every tool result
+ * funnels through this one line. That is not just less code: node LABELS carry
+ * secrets too (a prompt label at snippet()'s 80-char cap holds a whole GitHub
+ * token), so find_nodes and get_graph leak without ever touching a payload.
+ *
+ * The count is reported for the same reason `coverage` is: a tool that
+ * silently strips content leaves the reader believing it saw everything.
+ */
+function withoutSecrets(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const redacted = redactTree(payload);
+  if (redacted > 0 && !Array.isArray(payload)) {
+    const note =
+      `${redacted} secret${redacted === 1 ? '' : 's'} in this payload ` +
+      `${redacted === 1 ? 'was' : 'were'} replaced with [REDACTED:<kind>] before leaving the machine. ` +
+      'Redacted is not missing or malformed — the real values are intact on the user\'s ' +
+      'dashboard, which serves them locally and sends them nowhere.';
+    payload.note = payload.note ? `${payload.note} ${note}` : note;
+  }
+  return payload;
 }
 
 function send(msg) {

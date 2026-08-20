@@ -46,7 +46,7 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "kind": "session",
     "project": "/home/dev/acme",
     "runId": "claude-code:-home-dev-acme:55555555-5555-4555-8555-555555555555",
-    "sizeBytes": 7621,
+    "sizeBytes": 9245,
     "startedAt": "2026-08-01T12:02:03.000Z",
     "title": "Rotate leaked credentials",
   },
@@ -55,7 +55,7 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "project": "/home/dev/acme",
     "runId": "claude-code:-home-dev-acme:66666666-6666-4666-8666-666666666666",
     "sizeBytes": 13900,
-    "startedAt": "2026-08-01T12:02:16.500Z",
+    "startedAt": "2026-08-01T12:02:19.500Z",
     "title": "Bump version to 0.3.1",
   },
   {
@@ -63,7 +63,7 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "project": "/home/dev/acme",
     "runId": "claude-code:-home-dev-acme:77777777-7777-4777-8777-777777777777",
     "sizeBytes": 6882,
-    "startedAt": "2026-08-01T12:02:46.500Z",
+    "startedAt": "2026-08-01T12:02:49.500Z",
     "title": "Migrate storage layer",
   },
 ]

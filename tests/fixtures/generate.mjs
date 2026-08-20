@@ -1029,8 +1029,11 @@ async function driftSessions() {
 
 /**
  * Session 5 — one of every secrets-scanner pattern kind, planted across the
- * four places outgoing text lives: the user's prompt, a tool output, a tool
- * input, and file content read back. Every value is OBVIOUSLY synthetic
+ * five places outgoing text lives: the user's prompt, a tool output, a tool
+ * input, file content read back, and a NODE LABEL. The label is the only one
+ * of the five reachable without get_detail — find_nodes and get_graph return
+ * labels — so it is the case that pins redaction to the MCP choke point
+ * rather than to one tool. Every value is OBVIOUSLY synthetic
  * (FAKE/zero bodies) while still matching the shipped anchored patterns —
  * `rungraph export` on this run must block with exit 1 and name every one.
  */
@@ -1066,6 +1069,16 @@ async function secretsSession() {
   const read = push({ type: 'assistant', requestId: 'req_fxS003', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxS003', name: 'Read', input: { file_path: `${CWD}/ops/deploy.key` }, caller: { type: 'direct' } }, 'tool_use') });
   const pem = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE40}\n-----END RSA PRIVATE KEY-----`;
   push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: read.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxS003', content: `${pem}\nSENDGRID=SG.${'A'.repeat(22)}.${'B'.repeat(43)}\nGITLAB=glpat-${FAKE20}\nGH_PAT=github_pat_${'0'.repeat(22)}\nLEGACY=sk-${'A'.repeat(20)}T3BlbkFJ${'B'.repeat(20)}\naws_secret_access_key = ${FAKE40}` }] }, toolUseResult: { type: 'text', file: { filePath: `${CWD}/ops/deploy.key`, content: 'redacted-for-fixture', numLines: 8, startLine: 1, totalLines: 8 } } });
+
+  // Bash with NO description: toolNodeLabel falls back to the command, so this
+  // key rides in the node LABEL and reaches find_nodes/get_graph without anyone
+  // calling get_detail. AWS is deliberate — toolNodeLabel truncates at 40 chars,
+  // and a 20-char AKIA key is one of the few patterns short enough to survive
+  // intact. Longer ones (a Bearer sk-ant-… header) get cut mid-key and no longer
+  // match, which is precisely why this narrow case needs pinning: it is easy to
+  // assume labels are safe because most secrets do not fit in one.
+  const hunt = push({ type: 'assistant', requestId: 'req_fxS005', message: assistantMsg('claude-fable-5', { type: 'tool_use', id: 'toolu_fxS005', name: 'Bash', input: { command: `grep -r AKIA${F4.repeat(4)} .` }, caller: { type: 'direct' } }, 'tool_use') });
+  push({ type: 'user', promptId: t1.promptId, sourceToolAssistantUUID: hunt.uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fxS005', content: 'src/legacy/deploy.sh:3' }] }, toolUseResult: { stdout: 'src/legacy/deploy.sh:3', stderr: '', interrupted: false, isImage: false, noOutputExpected: false } });
 
   push({ type: 'assistant', requestId: 'req_fxS004', message: assistantMsg('claude-fable-5', { type: 'text', text: 'All of these need rotation before anything else happens.' }, 'end_turn', 60) });
   push({ type: 'system', subtype: 'turn_duration', durationMs: 30000, messageCount: 7, isMeta: false });

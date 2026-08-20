@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 import { userInfo } from 'node:os';
 import { findRun, ADAPTERS } from './scanner.js';
 import { IR_VERSION } from './ir.js';
-import { scanText, redactSecrets } from './secrets.js';
+import { scanText, walkStrings, redactTree } from './secrets.js';
 
 /**
  * `.rungraph` bundles — the share layer's file format. Gzipped JSON:
@@ -121,7 +121,7 @@ export async function buildBundle(runIds, opts = {}) {
   const findings = scanEnvelope(envelope);
   let blocked = false;
   if (redaction === 'redact-secrets') {
-    redactEnvelope(envelope);
+    redactTree(envelope);
     // Verify, never assume: if anything still matches on the wire form, the
     // redactor has a hole and the export must not leave.
     if (scanText(JSON.stringify(envelope)).length > 0) {
@@ -276,29 +276,6 @@ export function scanEnvelope(envelope) {
   return [...byKey.values()];
 }
 
-function redactEnvelope(envelope) {
-  walkStrings(envelope, [], (path, text, set) => {
-    const { text: out, redacted } = redactSecrets(text);
-    if (redacted > 0) set(out);
-  });
-}
-
-function walkStrings(value, path, visit) {
-  if (typeof value === 'string') return; // root string — no setter, callers pass objects
-  if (Array.isArray(value)) {
-    value.forEach((v, i) => {
-      if (typeof v === 'string') visit([...path, i], v, (nv) => (value[i] = nv));
-      else if (v && typeof v === 'object') walkStrings(v, [...path, i], visit);
-    });
-    return;
-  }
-  if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) {
-      if (typeof v === 'string') visit([...path, k], v, (nv) => (value[k] = nv));
-      else if (v && typeof v === 'object') walkStrings(v, [...path, k], visit);
-    }
-  }
-}
 
 /** Resolve a walk path to { runId, nodeId, where } for the findings listing. */
 function describeLocation(envelope, path) {

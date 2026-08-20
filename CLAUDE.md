@@ -52,7 +52,11 @@ real sessions, never reasoned into place.
 - **Vendor-neutral IR:** no Claude-specific names or fields outside `adapters/claude-code/`. Provider extras go in a namespaced `ext` bag. Everything downstream consumes only the IR (`irVersion: 1`, documented in SCHEMA.md).
 - **Parser purity:** adapters take lines in, return IR out — no server imports, no I/O beyond reading the run's own files, plus one stat-only existence probe of the run's recorded cwd in `detect()` (it feeds `resumeInfo`'s cwd rule; `resumeInfo` itself is pure string construction). All format knowledge lives in adapters.
 - **Never blank-screen:** unknown lines are skipped + counted, surfaced as a banner, never a crash. Truncated JSONL lines (live tail mid-write) are tolerated.
-- **Privacy:** server binds `127.0.0.1` only; nothing leaves the machine. Two write endpoints,
+- **Privacy:** server binds `127.0.0.1` only. Content leaves the machine at exactly two
+  boundaries and both redact secrets: `rungraph export` (blocks) and `rungraph mcp` (redacts
+  at the `callTool` choke point, so labels are covered as well as payloads, and reports the
+  count). The dashboard is deliberately NOT one of them — it renders to the user's own browser
+  over loopback, where seeing a key is how you rotate it. Two write endpoints,
   `POST /api/focus` and `POST /api/resume`, both behind the same non-localhost-`Origin`
   rejection and Host guard; neither executes or persists request-supplied strings (resume takes
   a runId lookup key and a boolean — the adapter rebuilds the command from the server's own
@@ -63,7 +67,7 @@ real sessions, never reasoned into place.
 
 ## Shared code, one implementation
 
-Four things exist exactly once because a second copy could disagree with the first:
+Five things exist exactly once because a second copy could disagree with the first:
 
 - `src/signals.js` — the run's opinion. Server-side only.
 - `src/find.js` — the matcher. **No imports at all**, so the frontend bundle imports it directly
@@ -75,6 +79,11 @@ Four things exist exactly once because a second copy could disagree with the fir
   disagree about whether a run is quiet or loud, which is the failure it exists to prevent.
   Its thresholds are calibrated (and the one judgment call is labelled as one) — read the
   comments before touching them.
+- `src/secrets.js` — the calibrated pattern list, plus `walkStrings`/`redactTree`. Two
+  boundaries call it (`bundle.js` on export, `mcp.js` on every tool result) and they must
+  agree about what a secret is; the walker lives here rather than in `bundle.js` so `mcp.js`
+  never has to import the export path to get one. Pure, no imports. Read the calibration
+  comments before touching the patterns.
 - `frontend/src/focus.js` — the FocusSet spine. Attention markers, file clicks, text find and
   the agent's answer are not four features; they all reduce to "light up this set of nodes, and
   say why". Non-members **dim, never hide** — hiding collapses the layout and destroys the
@@ -88,7 +97,10 @@ The corpus deliberately includes a **clean run** (session `3333…`, must derive
 AND zero unread records), a **trouble run** (session `4444…`, one of every high-severity
 signal), and two **drift runs** (`6666…` quiet at 95% read, `7777…` loud at 21%) — both with
 zero signals, because the coverage triggers exist for exactly the moment the UI would
-otherwise imply completeness. Pure frontend
+otherwise imply completeness. The **secrets run** (`5555…`) carries one of every scanner
+pattern kind across all five places outgoing text lives; the fifth is a **node label**,
+which is what pins redaction to the `callTool` choke point instead of to `get_detail`
+(labels reach `find_nodes` and `get_graph` without any payload being fetched). Pure frontend
 helpers (`viewmath`, `focus`) are unit-tested; the rendered UI is manual + demo.
 CI: GitHub Actions, Node ≥ 20.
 

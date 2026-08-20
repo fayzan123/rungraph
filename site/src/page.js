@@ -491,6 +491,40 @@ function buildLoopDemo(graph, loop) {
   });
 }
 
+/* -------------------------------------------------------------- §7 faq
+
+   <details> already owns open/close, keyboard and the expanded state, so this
+   adds exactly one thing the browser doesn't: a #hash opens the question it
+   names, which is what makes a single answer linkable from an issue or a doc. */
+
+function openFaqFromHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) return;
+  const target = document.getElementById(id);
+  if (!(target instanceof HTMLDetailsElement)) return;
+  for (const other of document.querySelectorAll('.qa[data-linked]')) {
+    other.removeAttribute('data-linked');
+  }
+  target.open = true;
+  target.setAttribute('data-linked', '');
+  // The band's reveal transition moves the section under us; wait a frame so
+  // the browser scrolls to where the question actually lands.
+  requestAnimationFrame(() => {
+    target.scrollIntoView({ behavior: REDUCED() ? 'auto' : 'smooth', block: 'center' });
+  });
+}
+
+addEventListener('hashchange', openFaqFromHash);
+openFaqFromHash();
+
+// Closing the question drops the "you were sent here" mark with it — a sage
+// summary on a collapsed row reads as state that no longer means anything.
+for (const qa of document.querySelectorAll('.qa')) {
+  qa.addEventListener('toggle', () => {
+    if (!qa.open) qa.removeAttribute('data-linked');
+  });
+}
+
 /* ---------------------------------------------------------- §5 export */
 
 dataP.exportTxt.then((text) => {

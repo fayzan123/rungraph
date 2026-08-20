@@ -1,5 +1,8 @@
 /**
- * The blocking secrets scan behind `rungraph export`.
+ * The secrets scan behind BOTH boundaries where content leaves this machine:
+ * `rungraph export` (which blocks) and `rungraph mcp` (which redacts every
+ * tool result on the way to the model provider). One pattern list, because two
+ * could disagree about what a secret is and the weaker one would decide.
  *
  * GOVERNING RULE: precision over recall, exactly as for signals. Anchored,
  * prefix-keyed patterns only — no entropy heuristics, which flag every hash
@@ -179,4 +182,55 @@ export function redactSecrets(text) {
     });
   }
   return { text: out, redacted };
+}
+
+/**
+ * Deep-walk every string in an object tree, giving the visitor a setter so it
+ * can replace in place. Walking the object rather than the serialized JSON
+ * keeps locations available to callers that want to report them.
+ *
+ * Lives here rather than in bundle.js because export is no longer the only
+ * boundary that needs it: `rungraph mcp` redacts on the way out too, and
+ * mcp.js must not import the export path to get a walker.
+ *
+ * @param {unknown} value
+ * @param {Array<string|number>} path
+ * @param {(path: Array<string|number>, text: string, set: (v: string) => void) => void} visit
+ */
+export function walkStrings(value, path, visit) {
+  if (typeof value === 'string') return; // root string — no setter, callers pass objects
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => {
+      if (typeof v === 'string') visit([...path, i], v, (nv) => (value[i] = nv));
+      else if (v && typeof v === 'object') walkStrings(v, [...path, i], visit);
+    });
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === 'string') visit([...path, k], v, (nv) => (value[k] = nv));
+      else if (v && typeof v === 'object') walkStrings(v, [...path, k], visit);
+    }
+  }
+}
+
+/**
+ * Redact every secret anywhere in an object tree, IN PLACE, and return how
+ * many matches were replaced. The count is the point as much as the
+ * redaction: a caller that silently strips secrets leaves the reader thinking
+ * it saw everything, which is the same failure `coverage` exists to prevent.
+ *
+ * @param {unknown} tree
+ * @returns {number}
+ */
+export function redactTree(tree) {
+  let redacted = 0;
+  walkStrings(tree, [], (_path, text, set) => {
+    const { text: out, redacted: n } = redactSecrets(text);
+    if (n > 0) {
+      redacted += n;
+      set(out);
+    }
+  });
+  return redacted;
 }

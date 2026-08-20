@@ -13,10 +13,12 @@ import {
   SESSION_RUN_ID,
   CLEAN_RUN_ID,
   TROUBLE_RUN_ID,
+  SECRETS_RUN_ID,
   DRIFT_QUIET_RUN_ID,
   DRIFT_LOUD_RUN_ID,
   FIXTURE_RUN_COUNT,
 } from './helpers.js';
+import { scanText } from '../src/secrets.js';
 
 const exec = promisify(execFile);
 const BIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'rungraph.js');
@@ -515,6 +517,47 @@ describe('MCP aggregation (two servers, one a bundle viewer)', () => {
       await dupe.close();
     }
   }, 20000);
+});
+
+describe('secrets never reach the model', () => {
+  // The export path blocks this run outright. The MCP path is the OTHER way
+  // content leaves the machine — into an API request to a model provider, and
+  // into the calling session's own transcript — so it gets the same guard.
+  // Redaction happens at the single callTool choke point, which is why these
+  // tests cover a tool that returns payloads AND one that returns only labels.
+
+  it('get_detail redacts the env dump instead of handing it over', async () => {
+    const { nodes } = (await mcp.call('find_nodes', { runId: SECRETS_RUN_ID, query: 'Find what else' })).payload;
+    const { raw } = await mcp.call('get_detail', { runId: SECRETS_RUN_ID, nodeId: nodes[0].id });
+    const text = raw.result.content[0].text;
+    expect(text).toContain('[REDACTED:slack-token]');
+    expect(text).toContain('[REDACTED:anthropic-key]');
+    expect(scanText(text)).toEqual([]); // fails closed, exactly as export does
+  });
+
+  it('find_nodes redacts node labels — reachable without get_detail', async () => {
+    // The prompt label carries an AWS key and a GitHub token at snippet()'s
+    // 80-char cap, and a description-less Bash label carries the AWS key at 40.
+    // A get_detail-only fix would leave both of these on the wire.
+    const { raw } = await mcp.call('find_nodes', { runId: SECRETS_RUN_ID, query: 'AKIA' });
+    const text = raw.result.content[0].text;
+    expect(text).toContain('[REDACTED:aws-access-key]');
+    expect(scanText(text)).toEqual([]);
+  });
+
+  it('says it redacted, so a redacted run is not read as a clean one', async () => {
+    const { nodes } = (await mcp.call('find_nodes', { runId: SECRETS_RUN_ID, query: 'Find what else' })).payload;
+    const { payload } = await mcp.call('get_detail', { runId: SECRETS_RUN_ID, nodeId: nodes[0].id });
+    expect(payload.note).toMatch(/redact/i);
+  });
+
+  it('leaves a run with no secrets byte-for-byte untouched', async () => {
+    // Precision over recall: the guard must be invisible on the clean run, or
+    // it is one more marker nobody trusts.
+    const { raw } = await mcp.call('get_graph', { runId: CLEAN_RUN_ID });
+    expect(raw.result.content[0].text).not.toContain('[REDACTED:');
+    expect((await mcp.call('get_graph', { runId: CLEAN_RUN_ID })).payload.note ?? '').not.toMatch(/redact/i);
+  });
 });
 
 describe('rungraph mcp --check', () => {

@@ -36,6 +36,7 @@
     <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
     <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
     <a href="#agents">For agents</a>
+    <a href="#faq">FAQ</a>
   </div>
   <a class="btn-ink" href="https://github.com/fayzan123/rungraph">GitHub</a>
 </nav>
@@ -232,6 +233,685 @@ npx rungraph serve --no-open
     </p>
   </div>
 </section>
+
+<section class="band" id="faq">
+  <div class="band-inner">
+    <div class="microlabel section-tag">7 · QUESTIONS</div>
+    <h2 class="display-2">Everything else.</h2>
+    <p class="body-lg">
+      The honest version rather than the flattering one — including the parts
+      that are deliberately missing. Longer walkthroughs live in the
+      <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">guide</a>.
+    </p>
+
+    <div class="faq">
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-basics">The basics</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-what-it-does">
+            <summary>What does rungraph actually do?</summary>
+            <div class="a">
+              <p>
+                It reads the transcripts your coding agent already writes and
+                reconstructs the run as a <b>directed agentic graph</b>: the
+                orchestrator, the subagents it spawned and the tools they called
+                become nodes; spawn and return relationships become edges; the
+                moments the run changed direction get marked on the path.
+              </p>
+              <p>
+                Nothing instruments your agent. The reconstruction happens after
+                the fact, from files already sitting on your disk.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-setup">
+            <summary>What do I have to set up?</summary>
+            <div class="a">
+              <p>
+                <code>npx rungraph</code>. That is the entire quickstart. No hooks,
+                no wrapper command, no config file, no account, no API key. It
+                scans, starts a local server and opens your browser.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-which-agents">
+            <summary>Which agents does it read?</summary>
+            <div class="a">
+              <p>
+                Three, each from wherever it already writes: <b>Claude Code</b>
+                (<code>~/.claude/projects</code>), <b>Codex CLI</b>
+                (<code>~/.codex/sessions</code>) and <b>Hermes Agent</b> (the SQLite
+                database at <code>~/.hermes/state.db</code>). One scan picks up all
+                three. When more than one of them has runs on the machine, a chip
+                rail above the run list filters by agent.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-equal-support">
+            <summary>Is one of those the real one and the others bolted on?</summary>
+            <div class="a">
+              <p>
+                No. Each adapter implements the same interface and emits the same
+                vendor-neutral IR, and every feature downstream — signals,
+                coverage, find, focus, file attribution, export, resume, all seven
+                MCP tools — consumes only that IR. A Codex run and a Hermes run
+                behave exactly like a Claude Code one, and no Claude-specific name
+                or field exists outside its own adapter directory.
+              </p>
+              <p>Three differences are real and worth knowing:</p>
+              <ul>
+                <li>
+                  Hermes runs need <b>Node ≥ 22.13</b>, because they use Node's
+                  built-in SQLite reader. On older versions they are skipped with a
+                  warning and everything else still works.
+                </li>
+                <li>
+                  <code>mcp --install</code> is a convenience for one CLI. The MCP
+                  server itself is plain stdio and identical for every agent — see
+                  <a href="#q-only-claude">below</a>.
+                </li>
+                <li>
+                  Each agent's own structure keeps its own name — Claude Code
+                  Workflow runs, Codex subagent rollouts, Hermes delegation lanes —
+                  because those are genuinely different things, not one thing
+                  wearing three labels.
+                </li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="qa" id="q-retroactive">
+            <summary>Does it work on sessions I already ran?</summary>
+            <div class="a">
+              <p>
+                Yes, and that is the main point. Every session still on disk is
+                readable right now, including the ones from before you had heard of
+                rungraph. Nothing had to be recording at the time.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-live">
+            <summary>Can I watch a run that's happening right now?</summary>
+            <div class="a">
+              <p>
+                Yes. Liveness comes from watching the run's own files — still no
+                hooks — and updates stream over SSE with stable node ids, so new
+                nodes merge into the graph instead of redrawing it. A half-written
+                final line (an agent mid-write) is tolerated and retried on the next
+                tick.
+              </p>
+              <p>
+                Signals re-derive on every update, so you can go do something else
+                and glance back only when the strip goes loud.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-requirements">
+            <summary>What do I need installed?</summary>
+            <div class="a">
+              <p>
+                Node ≥ 20. That's it — Hermes runs want ≥ 22.13, as above. The
+                frontend ships prebuilt inside the package, so there is no build
+                step on your machine and nothing to resolve at install time.
+              </p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-privacy">Privacy &amp; visibility</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-leaves-machine">
+            <summary>Does anything leave my machine?</summary>
+            <div class="a">
+              <p>
+                No. The server binds <code>127.0.0.1</code> only, makes zero network
+                requests and phones nothing home. There is no telemetry, no account
+                and no anonymous usage data. This page keeps the same promise: no
+                analytics, no CDNs, no cookies — nothing to consent to.
+              </p>
+              <p>
+                Two exceptions, both ones you ask for by name.
+                <code>rungraph export</code> writes a file, and where that file goes
+                afterwards is your channel, not rungraph's. And
+                <code>rungraph mcp</code> answers your agent, so a tool result rides
+                out in that agent's own API request.
+              </p>
+              <p>
+                Both run the same calibrated secrets scan on the way out: export
+                <b>blocks</b>, MCP <b>redacts</b> — node labels included, not just
+                the payloads — and every redacted result says how many values it
+                replaced, so a scrubbed run is never mistaken for a clean one. The
+                dashboard still shows you the real values, because those never leave
+                <code>127.0.0.1</code> and reading a key is how you rotate it.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-hostile-page">
+            <summary>Could a web page I visit read my transcripts?</summary>
+            <div class="a">
+              <p>
+                That is the attack worth naming, and it is guarded. Every request is
+                Host-header-checked, so a hostile page cannot DNS-rebind its way into
+                a local server that binds only to the loopback address.
+              </p>
+              <p>
+                The two endpoints that accept a write — focus and resume — sit behind
+                the same guard plus a non-localhost <code>Origin</code> rejection,
+                and neither one executes or persists a string from the request.
+                Resume takes a run id and a boolean; the command is rebuilt from
+                rungraph's own scan.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-model">
+            <summary>Does it send my transcripts to a model?</summary>
+            <div class="a">
+              <p>
+                rungraph never runs a model and has no API key. Signals are
+                deterministic rules over the parsed run, and find is a plain
+                substring match that runs in your browser — no model, no network, no
+                subprocess. Nothing here reaches a model on its own.
+              </p>
+              <p>
+                When your agent answers a question about a run, that is
+                <i>your</i> agent, on your model, in your session, fully
+                inspectable. rungraph contributes the graph, not the conversation.
+              </p>
+              <p>
+                What that does mean: if you ask your agent to read a run, the part it
+                reads travels in <i>its</i> request, like any file it opens. So
+                rungraph scans that path too — every MCP result is redacted before it
+                leaves, using the same pattern list that blocks an export. Your agent
+                is told a value was redacted rather than being handed it.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-writes">
+            <summary>Does it change anything on disk?</summary>
+            <div class="a">
+              <p>
+                It never writes to your transcripts. Adapters read the run's own
+                files and nothing else; the Hermes database is opened strictly
+                readonly.
+              </p>
+              <p>rungraph writes exactly three things, each one something you asked for:</p>
+              <ul>
+                <li>a <code>.rungraph</code> bundle, when you run <code>export</code>;</li>
+                <li>an entry in your agent's MCP config, when you run <code>mcp --install</code>;</li>
+                <li>a small file in your temp directory, so a second dashboard can find the first.</li>
+              </ul>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-reading">Reading a run</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-looking-at">
+            <summary>What am I actually looking at?</summary>
+            <div class="a">
+              <p>
+                Time flows down. Your prompts are the backbone; parallel agents fan
+                out into side-by-side lanes and return to the turn that collected
+                their result. Tool nodes say <i>what</i> ran — <code>Bash · npm test
+                ×12</code>, not just "Bash" — and consecutive calls of the same tool
+                collapse into one node, so a test-fix loop doesn't become a hairball.
+              </p>
+              <p>
+                Click any node for the full story: prompt and response for turns,
+                every call's inputs, outputs, errors and timing for tools, the whole
+                transcript for a subagent — plus the agent's own narration from just
+                before the call, which is usually the <i>why</i>.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-signals">
+            <summary>What are signals?</summary>
+            <div class="a">
+              <p>
+                rungraph's opinion about the run, derived server-side and shown in a
+                strip above the canvas: <b>retry storm</b> (the same tool kept failing
+                in one place), <b>unresolved error</b> (something failed and nothing
+                came back to fix it), <b>intervention</b> (you denied a permission,
+                interrupted, or answered a question), <b>outlier</b> (a step that cost
+                far more than the rest of the run) and <b>course change</b> (the run's
+                own recorded reason for changing direction).
+              </p>
+              <p>
+                Click one and the nodes it means light up. A graph that renders
+                everything with equal weight points at nothing.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-empty-strip">
+            <summary>The strip is empty. Is it broken?</summary>
+            <div class="a">
+              <p>
+                Almost certainly not — an empty strip is the design. On a clean run it
+                costs zero height, because a marker you cannot trust is worse than no
+                marker: once you stop believing the flags, you are back to reading the
+                whole graph by hand.
+              </p>
+              <p>
+                So precision is favored over recall on purpose, the thresholds are
+                calibrated against real sessions rather than reasoned into place, and a
+                run that genuinely went fine is supposed to look like it.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-coverage">
+            <summary>What does "read 95% of this run" mean?</summary>
+            <div class="a">
+              <p>
+                That is <b>coverage</b>, and it exists because an empty strip is a
+                claim. Transcript formats are undocumented and unversioned: a vendor
+                ships a release, adds a record type, and runs quietly start arriving
+                with holes in them. Signals can only speak about records that parsed.
+              </p>
+              <p>
+                So every run also reports how many records rungraph examined and how
+                many it could not interpret — and below 100% it names the record types
+                it did not understand, because "one unknown metadata type" and "four
+                hundred missing assistant turns" can be the same percentage and
+                opposite emergencies. Your agent is handed the same numbers and told to
+                say so before calling a run clean.
+              </p>
+              <p>
+                Without it, "nothing went wrong" and "I could not read part of this"
+                render identically, which is the one failure the whole signal layer
+                exists to prevent.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-dim">
+            <summary>Why does focusing dim everything else instead of hiding it?</summary>
+            <div class="a">
+              <p>
+                Because hiding collapses the layout, and the layout is what a graph
+                view is uniquely good for. Once you have learned the shape of a run,
+                every filter that reflows it costs you that spatial memory. Non-members
+                drop to a quarter opacity and stay exactly where they were.
+              </p>
+              <p>
+                Signal clicks, file clicks, text find and your agent's answer are not
+                four features — they all reduce to "light up this set of nodes, and say
+                why", through the same mechanism.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-search">
+            <summary>Can I search a run?</summary>
+            <div class="a">
+              <p>
+                Press <code>/</code>. It is a plain substring match over node labels
+                <i>and</i> the files each node touched — including files edited inside
+                subagents, which is where a lot of the real work happens.
+              </p>
+              <p>
+                The inspector also lists every file the run touched with a count; click
+                one to see exactly which steps touched it.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-resume">
+            <summary>How do I get back into a session I found?</summary>
+            <div class="a">
+              <p>
+                The graph is where you <i>find</i> a session — the run where auth
+                broke, the conversation from Tuesday you half-remember — and every
+                local session carries the edge back to the terminal, from the run
+                header or the run list.
+              </p>
+              <p>
+                rungraph shows the full command for whichever agent wrote it
+                (<code>claude --resume …</code>, <code>codex resume …</code>,
+                <code>hermes --resume …</code>) so it also teaches the incantation, and
+                on macOS it can open a new terminal window with the session already
+                loading. Where the CLI supports forking, resuming a live run offers it,
+                so you branch a copy instead of interleaving with a session that is
+                still going. Runs served from someone else's bundle are another
+                machine's transcripts, so they offer no resume at all.
+              </p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-agent">Your agent</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-mcp-for">
+            <summary>What is the MCP server for?</summary>
+            <div class="a">
+              <p>
+                The dashboard is for you; MCP is for your agent. They are two ends of
+                one loop rather than two products: you ask in your own terminal, the
+                answer arrives there, and the graph you have open lights up the exact
+                nodes the answer is about — then hands back a link that restores the
+                same highlight for anyone you paste it to.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-only-claude">
+            <summary>Does this only work with Claude Code?</summary>
+            <div class="a">
+              <p>
+                No. It is plain MCP over stdio, so any MCP-capable agent can wire it,
+                and the seven tool names are identical everywhere — as is the loop.
+              </p>
+              <p>
+                <code>npx rungraph mcp --install</code> is a one-command shortcut that
+                delegates to the <code>claude</code> CLI, because that CLI owns its own
+                config format and will keep owning it. Every other agent registers the
+                same server with its own command — Hermes, for instance:
+              </p>
+              <pre class="qa-code"><code>hermes mcp add rungraph --command npx --args -y rungraph mcp</code></pre>
+              <p>
+                — or with the JSON block <code>--install</code> prints whenever it
+                cannot do the registration for you. Either way,
+                <code>npx rungraph mcp --check</code> verifies the whole path end to
+                end and prints exactly what to fix.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-dashboard-open">
+            <summary>Does the dashboard have to be open?</summary>
+            <div class="a">
+              <p>
+                No. The read-only tools parse straight from disk, so asking a question
+                never requires a server to be running.
+              </p>
+              <p>
+                <code>focus_nodes</code> is the one that wants a dashboard, and with
+                none open it still succeeds and simply reports that the highlight was
+                skipped. The highlight is a bonus, never the answer.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-can-answer">
+            <summary>What can it actually answer?</summary>
+            <div class="a">
+              <p>The kinds of questions a transcript can genuinely settle:</p>
+              <ul>
+                <li><b>Triage</b> — what failed, did anything stay broken, where did I say no?</li>
+                <li><b>File archaeology</b> — which steps touched this file, subagents included?</li>
+                <li><b>Structure</b> — what did it spawn, and what came back?</li>
+                <li><b>Cost</b> — what took longest, which agent was most expensive?</li>
+                <li><b>Verbatim</b> — what was the actual error text, what prompt did that subagent get?</li>
+                <li><b>Self-audit</b> — did it really run the tests, or just say it did?</li>
+              </ul>
+              <p>
+                You don't have to invent them either: the bottom of the inspector
+                writes questions for you, from the run you are looking at, with a copy
+                button.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-cannot-answer">
+            <summary>What can't it answer?</summary>
+            <div class="a">
+              <ul>
+                <li>
+                  <b>What the agent is about to do, or why it is stuck this second.</b>
+                  Transcripts are written after the fact. That is not observable, and
+                  it is not faked.
+                </li>
+                <li>
+                  <b>Whether the work was correct.</b> It knows the edit landed, not
+                  that it was right.
+                </li>
+                <li><b>File contents or diffs</b>, beyond what a tool call's input captured.</li>
+                <li><b>Dollars.</b> There is no pricing data.</li>
+                <li>
+                  <b>Cross-run questions</b>, not yet. An agent can loop over runs, but
+                  there is no index, so it is N calls and slow.
+                </li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="qa" id="q-no-chatbot">
+            <summary>Why isn't there a chat box in the dashboard?</summary>
+            <div class="a">
+              <p>
+                Because it was rejected on purpose. An embedded chatbot would mean
+                owning model pinning, prompt maintenance and a chat UI — and, worse, it
+                would hide the conversation somewhere you cannot inspect it.
+              </p>
+              <p>
+                Your terminal is already a good place to talk to your agent, with your
+                model, your session and your history. rungraph adds the graph to that
+                conversation instead of starting a second one next to it.
+              </p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-sharing">Sharing</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-send-run">
+            <summary>How do I send someone a run?</summary>
+            <div class="a">
+              <p>
+                <code>rungraph export</code> writes a <code>.rungraph</code> bundle —
+                from the dashboard's <i>share…</i> panel or straight from the CLI. The
+                file is the transfer: send it over whatever channel you already trust,
+                because rungraph itself never touches a network.
+              </p>
+              <p>
+                On the other end, <code>npx rungraph open team-work.rungraph</code>
+                serves the same interactive graph on their own dashboard, ephemerally.
+                Nothing is copied anywhere; close the process and it is gone; keep the
+                file to reopen it any time.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-bundle-contents">
+            <summary>What's actually inside a bundle?</summary>
+            <div class="a">
+              <p>
+                An inventory prints every single time — runs, nodes, how many of your
+                prompts are included, files touched — because people underestimate how
+                much lives in a transcript, and the moment to see it is before it
+                leaves.
+              </p>
+              <p>
+                Want to share the shape without the words? <code>--structure-only</code>
+                keeps graph structure, tool names, files and timings, and drops prompts
+                and outputs entirely.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-secrets">
+            <summary>Am I going to leak a secret?</summary>
+            <div class="a">
+              <p>
+                Export <b>blocks</b> when it finds a high-confidence one — AWS keys,
+                GitHub, Slack and API tokens, private-key blocks; anchored patterns
+                calibrated for near-zero false positives — and lists exactly where each
+                one is.
+              </p>
+              <p>
+                You then resolve it deliberately: <code>--redact-secrets</code> swaps in
+                placeholders and leaves everything else verbatim,
+                <code>--structure-only</code> drops the text entirely, and
+                <code>--allow-secrets</code> is there for when you have checked and they
+                are fixture keys.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-receiver">
+            <summary>What does the person receiving it need?</summary>
+            <div class="a">
+              <p>
+                <code>npx rungraph open &lt;file&gt;</code>, and nothing else — not even
+                the agent that produced the run. A bundle carries only the
+                vendor-neutral IR, so opening one needs no adapters at all and a Codex
+                run opens perfectly on a machine that has never run Codex.
+              </p>
+              <p>
+                Signals derive on <i>their</i> rungraph, every run wears its provenance,
+                and their agent can be pointed at your runs right alongside their own —
+                <i>"what went wrong in the bundle Bilal sent me?"</i>
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-sharedby">
+            <summary>Is "shared by Bilal" verified?</summary>
+            <div class="a">
+              <p>
+                No — and it should not be read as an identity. It is a display string
+                the exporter chose. Trust a bundle the way you trust the channel it
+                arrived on.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-links">
+            <summary>Can I skip the file and just send a link?</summary>
+            <div class="a">
+              <p>
+                Yes. <i>copy link</i> in the header captures the current view — run,
+                selected node, focus — as a URL, and <code>focus_nodes</code> returns
+                the same kind of link, so your agent can hand you something pastable
+                for a PR or an issue.
+              </p>
+              <p>
+                Links re-execute their query on load, so a find link re-finds and a
+                signal link re-derives. One that lands on a dashboard without that run
+                offers a one-click jump to the dashboard that has it.
+              </p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="faq-group">
+        <h3 class="faq-cat microlabel" id="faq-project">The project</h3>
+        <div class="faq-list">
+
+          <details class="qa" id="q-cost-license">
+            <summary>What does it cost, and what's the licence?</summary>
+            <div class="a">
+              <p>
+                Nothing, and MIT. No account, no paid tier, no hosted service to sign
+                up for — there is nowhere for your runs to go.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-zero-deps">
+            <summary>Zero runtime dependencies — really?</summary>
+            <div class="a">
+              <p>
+                Really: <code>package.json</code> has devDependencies only, and that is
+                load-bearing for <code>npx rungraph</code> — nothing to resolve, nothing
+                to audit, nothing that can rot. The backend is <code>node:http</code>,
+                <code>fs.watch</code> and friends; the MCP server hand-rolls JSON-RPC
+                over stdio for the same reason; the frontend (Preact + elkjs) is
+                prebuilt at publish time and shipped inside the package.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-not-here">
+            <summary>What's deliberately not here?</summary>
+            <div class="a">
+              <p>
+                Run comparison, filtering, cost estimates and cross-run querying are all
+                out of scope today — decisions, not oversights. An embedded chatbot was
+                <a href="#q-no-chatbot">rejected outright</a>.
+              </p>
+              <p>
+                On the roadmap instead: annotations you can attach before exporting a
+                bundle, cross-run questions, run comparison, and cost estimates once
+                there is honest pricing data behind them.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-my-agent">
+            <summary>My agent isn't one of the three. Can I add it?</summary>
+            <div class="a">
+              <p>
+                Yes, and it is the most valuable contribution you can make. The adapter
+                interface is small — detect, parse, and the run's own files in, IR out —
+                and everything downstream comes free the moment your adapter emits that
+                IR: signals, coverage, focus, find, export, MCP, the lot.
+              </p>
+              <p>
+                <a href="https://github.com/fayzan123/rungraph/blob/master/CONTRIBUTING.md">CONTRIBUTING.md</a>
+                has the repo map, the non-negotiables worth reading <i>before</i> you
+                build, and the fixture workflow;
+                <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">SCHEMA.md</a>
+                documents the IR.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-broken">
+            <summary>Something looks broken.</summary>
+            <div class="a">
+              <p>
+                The guide has a
+                <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md#7-when-something-looks-broken">symptom-to-fix table</a>
+                for the usual suspects — the port was busy (it auto-increments; the
+                printed URL is authoritative), a banner about unrecognized records
+                (your agent is newer than your rungraph — <code>npx rungraph@latest</code>),
+                an empty graph (that session has no turns yet).
+              </p>
+              <p>
+                Still wrong? A bug report with a <code>--structure-only</code> bundle
+                attached is the most useful kind, since it carries the run's shape
+                without any of your prompts.
+              </p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
 </main>
 
 <footer class="outro">
@@ -248,6 +928,7 @@ npx rungraph serve --no-open
   </p>
   <nav class="foot-links" aria-label="footer">
     <a href="https://github.com/fayzan123/rungraph">GitHub</a>
+    <a href="#faq">FAQ</a>
     <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
     <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
     <a href="https://www.npmjs.com/package/rungraph">npm</a>

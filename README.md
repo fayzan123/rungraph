@@ -323,6 +323,14 @@ command naming explicit runs, which prints an inventory of what's included
 every time and hard-stops on detected secrets. The transfer channel for the
 resulting file is yours, not rungraph's.
 
+The one other way out is `rungraph mcp`, where a tool result travels in an API
+request to whichever model you are using — and lands in that session's own
+transcript. So it carries the same guard: every MCP result is redacted on the
+way out, node labels included and not just `get_detail` payloads, and the tool
+reports how many values it replaced so a redacted run is never mistaken for a
+clean one. The dashboard still shows the real values: those never leave
+`127.0.0.1`, and reading a key is how you rotate it.
+
 ## How it works
 
 Claude Code writes JSONL transcripts under `~/.claude/projects` — main session

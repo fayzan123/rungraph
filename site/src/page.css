@@ -596,6 +596,118 @@ button:focus-visible,
 }
 .codeblock .c { color: var(--faint); }
 
+/* ---------- faq (§7) ----------
+   Native <details>: open/close, keyboard, and the accessible expanded state
+   all come from the browser, so the section stays fully usable with scripts
+   off — same rule the reveals follow. page.js only teaches it to honour a
+   #hash so one question is linkable. */
+.faq { display: flex; flex-direction: column; gap: 8px; }
+
+.faq-group {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 9fr);
+  gap: 10px 34px;
+  padding: 26px 0;
+  border-top: 1px solid color-mix(in oklch, var(--hairline-soft) 55%, transparent);
+}
+.faq-group:first-child { border-top: none; padding-top: 6px; }
+
+.faq-cat {
+  position: sticky;
+  top: 78px;
+  align-self: start;
+  margin: 6px 0 0;
+  color: var(--sage);
+  font-weight: 400;
+}
+
+/* Capped at the prose measure so the +/× marker lands on the answer's right
+   edge instead of drifting half a column away from the question it belongs to. */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--measure);
+}
+
+.qa { border-bottom: 1px solid color-mix(in oklch, var(--hairline-soft) 45%, transparent); }
+.qa:last-child { border-bottom: none; }
+
+.qa > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 15px 2px;
+  color: var(--ink);
+  font-size: clamp(15px, 1.2vw, 16.5px);
+  line-height: 1.45;
+  cursor: pointer;
+  list-style: none; /* the default triangle would fight the +/× marker */
+  transition: color 120ms ease-out;
+}
+.qa > summary::-webkit-details-marker { display: none; }
+.qa > summary:hover { color: var(--sage); }
+.qa > summary:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* A single glyph doing both states: the + rotates into a × on open. */
+.qa > summary::after {
+  content: '+';
+  margin-left: auto;
+  flex: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 17px;
+  line-height: 1;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), color 120ms ease-out;
+}
+.qa[open] > summary::after { transform: rotate(45deg); }
+.qa > summary:hover::after, .qa[open] > summary::after { color: var(--sage); }
+
+.qa .a {
+  padding: 0 2px 20px;
+  color: var(--ink-dim);
+  font-size: 14.5px;
+}
+.qa .a p { margin: 0 0 12px; }
+.qa .a > :last-child { margin-bottom: 0; }
+.qa .a b { color: var(--ink); }
+.qa .a a { color: var(--sage); text-decoration: none; border-bottom: 1px solid color-mix(in oklch, var(--sage) 35%, transparent); }
+.qa .a a:hover { border-bottom-color: var(--sage); }
+.qa .a code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: color-mix(in oklch, var(--sage) 80%, var(--ink));
+}
+.qa .a ul { margin: 0 0 12px; padding-left: 18px; }
+.qa .a li { margin-bottom: 7px; }
+.qa .a li::marker { color: var(--sage-dim); }
+.qa-code {
+  margin: 0 0 12px;
+  padding: 11px 14px;
+  background: oklch(0.13 0.01 58);
+  border: 1px solid var(--hairline-soft);
+  border-radius: 9px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+  overflow-x: auto;
+}
+
+/* A hash-linked question is pointed at, not just scrolled to. */
+.qa[data-linked] > summary { color: var(--sage); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .qa[open] .a { animation: qa-in 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+}
+@keyframes qa-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* ---------- outro ---------- */
 .outro {
   padding: calc(var(--band-gap) * 1.15) var(--gutter) 70px;
@@ -623,6 +735,8 @@ button:focus-visible,
 /* ---------- responsive ---------- */
 @media (max-width: 960px) {
   .vignettes { grid-template-columns: 1fr; }
+  .faq-group { grid-template-columns: 1fr; gap: 4px; }
+  .faq-cat { position: static; margin-bottom: 6px; }
   .vg-canvas { height: 180px; }
   .signal-demo, .loop-demo { grid-template-columns: 1fr; }
   /* Touch has no hover: the strip moves ABOVE the chips and stays pinned

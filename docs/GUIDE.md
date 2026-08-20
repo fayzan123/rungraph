@@ -260,7 +260,10 @@ asking questions never requires the dashboard to be open.
 | export refused on a bundle viewer | by design: send the original `.rungraph` file instead of re-exporting it. |
 
 Everything is local. The server binds `127.0.0.1` only, makes no network
-requests, and nothing leaves your machine.
+requests, and nothing leaves your machine — with two named exceptions, both
+guarded: `rungraph export`, which blocks on detected secrets, and `rungraph
+mcp`, whose tool results travel to your model provider and are redacted on the
+way out. The dashboard itself always shows the real values.
 
 ---
 
