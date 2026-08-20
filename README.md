@@ -1,6 +1,6 @@
 # rungraph
 
-**See your agent runs as a graph.** —
+**Ask your agent what happened. Watch the graph answer.** —
 **[fayzan123.github.io/rungraph](https://fayzan123.github.io/rungraph/)**
 embeds a real run you can click around, right in the page.
 
@@ -9,12 +9,13 @@ embeds a real run you can click around, right in the page.
 *That's rungraph watching the live session that built this feature — the strip
 says what went wrong, and one click lights up the nodes it means.*
 
-Your coding agent already wrote down everything it did. `rungraph` turns those
-transcripts into an interactive **directed agentic graph** — orchestrator,
-subagents, and tools as nodes; spawn/return relationships as edges; the
-course-change moments (denials, answers, retries) marked on the path. It works
-**retroactively, on every session still on your disk**: no hooks, no wrappers,
-no setup, no telemetry.
+Your coding agent already wrote down everything it did. `rungraph` reads those
+transcripts — and hands your agent the tools to read them too. You ask in your
+terminal: *"why did the Edit on `token.js` keep failing?"* The answer arrives
+there, in your own session, from your own model, fully inspectable. Then the
+graph you have open **lights up the exact nodes the answer is about**, and
+hands back a link that reopens that view for anyone you send it to. See
+[Ask your agent about a run](#ask-your-agent-about-a-run).
 
 ```
 npx rungraph
@@ -27,11 +28,11 @@ right now**: the graph grows live as the agent works (file watching only).
 (Hermes runs need Node ≥ 22.13 for the built-in SQLite reader; on older Nodes
 they're skipped with a warning and everything else works.)
 
-The graph is also something you can **talk to**: wire the MCP server into your
-coding agent and ask it about a run — *"why did the Edit on `token.js` keep
-failing?"* — the answer arrives in your terminal, and the agent **highlights
-the exact nodes it's describing** on the open graph as it answers. See
-[Ask your agent about a run](#ask-your-agent-about-a-run).
+What you get is an interactive **directed agentic graph** — orchestrator,
+subagents, and tools as nodes; spawn/return relationships as edges; the
+course-change moments (denials, answers, retries) marked on the path. It works
+**retroactively, on every session still on your disk**: no hooks, no wrappers,
+no setup, no telemetry.
 
 **New here?** [docs/GUIDE.md](docs/GUIDE.md) walks through the whole thing —
 reading the graph, what each signal means, wiring it to your own agent, and what

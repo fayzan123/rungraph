@@ -517,6 +517,46 @@ function openFaqFromHash() {
 addEventListener('hashchange', openFaqFromHash);
 openFaqFromHash();
 
+/* Section anchors need the same correction, for the same reason: the embed,
+   the vignettes and the mini-graphs are all injected AFTER parse, so the jump
+   the browser makes on its own is measured against a page that is about to
+   grow underneath it — #agents was landing on §2. Re-scroll once the content
+   is actually in, and let scroll-margin-top clear the sticky nav. */
+function scrollToBandFromHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) return;
+  const band = document.getElementById(id);
+  if (!band?.classList.contains('band')) return;
+  const target = band.querySelector('.band-inner') ?? band;
+  requestAnimationFrame(() => {
+    target.scrollIntoView({ behavior: REDUCED() ? 'auto' : 'smooth', block: 'start' });
+  });
+}
+
+addEventListener('hashchange', scrollToBandFromHash);
+
+/* A cold load is the hard case: the browser jumps at parse time, and THEN the
+   embed, the vignettes and the mini-graphs inject and push the target further
+   down the page. So re-aim on every height change until the layout settles —
+   and stop the moment the visitor scrolls, because after that the page is
+   theirs and a correction would be a fight. */
+addEventListener('load', () => {
+  if (!location.hash) return;
+  scrollToBandFromHash();
+  const ro = new ResizeObserver(scrollToBandFromHash);
+  const stop = () => {
+    ro.disconnect();
+    removeEventListener('wheel', stop);
+    removeEventListener('touchstart', stop);
+    removeEventListener('keydown', stop);
+  };
+  ro.observe(document.body);
+  addEventListener('wheel', stop, { passive: true, once: true });
+  addEventListener('touchstart', stop, { passive: true, once: true });
+  addEventListener('keydown', stop, { once: true });
+  setTimeout(stop, 2000);
+});
+
 // Closing the question drops the "you were sent here" mark with it — a sage
 // summary on a collapsed row reads as state that no longer means anything.
 for (const qa of document.querySelectorAll('.qa')) {

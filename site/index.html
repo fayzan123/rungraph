@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>rungraph — see your agent runs as a graph</title>
-<meta name="description" content="Zero-setup visualizer for AI coding-agent runs. npx rungraph turns the transcripts already on your disk into an interactive graph — live, local, agent-readable." />
+<title>rungraph — ask your agent what happened, watch the graph answer</title>
+<meta name="description" content="Ask your coding agent what happened in a run — it answers in your terminal and lights up the exact nodes on an open graph. npx rungraph: no hooks, no setup, all local." />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23191512'/%3E%3Ccircle cx='16' cy='7' r='3.4' fill='%23e8b04b'/%3E%3Ccircle cx='8' cy='24' r='3.4' fill='%237fa07a'/%3E%3Ccircle cx='24' cy='24' r='3.4' fill='%237fa07a'/%3E%3Cpath d='M16 10.5 L9.5 20.5 M16 10.5 L22.5 20.5' stroke='%23a4907c' stroke-width='2.2' fill='none'/%3E%3C/svg%3E" />
 
 <meta property="og:type" content="website" />
-<meta property="og:title" content="rungraph — see your agent runs as a graph" />
-<meta property="og:description" content="Your coding agent already wrote down everything it did. One command turns those transcripts into an interactive graph — retroactively, live, and local." />
+<meta property="og:title" content="rungraph — ask your agent what happened, watch the graph answer" />
+<meta property="og:description" content="Your coding agent already wrote down everything it did. rungraph turns those transcripts into a graph — then lets your agent read it, answer in your terminal, and highlight the nodes it means." />
 <meta property="og:url" content="https://fayzan123.github.io/rungraph/" />
 <meta property="og:image" content="https://fayzan123.github.io/rungraph/og.png" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="rungraph — see your agent runs as a graph" />
-<meta name="twitter:description" content="Your coding agent already wrote down everything it did. One command turns those transcripts into an interactive graph — retroactively, live, and local." />
+<meta name="twitter:title" content="rungraph — ask your agent what happened, watch the graph answer" />
+<meta name="twitter:description" content="Your coding agent already wrote down everything it did. rungraph turns those transcripts into a graph — then lets your agent read it, answer in your terminal, and highlight the nodes it means." />
 <meta name="twitter:image" content="https://fayzan123.github.io/rungraph/og.png" />
 
 <link rel="preload" href="fonts/newsreader-var.woff2" as="font" type="font/woff2" crossorigin />
@@ -28,26 +28,36 @@
 </head>
 <body>
 
-<a class="skip-link" href="#graph-section">skip past the interactive graph</a>
+<a class="skip-link" href="#loop">skip past the interactive graph</a>
 
 <nav class="nav" aria-label="primary">
   <a class="wordmark" href="#top" aria-label="rungraph — back to top"><b>run</b>graph</a>
   <div class="nav-links">
-    <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
-    <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
+    <!-- One link per section, in page order, so the nav is a table of contents
+         rather than a sample of one. Links that LEAVE the page are marked
+         `nav-out` and pushed hard right, against the GitHub button they belong
+         with. `nav-keep` marks the one link the phone nav keeps — pinned by
+         intent, not by being last in source. -->
+    <a href="#loop">The loop</a>
+    <a href="#share">Sharing</a>
+    <a href="#graph-section">The graph</a>
+    <a href="#signals">Signals</a>
     <a href="#agents">For agents</a>
-    <a href="#faq">FAQ</a>
+    <a class="nav-keep" href="#faq">FAQ</a>
+    <a class="nav-out nav-out-start" href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
+    <a class="nav-out" href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
   </div>
   <a class="btn-ink" href="https://github.com/fayzan123/rungraph">GitHub</a>
 </nav>
 
 <main id="main">
 <header class="hero" id="top">
-  <h1 class="display">See your agent runs<br /><em class="accent">as a graph.</em></h1>
+  <h1 class="display">Ask your agent what happened.<br /><em class="accent">Watch the graph answer.</em></h1>
   <p class="lede">
-    Your coding agent already wrote down everything it did — rungraph turns those
-    transcripts into an interactive graph, retroactively, for every session still
-    on your disk, with no hooks, no setup, and nothing leaving your machine.
+    rungraph reads the transcripts your coding agent already wrote — and hands
+    your agent the tools to read them too. You ask in your terminal. The answer
+    arrives there, the open graph lights up the exact nodes it means, and the
+    link it hands back reopens that view for anyone you send it to.
   </p>
   <div class="cta-row">
     <button class="npx-chip" data-copy="npx rungraph" aria-label="copy the command npx rungraph">
@@ -58,7 +68,7 @@
   <ul class="benefits" role="list">
     <li>works on the sessions you already have</li>
     <li>live while the agent works</li>
-    <li>talks to your agent over MCP</li>
+    <li>share a run as a link or a file — secrets scanned on the way out</li>
   </ul>
 </header>
 
@@ -82,9 +92,68 @@
   </div>
 </section>
 
+<section class="band" id="loop">
+  <div class="band-inner">
+    <div class="microlabel section-tag">2 · ASK YOUR AGENT</div>
+    <h2 class="display-2">Two ends of<br />one loop.</h2>
+    <p class="body-lg">
+      The dashboard is for you; the MCP server is for your agent — two ends of
+      one loop. You ask in your own terminal, and the answer arrives there: your
+      model, your session, fully inspectable. Then the graph you have open lights
+      up the exact nodes it's describing. No chatbot bolted onto a dashboard, no
+      second model to pin, no conversation hidden somewhere you can't read it.
+    </p>
+    <div class="loop-demo">
+      <div class="terminal" data-terminal>
+        <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
+        <pre class="term-body" aria-hidden="true"></pre>
+        <p class="sr-only" data-loop-sr></p>
+        <button class="term-replay ghosted" data-replay hidden>↺ replay</button>
+      </div>
+      <div class="loop-stage">
+        <div class="mini-graph" data-mini="loop" aria-hidden="true"></div>
+        <button class="ghosted" data-loop-hero hidden>light these nodes up on the big graph ↑</button>
+      </div>
+    </div>
+    <p class="fineprint">
+      This exchange is real — captured from the MCP loop running against the run
+      above, then tightened for length.
+    </p>
+    <div class="cta-row">
+      <button class="npx-chip small" data-copy="npx rungraph mcp --install" aria-label="copy the command npx rungraph mcp --install">
+        <span class="prompt" aria-hidden="true">$</span> npx rungraph mcp --install <span class="copy-glyph" aria-hidden="true">⧉</span>
+      </button>
+    </div>
+  </div>
+</section>
+<section class="band" id="share">
+  <div class="band-inner">
+    <div class="microlabel section-tag">3 · SHARING</div>
+    <h2 class="display-2">Send the run,<br />not a screenshot.</h2>
+    <p class="body-lg">
+      <code>rungraph export</code> writes a <code>.rungraph</code> bundle over
+      whatever channel you already trust — Slack, a repo, AirDrop. On the other
+      end, <code>rungraph open</code> serves the same interactive graph on their
+      own local dashboard, provenance intact ("shared by Bilal") — and
+      <b>their</b> agent can question <b>your</b> run, right alongside their own
+      history. The inventory prints every time, and export <b>blocks</b> outright
+      when it finds a high-confidence secret.
+    </p>
+    <div class="terminal static" data-export-terminal>
+      <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
+      <pre class="term-body"></pre>
+    </div>
+    <p class="fineprint">
+      Attach the bundle to a PR instead of a wall of screenshots — or skip the
+      file and hand over a link. <i>copy link</i> in the header (and
+      <code>focus_nodes</code>, for your agent) captures the exact run, node,
+      and focus as a URL that reopens right there.
+    </p>
+  </div>
+</section>
 <section class="band" id="graph-section">
   <div class="band-inner">
-    <div class="microlabel section-tag">2 · THE GRAPH</div>
+    <div class="microlabel section-tag">4 · THE GRAPH</div>
     <h2 class="display-2">Runs, not conversations.</h2>
     <p class="body-lg">
       Agent sessions stopped being conversations a while ago. They're <i>runs</i>:
@@ -117,10 +186,9 @@
     </div>
   </div>
 </section>
-
 <section class="band" id="signals">
   <div class="band-inner">
-    <div class="microlabel section-tag">3 · SIGNALS</div>
+    <div class="microlabel section-tag">5 · SIGNALS</div>
     <h2 class="display-2">The graph has an opinion.</h2>
     <p class="body-lg">
       A graph that renders everything with equal weight points at nothing.
@@ -143,71 +211,10 @@
     </div>
   </div>
 </section>
-
-<section class="band" id="loop">
-  <div class="band-inner">
-    <div class="microlabel section-tag">4 · ASK YOUR AGENT</div>
-    <h2 class="display-2">Ask your agent<br />about a run.</h2>
-    <p class="body-lg">
-      The dashboard is for you; the MCP server is for your agent. They're two
-      ends of one loop: you ask in your own terminal, the answer arrives there —
-      your model, your session — and the graph you have open lights up the exact
-      nodes it's describing.
-    </p>
-    <div class="loop-demo">
-      <div class="terminal" data-terminal>
-        <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
-        <pre class="term-body" aria-hidden="true"></pre>
-        <p class="sr-only" data-loop-sr></p>
-        <button class="term-replay ghosted" data-replay hidden>↺ replay</button>
-      </div>
-      <div class="loop-stage">
-        <div class="mini-graph" data-mini="loop" aria-hidden="true"></div>
-        <button class="ghosted" data-loop-hero hidden>light these nodes up on the big graph ↑</button>
-      </div>
-    </div>
-    <p class="fineprint">
-      This exchange is real — captured from the MCP loop running against the run
-      above, then tightened for length.
-    </p>
-    <div class="cta-row">
-      <button class="npx-chip small" data-copy="npx rungraph mcp --install" aria-label="copy the command npx rungraph mcp --install">
-        <span class="prompt" aria-hidden="true">$</span> npx rungraph mcp --install <span class="copy-glyph" aria-hidden="true">⧉</span>
-      </button>
-    </div>
-  </div>
-</section>
-
-<section class="band" id="share">
-  <div class="band-inner">
-    <div class="microlabel section-tag">5 · SHARING</div>
-    <h2 class="display-2">A run can leave the machine —<br />and someone else can question it.</h2>
-    <p class="body-lg">
-      <code>rungraph export</code> writes a <code>.rungraph</code> bundle over
-      whatever channel you already trust — Slack, a repo, AirDrop. On the other
-      end, <code>rungraph open</code> serves the same interactive graph on their
-      own local dashboard, provenance intact ("shared by Bilal"), and their agent
-      can be pointed at your runs the same way yours can be — right alongside
-      their own history. The inventory prints every time, and export
-      <b>blocks</b> outright when it finds a high-confidence secret.
-    </p>
-    <div class="terminal static" data-export-terminal>
-      <div class="term-head" aria-hidden="true"><span></span><span></span><span></span></div>
-      <pre class="term-body"></pre>
-    </div>
-    <p class="fineprint">
-      Attach the bundle to a PR instead of a wall of screenshots — or skip the
-      file and hand over a link. <i>copy link</i> in the header (and
-      <code>focus_nodes</code>, for your agent) captures the exact run, node,
-      and focus as a URL that reopens right there.
-    </p>
-  </div>
-</section>
-
 <section class="band" id="agents">
   <div class="band-inner">
     <div class="microlabel section-tag">6 · AGENTS</div>
-    <h2 class="display-2">Built for agents too.</h2>
+    <h2 class="display-2">Everything the UI does,<br />a prompt can do.</h2>
     <p class="body-lg">
       Everything the UI can do, a coding agent can do over the CLI — JSON on
       stdout, logs on stderr, exit codes <code>0/1/2</code>, no prompts anywhere.
@@ -233,7 +240,6 @@ npx rungraph serve --no-open
     </p>
   </div>
 </section>
-
 <section class="band" id="faq">
   <div class="band-inner">
     <div class="microlabel section-tag">7 · QUESTIONS</div>
@@ -325,6 +331,29 @@ npx rungraph serve --no-open
             </div>
           </details>
 
+          <details class="qa" id="q-when-computed">
+            <summary>When is the graph computed — during the run or after it?</summary>
+            <div class="a">
+              <p>
+                Neither, exactly: it is computed <b>on demand, from files your agent
+                already wrote</b>. Claude Code, Codex and Hermes each write a full
+                transcript as they work. rungraph parses that transcript when you open
+                the run, and the server keeps an mtime-keyed cache, so a run that has
+                not changed is never parsed twice.
+              </p>
+              <p>
+                Live is the same code path rather than a second mode — <code>fs.watch</code>
+                on the run's own files, debounced, re-parse, push. The graph does grow
+                while the agent works, but nothing is instrumented inside the loop:
+                liveness here just means re-reading a file that is being appended to.
+              </p>
+              <p>
+                It is fast enough not to be a cost you think about. A 795-record session
+                parses end to end in under half a second.
+              </p>
+            </div>
+          </details>
+
           <details class="qa" id="q-retroactive">
             <summary>Does it work on sessions I already ran?</summary>
             <div class="a">
@@ -349,6 +378,44 @@ npx rungraph serve --no-open
               <p>
                 Signals re-derive on every update, so you can go do something else
                 and glance back only when the strip goes loud.
+              </p>
+            </div>
+          </details>
+
+          <details class="qa" id="q-token-cost">
+            <summary>How many tokens does this add to a run?</summary>
+            <div class="a">
+              <p>
+                <b>Zero.</b> Not 10%, not 1%. A run costs exactly the same whether
+                rungraph is installed or not.
+              </p>
+              <p>
+                No hooks, no wrapper, no proxy, no injected prompt — your agent has no
+                idea rungraph exists while it is running. That is the whole reason for
+                reconstructing after the fact instead of instrumenting the loop. A
+                tracing-style tool, where the model annotates spans as it goes, is
+                exactly where a "+10% of the run" estimate would be right.
+              </p>
+              <p>
+                The one place tokens enter is entirely opt-in: the <a href="#q-mcp-for">MCP
+                server</a>, when you ask your agent about a run. Measured on one real
+                session of 795 records that spent 127k tokens of its own:
+              </p>
+              <ul>
+                <li>
+                  the 7 tool definitions plus server instructions — <b>~1,600 tokens</b>,
+                  loaded once per session, not per question
+                </li>
+                <li><code>find_nodes</code>, the search you normally start with — <b>~440 tokens</b></li>
+                <li>
+                  <code>get_graph</code>, the compact projection of that entire run —
+                  <b>~4,900 tokens</b>
+                </li>
+              </ul>
+              <p>
+                So a typical question costs one to three thousand tokens of tool
+                results, against a session that spent 127k on itself. And you pay it
+                when you ask a question, never when you run.
               </p>
             </div>
           </details>
@@ -916,6 +983,7 @@ npx rungraph serve --no-open
 
 <footer class="outro">
   <h2 class="display giant">Your agent already<br />wrote it all down.</h2>
+  <p class="outro-line">Ask it what happened. The graph will show you where.</p>
   <div class="cta-row center">
     <button class="npx-chip" data-copy="npx rungraph" aria-label="copy the command npx rungraph">
       <span class="prompt" aria-hidden="true">$</span> npx rungraph <span class="copy-glyph" aria-hidden="true">⧉</span>

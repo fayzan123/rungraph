@@ -156,7 +156,11 @@ button:focus-visible,
 }
 .wordmark b { color: var(--amber); font-weight: 600; }
 .wordmark:hover { color: var(--ink); }
-.nav-links { display: flex; gap: 22px; flex: 1; }
+.nav-links { display: flex; gap: 18px; flex: 1; }
+/* Six section anchors on the left read as a table of contents; the two links
+   that leave the page sit hard right against the GitHub button, so the two
+   kinds of destination never interleave. */
+.nav-links a.nav-out-start { margin-left: auto; }
 .nav-links a {
   font-size: 13px;
   color: var(--ink-dim);
@@ -367,7 +371,7 @@ button:focus-visible,
 
 /* ---------- bands ---------- */
 .band { padding: var(--band-gap) var(--gutter); }
-.band-inner { max-width: 1180px; margin: 0 auto; }
+.band-inner { max-width: 1180px; margin: 0 auto; scroll-margin-top: 96px; }
 .band + .band { border-top: 1px solid color-mix(in oklch, var(--hairline-soft) 55%, transparent); }
 
 /* Section reveals — page.js adds [data-revealed]. Gated on html.js (set by an
@@ -714,6 +718,12 @@ button:focus-visible,
   border-top: 1px solid color-mix(in oklch, var(--hairline-soft) 55%, transparent);
   text-align: center;
 }
+.outro-line {
+  max-width: 46ch;
+  margin: 22px auto 0;
+  font-size: clamp(15.5px, 1.5vw, 18.5px);
+  color: var(--ink-dim);
+}
 .privacy {
   max-width: 58ch;
   margin: 26px auto 0;
@@ -751,10 +761,21 @@ button:focus-visible,
     backdrop-filter: blur(6px);
   }
   .signal-stage .mini-graph { min-height: 0; }
+  /* Not enough room for eight: the page's own sections win, and the two
+     external links stay reachable from the footer and the GitHub button. */
+  .nav-links a.nav-out { display: none; }
+}
+@media (max-width: 800px) {
+  /* Six section links need ~714px, so below that the row would overflow and
+     silently clip the last sections. Scroll the row instead of dropping links —
+     a nav that is a table of contents has to list every section to be one. */
+  .nav-links { overflow-x: auto; min-width: 0; scrollbar-width: none; }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-links a { flex: 0 0 auto; }
 }
 @media (max-width: 640px) {
   .nav { gap: 16px; }
-  .nav-links a:not(:last-child) { display: none; }
+  .nav-links a:not(.nav-keep) { display: none; }
   .stage { height: 72vh; min-height: 420px; }
   .display { font-size: clamp(38px, 11vw, 64px); }
   .foot-links { flex-wrap: wrap; gap: 14px 22px; }
