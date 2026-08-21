@@ -1,10 +1,23 @@
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { dirname, join, resolve as resolvePath } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { statOrNull } from './util.js';
+import { resolve as resolvePath } from 'node:path';
+import { statOrNull, shellQuote } from './util.js';
 import { scan, toIndexEntry, findRun, ADAPTERS } from './scanner.js';
+import {
+  AGENTS_SNIPPET,
+  ALL_CLIENTS,
+  BIN_PATH,
+  CLIENTS,
+  CLIENT_NAMES,
+  SELF_CLIENT,
+  clientByName,
+  detectClients,
+  readRegistration,
+  resolveLaunch,
+  runVendor,
+  withoutBreadcrumbSideEffects,
+  writeBreadcrumb,
+} from './clients.js';
 import { attachSignals } from './signals.js';
 import { matchNodes } from './find.js';
 import { classifyCoverage, coverageNote } from './coverage.js';
@@ -31,7 +44,6 @@ import { openInBrowser } from './open.js';
 
 const require = createRequire(import.meta.url);
 const VERSION = require('../package.json').version;
-const BIN_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'rungraph.js');
 
 const PROTOCOL_VERSION = '2025-06-18';
 const DATE_VERSION = /^\d{4}-\d{2}-\d{2}$/;
@@ -175,6 +187,15 @@ async function handleLine(line, ctx) {
 async function route(method, params, ctx) {
   switch (method) {
     case 'initialize':
+      // The breadcrumb that silences `serve`'s nudge is written HERE, on the
+      // request itself — not at process start. Two things fall out of that for
+      // free: a spawn that dies before handshaking never counts as a working
+      // install, and `--check`'s own handshake self-excludes by the
+      // clientInfo.name it already sends, so no environment flag is needed to
+      // stop the check manufacturing the evidence it is supposed to read.
+      // It never throws; a breadcrumb that cannot be written is a nudge that
+      // keeps appearing, which beats a handshake that fails.
+      await writeBreadcrumb(params?.clientInfo);
       return initializeResult(params);
     case 'ping':
       return {};
@@ -834,206 +855,350 @@ function sleep(ms) {
 /* ------------------------------------------------------------------ install */
 
 const SCOPES = new Set(['user', 'project', 'local']);
-export const INSTALL_CLIENTS = new Set(['claude', 'opencode']);
+
+// A vendor add can be slow for an honest reason: `hermes mcp add` boots the
+// server it is being pointed at and enumerates its tools before writing
+// anything, and under the npx spelling that includes npx's own resolution.
+const INSTALL_TIMEOUT_MS = 90_000;
 
 /**
- * The imperative line that actually closes the loop from the agent's side.
+ * `rungraph mcp --install` — the one-time registration that is otherwise a
+ * real dent in the zero-setup promise.
  *
- * Measured, not decorative: agents skip `focus_nodes` by default because
- * nothing in an ordinary task says to call it. The MCP server's own
- * `instructions` carry one copy; a line in the repo's instruction file is the
- * other, and it is the one that survives a host which lazy-loads tool schemas.
- */
-const AGENTS_SNIPPET = `## rungraph
-
-When the rungraph MCP tools are available, close the loop: after answering any
-question about work done in this project, call \`focus_nodes\`
-(\`list_runs\` → \`find_nodes\` → \`focus_nodes\`) so an open dashboard shows the
-nodes your answer is about. Answer in the terminal first; the highlight
-follows, and is a bonus, never the answer.`;
-
-/**
- * `rungraph mcp --install` — the one-time registration that is otherwise a real
- * dent in the zero-setup promise.
+ * rungraph ships four adapters, so it installs into four clients. Bare
+ * `--install` registers with every provider whose runs are actually on this
+ * machine; `--client <name>` targets one; `--client all` targets all four
+ * regardless of what was detected. Detection is the whole reason the client
+ * table is keyed to adapters (see `src/clients.js`): a provider is "here"
+ * because rungraph has read its transcripts, which is a stronger claim than
+ * finding a binary.
  *
- * Two clients, and `--client` is EXPLICIT rather than sniffed: guessing which
- * agent to register with would guess wrong on a machine that has both, and
- * guessing at an install target contradicts the agent-first rule that nothing
- * is implicit. The default stays `claude`, so today's behaviour is unchanged.
+ * Delegation, not config writing: each vendor owns its config format and will
+ * keep owning it, so rungraph drives the vendor's own CLI rather than writing
+ * four config formats itself. All four turned out to be drivable
+ * non-interactively — opencode last, via an undocumented `--` passthrough (see
+ * its entry in clients.js). **rungraph never edits an agent's config file.**
  *
- * The Claude path delegates to the `claude` CLI because it owns the config
- * format and will keep owning it; writing ~/.claude.json ourselves would be a
- * standing bet against that. The opencode path cannot delegate — see
- * installOpencode — so it goes straight to the paste tier. Every path ends in
- * something the user can paste, and none of them is a prompt or an editor.
+ * The paste tier survives as the tier that never dead-ends: a delegation that
+ * fails for any reason — vendor CLI missing, vendor prompt changed, vendor
+ * removed a flag — falls through to that client's block, so the command never
+ * ends in "it didn't work" with no next action.
+ *
+ * Exit codes. `--client <one>` keeps the strict semantics it always had: that
+ * client failing is exit 1. Multi-client install is partial-success by
+ * nature, so it exits 0 when at least one client ended usable and 1 only when
+ * none did — the same expression, because "usable" is per-client. `--json`
+ * carries the per-client detail for anything that needs to be stricter.
  *
  * @param {{ json?: boolean, scope?: 'user'|'project'|'local', client?: string }} [opts]
  * @returns {Promise<number>} exit code
  */
 export async function installMcp(opts = {}) {
-  const client = opts.client ?? 'claude';
-  if (!INSTALL_CLIENTS.has(client)) {
+  // Installing is not using. Every vendor add here makes an agent connect to
+  // rungraph — hermes literally boots it to enumerate its tools — and none of
+  // those connections is a user's agent driving the dashboard, so none of them
+  // may silence the nudge.
+  return withoutBreadcrumbSideEffects(() => installMcpInner(opts));
+}
+
+async function installMcpInner(opts) {
+  // Usage errors first: nothing spawned, nothing printed, nothing written.
+  if (opts.scope !== undefined && !SCOPES.has(opts.scope)) {
+    process.stderr.write(`rungraph: invalid --scope "${opts.scope}" (user, project or local)\n`);
+    return 1;
+  }
+  const wanted = opts.client;
+  if (wanted !== undefined && wanted !== ALL_CLIENTS && !clientByName(wanted)) {
     process.stderr.write(
-      `rungraph: invalid --client "${client}" (${[...INSTALL_CLIENTS].join(' or ')})\n`,
+      `rungraph: invalid --client "${wanted}" (${CLIENT_NAMES.join(', ')}, or ${ALL_CLIENTS})\n`,
     );
     return 1;
   }
-  if (client === 'opencode') return installOpencode(opts);
-  // Default 'user': rungraph is a machine-wide tool, and per-project
-  // registration would have to be repeated in every repo forever.
-  const scope = opts.scope ?? 'user';
-  if (!SCOPES.has(scope)) {
-    process.stderr.write(`rungraph: invalid --scope "${scope}" (user, project or local)\n`);
-    return 1;
+
+  const launch = await resolveLaunch();
+
+  // Machine-wide on purpose, even under `--project`: the registration this
+  // writes is machine-wide, so scoping the detection to one directory would
+  // refuse to install into an agent the user demonstrably uses.
+  let detected = [];
+  try {
+    detected = detectClients(await scan());
+  } catch {
+    /* an unreadable corpus is not an install failure — fall through to paste */
   }
 
-  const args = ['mcp', 'add', '--scope', scope, 'rungraph', '--', process.execPath, BIN_PATH, 'mcp'];
-  const command = ['claude', ...args].map(shellQuote).join(' ');
-  const config = { mcpServers: { rungraph: { command: process.execPath, args: [BIN_PATH, 'mcp'] } } };
+  let targets =
+    wanted === ALL_CLIENTS
+      ? [...CLIENTS]
+      : wanted
+        ? [clientByName(wanted)]
+        : CLIENTS.filter((c) => detected.includes(c.name));
 
-  const result = await runClaude(args);
-  const output = `${result.stdout}\n${result.stderr}`.trim();
-  const already = /already exists|already configured/i.test(output);
-  const installed = result.code === 0;
+  // Nothing detected and nothing asked for: print all four blocks and say so.
+  // Exit 0 — there is nothing broken here, there is just nothing to delegate
+  // to, and an error would be a lie about the machine's state.
+  const nothingDetected = targets.length === 0;
+  if (nothingDetected) targets = [...CLIENTS];
 
+  if (opts.scope !== undefined) {
+    const scopeless = targets.filter((c) => !c.scopes).map((c) => c.name);
+    if (scopeless.length) {
+      // An error would be hostile for a flag that is meaningful in the same
+      // command's other half.
+      process.stderr.write(
+        `rungraph: --scope is Claude-only — ignored for ${scopeless.join(', ')}\n`,
+      );
+    }
+  }
+
+  const results = [];
+  for (const client of targets) {
+    results.push(
+      await installOne(client, { launch, scope: opts.scope, pasteOnly: nothingDetected, detected }),
+    );
+  }
+
+  const count = (status) => results.filter((r) => r.status === status).length;
   const report = {
-    client: 'claude',
-    installed,
-    alreadyInstalled: already && !installed,
-    scope,
-    command,
-    config,
+    detected,
+    installed: count('installed'),
+    already: count('already'),
+    pasted: count('pasted'),
+    failed: count('failed'),
+    launch: { command: launch.command, args: launch.args, via: launch.via },
+    clients: results,
   };
-  if (!installed) {
-    report.reason = result.spawnError
-      ? 'the `claude` CLI is not on PATH'
-      : already
-        ? 'an MCP server named "rungraph" is already registered'
-        : output || `claude exited ${result.code}`;
-  }
 
   if (opts.json) {
     process.stdout.write(JSON.stringify(report) + '\n');
-  } else if (installed) {
-    process.stdout.write(`registered rungraph as an MCP server (scope: ${scope})\n`);
+  } else {
+    printInstallReport(report);
   }
 
-  if (installed) {
-    process.stderr.write('rungraph: restart Claude Code to pick up the new server\n');
-    return 0;
-  }
-
-  if (report.alreadyInstalled) {
-    // The user's goal is already met, so this is not a failure — and the
-    // "run it yourself" remedy below is the very command that just refused,
-    // which would send them round the same loop.
-    if (!opts.json) {
-      process.stdout.write(`rungraph is already registered as an MCP server (scope: ${scope})\n`);
+  for (const r of results) {
+    if (r.status === 'failed') {
+      process.stderr.write(`rungraph: ${r.client} — could not register: ${r.reason}\n`);
+    } else if (r.restartHint && (r.status === 'installed' || r.replaced || r.rewrote)) {
+      // Only when something actually changed — an unchanged registration that
+      // told you to restart every time would train you to ignore the line.
+      // `rewrote` counts as changed: those vendors overwrite on a re-add.
+      process.stderr.write(`rungraph: ${r.client} — ${r.restartHint} to pick up the new server\n`);
+    }
+    if (r.reregisterCommand) {
+      // The one client whose add REFUSES a duplicate. Without this line, a
+      // registration that has gone stale is unrepairable through rungraph:
+      // `--check` says it is broken, points here, and this says "already".
       process.stderr.write(
-        'rungraph: nothing to do — `claude mcp remove rungraph` first to re-register\n',
+        `rungraph: ${r.client} — already there, so nothing was rewritten. ` +
+          `If it has gone stale: \`${r.reregisterCommand}\`, then run this again\n`,
       );
     }
-    return 0;
   }
 
-  process.stderr.write(`rungraph: could not register automatically — ${report.reason}\n`);
-  if (!opts.json) {
-    process.stderr.write(`\nRun this yourself:\n  ${command}\n`);
-    process.stderr.write(`\nOr paste this into your MCP config:\n${JSON.stringify(config, null, 2)}\n`);
+  if (nothingDetected) {
+    process.stderr.write(
+      'rungraph: no coding-agent runs found on this machine, so nothing was detected to install into — ' +
+        (opts.json ? "every client's block is in `clients[].configText`" : "every client's block is printed above") +
+        '. `--client <name>` or `--client all` installs anyway.\n',
+    );
   }
-  return 1; // the already-registered case returned above
+
+  if (launch.via === 'npx-cache') {
+    // The D3 note, said out loud: the absolute path this used to write lives
+    // in a cache npm garbage-collects, and when it goes the agent's tools just
+    // stop existing with no error anyone sees.
+    process.stderr.write(
+      'rungraph: registered the `npx -y rungraph mcp` spelling — it survives npm clearing its npx cache, ' +
+        'which an absolute path into that cache does not. `npm i -g rungraph` is faster still ' +
+        '(measured ~470ms → ~45ms per agent session start) and drops the npx resolution entirely.\n',
+    );
+  }
+
+  return results.some((r) => r.status !== 'failed') ? 0 : 1;
 }
 
 /**
- * `rungraph mcp --install --client opencode` — the PASTE tier, on purpose.
- *
- * opencode's own `opencode mcp add` is an interactive TUI wizard: `--help`
- * documents no positional or flag arguments, and running it with stdin closed
- * against a throwaway config produced zero output and hung until killed. It
- * cannot be delegated to non-interactively, so there is nothing to delegate
- * to and the honest move is to print the exact block.
- *
- * Nothing is written, and that is three decisions rather than laziness:
- * opencode loads `config.json`, `opencode.json` AND `opencode.jsonc` from its
- * config dir (so the target file is ambiguous), the observed file is `.jsonc`
- * so comments are legal, and rungraph has no JSONC parser because it has zero
- * runtime dependencies — a `JSON.parse` round-trip would silently delete the
- * user's comments.
- *
- * Non-interactive, no prompts, exit 0: the CLI contract is preserved.
+ * One client. Delegates where the vendor CLI can be driven, prints the block
+ * where it cannot — and prints the block anyway when the delegation fails.
  */
-async function installOpencode(opts) {
-  const candidates = opencodeConfigCandidates();
-  let existing = null;
+async function installOne(client, { launch, scope, pasteOnly, detected }) {
+  // The scope reaches the BLOCK too, not just the vendor command: claude's
+  // three scopes write three different files, so a fallback that names the
+  // wrong one is a wrong answer dressed as a helpful one.
+  const scopeForClient = client.scopes ? (scope ?? client.defaultScope) : undefined;
+  const blockOpts = { scope: scopeForClient };
+  const block = client.configBlock(launch, blockOpts);
+  const candidates = client.configCandidates?.(blockOpts) ?? [client.configPath(blockOpts)];
+  let configPath = candidates[0];
+  let configExists = false;
   for (const path of candidates) {
     if (await statOrNull(path)) {
-      existing = path;
+      configPath = path;
+      configExists = true;
       break;
     }
   }
-  // The MCP key is `mcp`, NOT `mcpServers`, and `command` is an ARRAY —
-  // verified against https://opencode.ai/config.json, where McpLocalConfig
-  // requires `type` and `command: string[]`.
-  const config = {
-    mcp: {
-      rungraph: { type: 'local', command: [process.execPath, BIN_PATH, 'mcp'], enabled: true },
-    },
-  };
+
   const report = {
-    client: 'opencode',
+    client: client.name,
+    adapter: client.adapter,
+    tier: client.tier,
+    detected: detected.includes(client.name),
     installed: false,
-    wrote: false,
-    tier: 'paste',
-    reason:
-      "opencode's own `opencode mcp add` is an interactive TUI wizard with no flags, so rungraph prints the block instead of writing your config",
-    configPath: existing ?? candidates[0],
-    configExists: Boolean(existing),
-    candidates,
-    config,
-    instructions: AGENTS_SNIPPET,
-    instructionsFile: 'AGENTS.md',
+    alreadyInstalled: false,
+    configPath,
+    configExists,
+    configFormat: block.format,
+    config: block.value,
+    configText: block.text,
+    ...(client.configCandidates ? { candidates } : {}),
+    ...(client.restartHint ? { restartHint: client.restartHint } : {}),
+    ...(client.instructionsFile
+      ? { instructions: AGENTS_SNIPPET, instructionsFile: client.instructionsFile }
+      : {}),
   };
 
-  if (opts.json) {
-    process.stdout.write(JSON.stringify(report) + '\n');
-    return 0;
+  if (client.tier === 'paste' || pasteOnly) {
+    return {
+      ...report,
+      status: 'pasted',
+      reason:
+        client.tier === 'paste'
+          ? (client.pasteReason ??
+            `${client.name} cannot be driven non-interactively, so rungraph prints the block instead`)
+          : 'nothing was detected on this machine, so nothing was delegated to',
+      ...(client.notes ? { notes: client.notes } : {}),
+    };
   }
 
-  process.stdout.write(
-    `Add rungraph to opencode by pasting this into ${report.configPath}` +
-      `${existing ? '' : ' (create it)'}:\n\n${JSON.stringify(config, null, 2)}\n`,
-  );
-  if (candidates.length > 1 && !existing) {
-    process.stdout.write(
-      `\nopencode also reads ${candidates.slice(1).join(' and ')} — any one of them works.\n`,
-    );
+  const argv = client.installArgv(launch, { scope: scopeForClient });
+  const command = [client.bin, ...argv].map(shellQuote).join(' ');
+
+  // Codex pre-reads because its add is idempotent and silent; Hermes re-reads
+  // because its exit code is meaningless. Both are table facts, not branches.
+  const before = client.probeBefore ? await readRegistration(client) : null;
+  const res = await runVendor(client.bin, argv, {
+    stdin: client.installStdin,
+    timeoutMs: INSTALL_TIMEOUT_MS,
+  });
+  const after = client.probeAfter ? await readRegistration(client) : null;
+  // A verdict that throws must cost one client, not the command — and the
+  // paste block below is what the user gets instead.
+  let status;
+  try {
+    status = client.verdict({ ...res, before, after });
+  } catch {
+    status = 'failed';
   }
-  process.stdout.write(
-    `\nThen add this to your repo's AGENTS.md, so opencode closes the loop back to the dashboard:\n\n${AGENTS_SNIPPET}\n`,
-  );
-  process.stderr.write(
-    'rungraph: nothing was written — opencode config files are JSONC (comments are legal) ' +
-      'and rungraph has no JSONC parser, so rewriting yours would destroy them\n',
-  );
-  process.stderr.write(
-    'rungraph: this is one paste rather than one command because `opencode mcp add` is an interactive wizard\n',
-  );
-  process.stderr.write(
-    'rungraph: opencode reads AGENTS.md first and CLAUDE.md as a compat path (unless OPENCODE_DISABLE_CLAUDE_CODE is set), so an existing CLAUDE.md line already reaches it\n',
-  );
-  return 0;
+
+  // Generic, not codex-specific: any client whose read-back reports the
+  // registered transport gets told when the entry it already had pointed
+  // somewhere else. That is the D3 repair being visible rather than silent.
+  //
+  // `command` is checked, not just `transport`: codex reports a
+  // `streamable_http` transport with a url and no command, and building
+  // `[undefined]` from it would claim the launch command changed and then
+  // print nothing as the old one.
+  const previous =
+    typeof before?.transport?.command === 'string'
+      ? [before.transport.command, ...(before.transport.args ?? [])]
+      : null;
+  // JSON, not a join: comparing space-joined argv would call
+  // `["a b", "c"]` and `["a", "b c"]` the same command.
+  const replaced =
+    Boolean(previous) && JSON.stringify(previous) !== JSON.stringify([launch.command, ...launch.args]);
+  // Three of the four vendors REPLACE the entry on a re-add rather than
+  // refusing it, so `already` there still means the config was rewritten with
+  // the current launch command. Only codex lets us see whether that changed
+  // anything; for the other two, saying "it was rewritten" is the most honest
+  // claim available, and it is the one that gets the user to restart.
+  const rewrote = status === 'already' && Boolean(client.addOverwrites);
+
+  return {
+    ...report,
+    status,
+    installed: status === 'installed',
+    alreadyInstalled: status === 'already',
+    ...(scopeForClient ? { scope: scopeForClient } : {}),
+    command,
+    ...(rewrote ? { rewrote: true } : {}),
+    ...(replaced ? { replaced: true, previousCommand: previous.map(shellQuote).join(' ') } : {}),
+    ...(status === 'already' && client.reregister
+      ? { reregisterCommand: client.reregister(scopeForClient) }
+      : {}),
+    ...(status === 'failed'
+      ? { reason: installFailureReason(client, res, command), ...(client.notes ? { notes: client.notes } : {}) }
+      : {}),
+  };
+}
+
+function installFailureReason(client, res, command) {
+  if (res.spawnError) return `the \`${client.bin}\` CLI is not on PATH`;
+  if (res.timedOut) return `\`${command}\` did not finish in ${INSTALL_TIMEOUT_MS / 1000}s`;
+  return vendorMessage(res) || `${client.bin} exited ${res.code}`;
 }
 
 /**
- * Where opencode looks for its config, most specific first. `OPENCODE_CONFIG`
- * names the file outright; otherwise it is the XDG config dir, where all three
- * names are legal — which is exactly why rungraph names them and writes none.
+ * The last thing the vendor said. stderr wins when it has anything — for
+ * `claude mcp add`'s duplicate refusal, stdout is COMPLETELY EMPTY and the
+ * whole message is on stderr.
  */
-function opencodeConfigCandidates() {
-  const explicit = process.env.OPENCODE_CONFIG;
-  if (explicit) return [explicit];
-  const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode');
-  return [join(dir, 'opencode.jsonc'), join(dir, 'opencode.json'), join(dir, 'config.json')];
+function vendorMessage(res) {
+  const text = res.stderr.trim() || res.stdout.trim();
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.at(-1) ?? '';
+}
+
+function printInstallReport(report) {
+  const width = Math.max(...report.clients.map((c) => c.client.length));
+  for (const c of report.clients) {
+    process.stdout.write(`${c.client.padEnd(width)}  ${installSummaryLine(c)}\n`);
+  }
+  // The tier that never dead-ends: the paste block prints for the paste tier
+  // and for every delegate that failed, so the command always leaves the user
+  // with a next action rather than with "it didn't work".
+  for (const c of report.clients) {
+    if (c.status === 'pasted' || c.status === 'failed') printPasteBlock(c);
+  }
+}
+
+function installSummaryLine(c) {
+  switch (c.status) {
+    case 'installed':
+      return `registered${c.scope ? ` (scope: ${c.scope})` : ''}`;
+    case 'already':
+      if (c.replaced) return 'already registered — launch command updated';
+      // Rewritten with the current launch command, even though we cannot see
+      // whether that changed anything. Better than a bare "already", which
+      // would read as "nothing happened to your config".
+      if (c.rewrote) return 'already registered — rewritten with the current launch command';
+      return 'already registered';
+    case 'pasted':
+      return 'paste required — block below';
+    default:
+      return `could not register: ${c.reason} — block below`;
+  }
+}
+
+/** The tier that never dead-ends. Printed for the paste tier AND for failures. */
+function printPasteBlock(c) {
+  process.stdout.write(`\n── ${c.client} ${'─'.repeat(Math.max(2, 56 - c.client.length))}\n\n`);
+  process.stdout.write(
+    `Add rungraph to ${c.client} by pasting this into ${c.configPath}` +
+      `${c.configExists ? '' : ' (create it)'}:\n\n${c.configText}`,
+  );
+  if (c.candidates?.length > 1 && !c.configExists) {
+    process.stdout.write(
+      `\n${c.client} also reads ${c.candidates.slice(1).join(' and ')} — any one of them works.\n`,
+    );
+  }
+  if (c.instructionsFile) {
+    process.stdout.write(
+      `\nThen add this to your repo's ${c.instructionsFile}, so ${c.client} closes the loop ` +
+        `back to the dashboard:\n\n${c.instructions}\n`,
+    );
+  }
+  for (const note of c.notes ?? []) process.stderr.write(`rungraph: ${note}\n`);
 }
 
 /* -------------------------------------------------------------------- check */
@@ -1041,68 +1206,140 @@ function opencodeConfigCandidates() {
 /**
  * `rungraph mcp --check` — "is this actually working?"
  *
- * The question the author of this tool could not answer about his own machine,
- * which is a fair sign nobody else could either. Four checks, each with the one
- * next step that fixes it, and an end-to-end handshake rather than a guess: it
- * spawns the real MCP server over real stdio and asks it for its tool list.
+ * The question the author of this tool could not answer about his own
+ * machine, which is a fair sign nobody else could either. It spawns the real
+ * MCP server over real stdio and asks it for its tool list, rather than
+ * guessing — and then asks every provider whose runs are on this machine
+ * whether rungraph is registered with it.
+ *
+ * That last part used to be one check literally named `registered with
+ * claude`, which meant a user who had wired rungraph into opencode correctly
+ * got `✖`, exit 1, and a remedy that defaulted back to Claude: a false
+ * negative on the one question the check exists to answer.
+ *
+ * **The verdict is "at least one detected provider is registered."** A
+ * Claude-only user must not fail this check forever because they also have
+ * six-month-old Codex transcripts on disk, so the per-provider rows are all
+ * advisory and the aggregate is computed explicitly below.
  *
  * @returns {Promise<number>} 0 when the loop is usable, 1 when something needs doing
  */
 export async function checkMcp(opts = {}) {
-  const checks = [];
-  const push = (name, ok, detail, fix) => checks.push({ name, ok, detail, ...(fix ? { fix } : {}) });
+  // The regression this closes: `claude mcp list` and `opencode mcp list`
+  // health-check by handshaking with every registered server, so reading
+  // "is rungraph registered" would otherwise WRITE "an agent connected".
+  return withoutBreadcrumbSideEffects(() => checkMcpInner(opts));
+}
 
-  // 1. Are there runs to ask about at all?
+async function checkMcpInner(opts) {
+  const checks = [];
+
+  // 1. Are there runs to ask about at all? Project-scoped, as it always was.
   let runCount = 0;
+  let scoped = { runs: [] };
   try {
-    runCount = (await scan({ project: opts.project })).runs.length;
+    scoped = await scan({ project: opts.project });
+    runCount = scoped.runs.length;
   } catch {
     /* reported as zero below */
   }
-  push(
-    'runs on disk',
-    runCount > 0,
-    runCount > 0 ? `${runCount} run${runCount === 1 ? '' : 's'} found` : 'no runs found',
-    'Run a coding-agent session, then try again — rungraph reads transcripts already on disk.',
-  );
+  checks.push({
+    name: 'runs on disk',
+    ok: runCount > 0,
+    detail: runCount > 0 ? `${runCount} run${runCount === 1 ? '' : 's'} found` : 'no runs found',
+    fix: 'Run a coding-agent session, then try again — rungraph reads transcripts already on disk.',
+  });
 
   // 2. Does the MCP server itself start and speak the protocol?
   const handshake = await selfHandshake();
-  push(
-    'mcp server',
-    handshake.ok,
-    handshake.ok ? `answers over stdio, ${handshake.tools} tools` : handshake.error,
-    'This is a bug in rungraph itself — please report it.',
-  );
+  checks.push({
+    name: 'mcp server',
+    ok: handshake.ok,
+    detail: handshake.ok ? `answers over stdio, ${handshake.tools} tools` : handshake.error,
+    fix: 'This is a bug in rungraph itself — please report it.',
+  });
 
-  // 3. Is it registered with Claude Code?
-  const registered = await isRegistered();
-  push(
-    'registered with claude',
-    registered.ok,
-    registered.detail,
-    'Run `rungraph mcp --install`, then restart Claude Code.',
-  );
+  // 3. Registration, one row per DETECTED provider.
+  //
+  // Detection is machine-wide even under `--project`, for the same reason
+  // `--install`'s is: registration is machine-wide, and a project filter would
+  // hide a provider the user demonstrably uses from the check that exists to
+  // find it. Reuse the scoped scan when there was no filter to apply.
+  let detected = [];
+  try {
+    detected = detectClients(opts.project ? await scan() : scoped);
+  } catch {
+    /* no detection is the zero-provider case below */
+  }
 
-  // 4. Is a dashboard server up? Optional — read-only tools work without it.
+  if (detected.length === 0) {
+    checks.push({
+      name: 'registered',
+      ok: false,
+      state: 'absent',
+      advisory: true,
+      detail: 'no coding-agent runs on this machine, so there is no provider to register with',
+      fix: 'Run a coding-agent session first, then `npx rungraph mcp --install`.',
+    });
+  } else {
+    const rows = await Promise.all(
+      detected.map(async (name) => {
+        const client = clientByName(name);
+        const reg = await readRegistration(client);
+        return {
+          name: `registered · ${name}`,
+          client: name,
+          ok: reg.ok,
+          state: reg.state,
+          // Never individually blocking: the loop is usable as soon as ONE
+          // provider is wired up, and a stale second agent must not be able to
+          // fail a working machine.
+          advisory: true,
+          detail: reg.detail,
+          // The fix depends on the STATE, not just on failure. A provider
+          // whose add refuses duplicates cannot be repaired by re-running
+          // `--install` — that reports "already" and changes nothing — so a
+          // `broken` row for it must print the removal first or the check and
+          // its own remedy loop forever. `readRegistration` supplies the fix
+          // for the "CLI is gone" case, where installing is not the answer.
+          ...(reg.ok
+            ? {}
+            : reg.fix
+              ? { fix: reg.fix }
+              : {
+                  fix:
+                    reg.state === 'broken' && client.reregister
+                      ? `${client.reregister()}, then npx rungraph mcp --install --client ${name}`
+                      : `npx rungraph mcp --install --client ${name}`,
+                }),
+        };
+      }),
+    );
+    checks.push(...rows);
+  }
+
+  // 4. Is a dashboard server up? Optional — the read-only tools work without it.
   const server = await liveServerUrl();
-  push(
-    'dashboard server',
-    Boolean(server),
-    server ? `serving on ${server}` : 'not running (optional — only focus_nodes needs it)',
-    'Run `rungraph` in a terminal to start it and open the dashboard.',
-  );
+  checks.push({
+    name: 'dashboard server',
+    ok: Boolean(server),
+    advisory: true,
+    detail: server ? `serving on ${server}` : 'not running (optional — only focus_nodes needs it)',
+    fix: 'Run `rungraph` in a terminal to start it and open the dashboard.',
+  });
 
-  const essential = checks.filter((c) => c.name !== 'dashboard server');
-  const ok = essential.every((c) => c.ok);
+  const registeredRows = checks.filter((c) => c.client);
+  const anyRegistered = registeredRows.some((c) => c.state === 'ok');
+  const ok = runCount > 0 && handshake.ok && anyRegistered;
 
   if (opts.json) {
     process.stdout.write(JSON.stringify({ ok, checks }) + '\n');
     return ok ? 0 : 1;
   }
 
+  const width = Math.max(...checks.map((c) => c.name.length));
   for (const c of checks) {
-    process.stdout.write(`${c.ok ? '✔' : '✖'} ${c.name.padEnd(24)} ${c.detail}\n`);
+    process.stdout.write(`${checkGlyph(c)} ${c.name.padEnd(width + 2)} ${c.detail}\n`);
   }
   const todo = checks.filter((c) => !c.ok && c.fix);
   if (todo.length) {
@@ -1110,16 +1347,27 @@ export async function checkMcp(opts = {}) {
     for (const c of todo) process.stdout.write(`  → ${c.fix}\n`);
   }
   if (ok) {
+    const wired = registeredRows.filter((c) => c.state === 'ok').map((c) => c.client);
     process.stdout.write(
-      '\nAsk Claude Code, in a project with runs:\n' +
+      `\nAsk ${wired.join(' or ')}, in a project with runs:\n` +
         '  "what went wrong in my last run?"\n' +
         '  "which steps touched <a file you edited>?"\n' +
-        '\nNot Claude Code? Any MCP-capable agent can use the same server over stdio:\n' +
-        '  Hermes: hermes mcp add rungraph --command npx --args -y rungraph mcp\n' +
-        '  then start a new session (see README, "Ask your agent about a run").\n',
+        '\nEvery MCP-capable agent rungraph reads can drive the same server over stdio:\n' +
+        `  npx rungraph mcp --install --client <${CLIENT_NAMES.join('|')}>\n`,
     );
   }
   return ok ? 0 : 1;
+}
+
+/**
+ * Three states, not two. `○` is "not there, and that is only advice"; `✖` is
+ * "there, and it does not work" — which today only Claude can report, because
+ * only `claude mcp list` health-checks as it goes.
+ */
+function checkGlyph(c) {
+  if (c.ok) return '✔';
+  if (c.state === 'broken') return '✖';
+  return c.advisory ? '○' : '✖';
 }
 
 /** Start our own MCP server over real stdio and ask it for its tools. */
@@ -1170,49 +1418,11 @@ function selfHandshake(timeoutMs = 10000) {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'rungraph-check', version: VERSION } },
+        // SELF_CLIENT, not a literal: this exact name is what stops the
+        // breadcrumb from being written by the check that reads it. Two
+        // spellings of it would let the check forge its own evidence.
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: SELF_CLIENT, version: VERSION } },
       }) + '\n',
     );
   });
-}
-
-/** Ask the `claude` CLI whether we are in its MCP config. */
-async function isRegistered() {
-  const res = await runClaude(['mcp', 'list']);
-  if (res.spawnError) {
-    return { ok: false, detail: 'the `claude` CLI is not on PATH' };
-  }
-  const out = `${res.stdout}\n${res.stderr}`;
-  if (!/^\s*rungraph:/m.test(out)) return { ok: false, detail: 'not registered' };
-  const line = out.split('\n').find((l) => /^\s*rungraph:/.test(l)) ?? '';
-  // `claude mcp list` health-checks as it goes, so its own verdict is better
-  // evidence than ours.
-  const failed = /✗|failed/i.test(line);
-  return { ok: !failed, detail: failed ? 'registered, but claude cannot connect to it' : 'registered and connected' };
-}
-
-/** Run `claude`, capturing output. A missing binary is a result, not a throw. */
-function runClaude(args) {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      resolve({ code: 1, stdout: '', stderr: String(err?.message ?? err), spawnError: true });
-      return;
-    }
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('error', (err) => resolve({ code: 1, stdout, stderr: err.message, spawnError: true }));
-    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr, spawnError: false }));
-  });
-}
-
-/** Quote a path for the copy-pasteable command line. */
-function shellQuote(arg) {
-  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }

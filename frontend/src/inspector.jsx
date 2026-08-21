@@ -187,7 +187,13 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
  * own agent can answer questions about what they are looking at — and telling
  * them so in a sentence does not help, because they still would not know what
  * to ask. So the questions are generated from the run on screen: copy one,
- * paste it into Claude Code, and the graph lights up with the answer.
+ * paste it into your agent, and the graph lights up with the answer.
+ *
+ * The copy is provider-NEUTRAL on purpose. rungraph installs into four agents
+ * and `npx rungraph mcp --install` is correct for all of them, so no client
+ * list has to reach the frontend — which is what keeps src/clients.js out of
+ * this bundle. Naming Claude Code here would be a false negative for the
+ * opencode user reading the same panel.
  *
  * The setup line disappears once an agent has actually driven this dashboard,
  * because at that point it is noise.
@@ -226,8 +232,8 @@ function AskYourAgent({ graph, project }) {
       ))}
       <p class="microlabel foot">
         {connected
-          ? 'paste one into Claude Code — the answer lands in your terminal, the graph lights up here'
-          : 'run the command once, restart Claude Code, then paste a question into it'}
+          ? 'paste one into your agent — the answer lands in your terminal, the graph lights up here'
+          : 'run the command once, restart your agent, then paste a question into it'}
       </p>
     </div>
   );

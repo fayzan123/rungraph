@@ -27,7 +27,8 @@ USAGE
   rungraph serve [--no-open]     Start the server without/with opening a browser.
   rungraph export <runId…>       Write a shareable .rungraph bundle (see EXPORT).
   rungraph open <bundle…>        Serve .rungraph bundle files (ephemeral, read-only).
-  rungraph mcp [--install]       Run the MCP server on stdio (--install registers it once).
+  rungraph mcp [--install]       Run the MCP server on stdio (--install registers it once,
+                                 with claude, codex, hermes and opencode).
   rungraph mcp --check           Is the agent side set up and working? Prints what to fix.
 
 OPTIONS
@@ -35,15 +36,17 @@ OPTIONS
   --project <path>   Only runs whose project cwd is (inside) this path.
   --port <n>         Preferred port (default 4321; auto-increments if taken).
   --no-open          serve/open: do not open a browser; the URL is always printed.
-  --install          mcp: register rungraph with the agent named by --client, then exit.
-                     Other agents wire 'rungraph mcp' on stdio directly
-                     (Hermes: hermes mcp add rungraph --command npx --args -y rungraph mcp).
-  --client <c>       mcp --install: claude (default) | opencode. Never guessed —
-                     a machine with both installed has no right answer. opencode
-                     prints a config block to paste (its own 'mcp add' is an
-                     interactive wizard) and writes nothing.
-  --check            mcp: verify the agent side end to end, then exit.
+  --install          mcp: register rungraph with every agent whose runs are on this
+                     machine, then exit. Anything that cannot be delegated to
+                     prints a config block to paste; nothing is ever a prompt.
+  --client <c>       mcp --install: claude | codex | hermes | opencode | all.
+                     Default is every DETECTED agent (one whose transcripts
+                     rungraph can read), never a guess. 'all' installs into all
+                     four regardless of what was detected.
+  --check            mcp: verify the agent side end to end, then exit. Reports one
+                     row per detected agent; passes when at least one is wired up.
   --scope <s>        mcp --install --client claude: user (default) | project | local.
+                     Claude-only; ignored with a note for the other agents.
   -h, --help         This help.
   -v, --version      Version.
 
@@ -79,7 +82,23 @@ FOR AGENTS
                                          get_detail, focus_nodes, get_current_view,
                                          open_visualization. focus_nodes lights up the open
                                          dashboard while you answer in the terminal.
-  All commands are non-interactive: no prompts, data on stdout, logs on stderr.`;
+  rungraph mcp --install --json        → {"detected":[…],"installed":n,"already":n,"pasted":n,
+                                           "failed":n,"launch":{"command","args","via"},
+                                           "clients":[{"client","tier","status","installed",…}]}
+                                         status: installed | already | pasted | failed.
+                                         BREAKING at 0.4.x: this used to be one client's
+                                         report at top level; it is now clients[].
+  rungraph mcp --check --json          → {"ok":true,"checks":[{"name","ok","detail","fix"?,
+                                           "client"?,"state"?,"advisory"?}]}
+  All commands are non-interactive: no prompts, data on stdout, logs on stderr.
+
+ENVIRONMENT
+  RUNGRAPH_NO_NUDGE=1   Silence serve's "install the MCP half" note for good. Without it
+                        the note repeats on every serve until an agent has actually
+                        handshaked with the MCP server — installing is not enough,
+                        deliberately: a registration that never loads is the case worth
+                        still hearing about.
+  RUNGRAPH_STATE_DIR    Where that handshake's breadcrumb lives (default: ~/.rungraph).`;
 
 export async function main(argv) {
   let args;
@@ -259,7 +278,75 @@ async function cmdServe(opts) {
   });
   process.stdout.write(JSON.stringify({ url: server.url }) + '\n');
   process.stderr.write(`rungraph: serving on ${server.url} (Ctrl-C to stop)\n`);
+  // Deliberately NOT awaited. Deciding whether to nudge is a stat, but naming
+  // the detected agents costs a full scan — measured at ~250ms over 252 runs
+  // on the author's machine, and it grows with the corpus. Awaiting it here
+  // would delay the browser opening for exactly the users who have the most
+  // runs. serveForeground blocks until SIGINT, so the line always lands.
+  void nudgeIfUninstalled();
   return serveForeground(server, ['local'], opts);
+}
+
+/**
+ * The other half of the loop, introduced.
+ *
+ * `npx rungraph` is the entire documented entry point, and it used to say
+ * nothing about MCP: a user could run rungraph every day for a month and
+ * never learn that half the product exists. The only mentions lived in
+ * `--help`, the README, and one sidebar panel.
+ *
+ * Deliberately narrow:
+ *
+ * - **`serve` only.** Not `list`, `graph`, `find` or `export` — those are the
+ *   agent-facing commands, where unsolicited stderr is noise in someone's
+ *   tool output.
+ * - **Never `rungraph open`.** A recipient viewing a colleague's bundle has no
+ *   runs of their own and no use for the MCP server. (Which is why this lives
+ *   in cmdServe rather than in the serveForeground both commands share.)
+ * - **stderr, always**, including under `--json`. It is a log, and logs go to
+ *   stderr; the data contract on stdout is untouched.
+ * - `RUNGRAPH_NO_NUDGE=1` silences it permanently, for the user who has
+ *   decided against MCP. Documented in `--help`, not in the nudge itself — a
+ *   nudge that spends a line explaining how to dismiss itself is a worse nudge.
+ *
+ * Suppression is breadcrumb-based: it goes quiet once an agent has actually
+ * handshaked with the MCP server, not once someone has run `--install`. That
+ * costs a repeat for a user who installed into a config that never loads, and
+ * that is the right cost — they are exactly the user who most needs to keep
+ * seeing it.
+ *
+ * Never throws and never blocks the server: a scan that fails costs the
+ * "Detected" line, nothing more, and the whole function is fire-and-forget.
+ */
+async function nudgeIfUninstalled() {
+  try {
+    await printNudge();
+  } catch {
+    /* a nudge is the least important thing this process does */
+  }
+}
+
+async function printNudge() {
+  if (process.env.RUNGRAPH_NO_NUDGE === '1') return;
+  const { readBreadcrumb, detectClients } = await import('./clients.js');
+  if (await readBreadcrumb()) return;
+
+  // Machine-wide, not `--project`-scoped: the nudge names what agents are on
+  // this machine, and the install it points at is machine-wide too.
+  let detected = [];
+  try {
+    detected = detectClients(await scan());
+  } catch {
+    /* the nudge names what it can prove, and here it can prove nothing */
+  }
+  process.stderr.write(
+    '\nrungraph: ⚠ the other half of rungraph is not installed.\n' +
+      '  Your agent can drive this dashboard over MCP — you ask in your terminal,\n' +
+      '  the graph lights up here.\n' +
+      '    npx rungraph mcp --install\n' +
+      (detected.length ? `  Detected on this machine: ${detected.join(', ')}\n` : '') +
+      '  Already set up?  npx rungraph mcp --check\n',
+  );
 }
 
 /**

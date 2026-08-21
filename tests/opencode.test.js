@@ -1002,60 +1002,117 @@ describe.skipIf(!hasNodeSqlite)('cross-adapter tool-node invariant', () => {
 
 const exec = promisify(execFile);
 
-describe('opencode MCP install (paste tier)', () => {
-  it('--client opencode prints the mcp block and the AGENTS.md line, writes nothing, exits 0', async () => {
+describe('opencode MCP install', () => {
+  // opencode's tier CHANGED, on probed evidence, and this block is where that
+  // shows. It was the paste tier because `opencode mcp add` was believed to
+  // have no non-interactive path for a local stdio command. It has one — an
+  // UNDOCUMENTED `--` passthrough, absent from `mcp add --help` and visible
+  // only in the error string "Provide either --url <url> or a command after
+  // --". So opencode delegates like the other three, and the paste block it
+  // still carries is the fallback a failed delegation prints.
+  //
+  // The delegated add itself is exercised in tests/clients.test.js, gated on
+  // the opencode binary and isolated with XDG_CONFIG_HOME — NOT with
+  // OPENCODE_CONFIG, which opencode honours on its READ path only. What is
+  // asserted here is the paste block, which runs everywhere including CI.
+  const pasteEnv = (extra) => ({
+    ...process.env,
+    // Fail-safe: even though nothing here should delegate, every vendor config
+    // home is pointed somewhere harmless. XDG_CONFIG_HOME is the one that
+    // protects opencode — OPENCODE_CONFIG is honoured on its READ path only,
+    // and `opencode mcp add` resolves its write target from
+    // $XDG_CONFIG_HOME/opencode regardless.
+    CLAUDE_CONFIG_DIR: join(tmpdir(), 'rg-oc-never'),
+    CODEX_HOME: join(tmpdir(), 'rg-oc-never'),
+    HERMES_HOME: join(tmpdir(), 'rg-oc-never'),
+    XDG_CONFIG_HOME: join(tmpdir(), 'rg-oc-never'),
+    // No opencode binary on CI, so the delegation fails and the block prints;
+    // where a binary DOES exist, `--client all` with nothing detected takes
+    // the same path. Either way the block is what this file is about.
+    RUNGRAPH_CLAUDE_PROJECTS: '',
+    RUNGRAPH_CODEX_SESSIONS: '',
+    RUNGRAPH_HERMES_HOME: '',
+    RUNGRAPH_OPENCODE_HOME: '',
+    ...extra,
+  });
+
+  it('prints the mcp block and the AGENTS.md line, and writes nothing itself', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'rg-oc-cfg-'));
     try {
       const cfg = join(tmp, 'opencode.jsonc');
       const original = '{\n  // a comment rungraph must never destroy\n  "model": "x"\n}\n';
       await writeFile(cfg, original);
-      const { stdout, stderr } = await exec('node', [BIN, 'mcp', '--install', '--client', 'opencode'], {
-        env: { ...process.env, OPENCODE_CONFIG: cfg },
-      });
-      expect(stdout).toContain('"mcp"'); // the key is `mcp`, NOT `mcpServers`
-      expect(stdout).not.toContain('mcpServers');
+      // Bare `--install` with nothing detected prints every client's block and
+      // delegates to none of them — the "nothing to install into" path.
+      const { stdout, stderr } = await exec(
+        'node',
+        [BIN, 'mcp', '--install'],
+        { env: pasteEnv({ OPENCODE_CONFIG: cfg, RUNGRAPH_STATE_DIR: tmp }) },
+      );
+      // The key is `mcp`, NOT `mcpServers` — asserted on opencode's OWN block
+      // rather than on the whole of stdout, because claude's block is printed
+      // on the same run and legitimately contains `mcpServers`. A needle taken
+      // from the whole output would either always match or never match, and
+      // "never match" is the worse failure: it passes forever.
+      const ocBlock = stdout.slice(stdout.indexOf('── opencode'));
+      expect(ocBlock).toContain('"mcp"');
+      expect(ocBlock).not.toContain('mcpServers');
+      expect(stdout).toContain('"mcpServers"'); // claude's block, for contrast
       expect(stdout).toContain(cfg);
       expect(stdout).toContain('focus_nodes'); // the AGENTS.md snippet
       expect(stdout).toContain('AGENTS.md');
-      expect(stderr).toContain('interactive wizard');
-      // Nothing was written — opencode config files are JSONC.
+      expect(stderr).toContain('nothing was detected');
+      // rungraph itself never edits an agent's config file — where it can, it
+      // drives the vendor's own CLI; where it cannot, it prints.
       expect(await readFile(cfg, 'utf8')).toBe(original);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60000);
 
-  it('--json emits the same payload machine-readably, with command as an ARRAY', async () => {
+  it('--json wraps every client in an array, with opencode command as an ARRAY', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'rg-oc-cfgj-'));
     try {
       const cfg = join(tmp, 'opencode.json');
-      const { stdout } = await exec('node', [BIN, 'mcp', '--install', '--client', 'opencode', '--json'], {
-        env: { ...process.env, OPENCODE_CONFIG: cfg },
-      });
+      const { stdout } = await exec(
+        'node',
+        [BIN, 'mcp', '--install', '--json'],
+        { env: pasteEnv({ OPENCODE_CONFIG: cfg, RUNGRAPH_STATE_DIR: tmp }) },
+      );
+      // The breaking change: today's single-client report shape is unchanged,
+      // but it is now one element of a `clients` array.
       const report = JSON.parse(stdout);
-      expect(report.client).toBe('opencode');
-      expect(report.wrote).toBe(false);
-      expect(report.configExists).toBe(false);
-      expect(report.configPath).toBe(cfg);
+      expect(Array.isArray(report.clients)).toBe(true);
+      const oc = report.clients.find((c) => c.client === 'opencode');
+      expect(oc.status).toBe('pasted');
+      expect(oc.configExists).toBe(false);
+      expect(oc.configPath).toBe(cfg);
       // Verified against https://opencode.ai/config.json: McpLocalConfig
       // requires `type` and `command`, and `command` is a string ARRAY.
-      const entry = report.config.mcp.rungraph;
+      const entry = oc.config.mcp.rungraph;
       expect(entry.type).toBe('local');
       expect(Array.isArray(entry.command)).toBe(true);
-      expect(entry.command).toHaveLength(3);
+      // Length is NOT pinned: resolveLaunch returns 2 words on a global
+      // install, 4 under npx, and 3 in a checkout. Pinning it would fail on
+      // the very npx path the launch fix exists for.
+      expect(entry.command.at(-1)).toBe('mcp');
       expect(entry.enabled).toBe(true);
-      expect(report.instructions).toContain('focus_nodes');
+      expect(oc.instructions).toContain('focus_nodes');
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60000);
 
-  it('the client is never guessed: an unknown one is exit 1, and the default is unchanged', async () => {
-    await expect(exec('node', [BIN, 'mcp', '--install', '--client', 'nope'])).rejects.toMatchObject({ code: 1 });
-    // A machine with both agents installed has no right answer to sniff for.
+  it('the client is never guessed: an unknown one is exit 1, and --help names all four', async () => {
+    await expect(
+      exec('node', [BIN, 'mcp', '--install', '--client', 'nope'], { env: pasteEnv() }),
+    ).rejects.toMatchObject({ code: 1 });
     const { stdout } = await exec('node', [BIN, '--help']);
     expect(stdout).toContain('--client <c>');
-    expect(stdout).toContain('claude (default) | opencode');
+    // Not "claude (default) | opencode" any more: bare --install means every
+    // DETECTED agent, and there are four to choose from.
+    expect(stdout).toContain('claude | codex | hermes | opencode | all');
+    expect(stdout).not.toContain('claude (default) | opencode');
   });
 });
 
@@ -1076,6 +1133,10 @@ describe.skipIf(!hasNodeSqlite)('opencode through the MCP read tools', () => {
     RUNGRAPH_HERMES_HOME: '',
     RUNGRAPH_OPENCODE_HOME: OPENCODE_FIXTURE_ROOT,
     RUNGRAPH_PORT_DIR: portDir,
+    // Every call() below handshakes, and a handshake records a breadcrumb.
+    // Without this each one would write the developer's real ~/.rungraph and
+    // silence the `serve` nudge on their own machine.
+    RUNGRAPH_STATE_DIR: portDir,
   });
 
   /** One tool call over the real stdio transport. */

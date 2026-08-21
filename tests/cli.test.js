@@ -36,6 +36,9 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), 'rg-cli-'));
   // Keep registry writes (rungraph open) away from the developer's real one.
   env.RUNGRAPH_PORT_DIR = join(tmp, 'servers');
+  // …and the MCP breadcrumb away from their real ~/.rungraph, where a stray
+  // write would silence the `serve` nudge on their own machine.
+  env.RUNGRAPH_STATE_DIR = join(tmp, 'state');
 });
 afterAll(() => rm(tmp, { recursive: true, force: true }));
 
@@ -159,6 +162,18 @@ describe('golden CLI (agent contract)', () => {
   it('unknown command: exit 1', async () => {
     const r = await run('frobnicate');
     expect(r.code).toBe(1);
+  });
+
+  it('--help documents the nudge escape hatch, and no longer publishes the no-op Hermes line', async () => {
+    const r = await run('--help');
+    // A nudge that spends a line explaining how to dismiss itself is a worse
+    // nudge, so RUNGRAPH_NO_NUDGE is documented here instead.
+    expect(r.stdout).toContain('RUNGRAPH_NO_NUDGE');
+    // D1: `hermes mcp add rungraph --command npx --args -y rungraph mcp` works
+    // when a human presses Enter, and when scripted it prints the tool list,
+    // cancels, writes nothing and exits 0. It must not be published anywhere.
+    expect(r.stdout).not.toContain('hermes mcp add rungraph');
+    expect(r.stdout).toContain('claude | codex | hermes | opencode | all');
   });
 
   it('--help documents export and open', async () => {

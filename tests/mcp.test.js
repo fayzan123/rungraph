@@ -120,6 +120,19 @@ beforeAll(async () => {
   // or stomp on — a rungraph the developer happens to be running.
   portDir = join(tmp, 'servers');
   env.RUNGRAPH_PORT_DIR = portDir;
+  // Same reason, for the OTHER persistent thing an mcp process writes: every
+  // `initialize` in this file records a breadcrumb, and the default state dir
+  // is the developer's own ~/.rungraph — where a stray write would silence
+  // the `serve` nudge on their real machine.
+  env.RUNGRAPH_STATE_DIR = join(tmp, 'state');
+  // Fail-safe for the `--install` case below: it is expected to reject its
+  // flag before spawning anything, and if it ever stops doing so it must not
+  // reach the developer's real agent configs. XDG_CONFIG_HOME is the one that
+  // protects opencode; OPENCODE_CONFIG is its read path only.
+  env.CLAUDE_CONFIG_DIR = join(tmp, 'vendor');
+  env.CODEX_HOME = join(tmp, 'vendor');
+  env.HERMES_HOME = join(tmp, 'vendor');
+  env.XDG_CONFIG_HOME = join(tmp, 'vendor');
   mcp = client(env);
   const init = await mcp.send('initialize', {
     protocolVersion: '2025-06-18',
@@ -566,35 +579,65 @@ describe('secrets never reach the model', () => {
 
 describe('rungraph mcp --check', () => {
   // The question the tool could not previously answer about itself. The
-  // registration and dashboard checks depend on the machine, so this asserts
+  // registration and dashboard rows depend on the machine, so this asserts
   // the shape and the one check that is entirely ours: that the MCP server
   // starts, speaks JSON-RPC over real stdio, and lists its tools.
+  //
+  // The per-provider rows themselves — including "two detected, one
+  // registered" against PATH shims, and the four vendor integration cases —
+  // live in tests/clients.test.js, where they can be driven deterministically.
   it('reports every check, and proves the server answers over stdio', async () => {
     const r = await exec('node', [BIN, 'mcp', '--check', '--json'], { env }).catch((e) => e);
     const report = JSON.parse(r.stdout);
-    expect(report.checks.map((c) => c.name)).toEqual([
-      'runs on disk',
-      'mcp server',
-      'registered with claude',
-      'dashboard server',
-    ]);
+    const names = report.checks.map((c) => c.name);
+    // The first two and the last are fixed; between them sits one row per
+    // DETECTED provider, which is the whole point of §3 — the single check
+    // literally named `registered with claude` was a false negative for
+    // anyone who had wired rungraph into a different agent correctly.
+    expect(names[0]).toBe('runs on disk');
+    expect(names[1]).toBe('mcp server');
+    expect(names.at(-1)).toBe('dashboard server');
+    expect(names).not.toContain('registered with claude');
+    // The fixture corpus is claude + codex, so exactly those two rows.
+    expect(names.slice(2, -1)).toEqual(['registered · claude', 'registered · codex']);
+
     const server = report.checks.find((c) => c.name === 'mcp server');
     expect(server.ok).toBe(true);
     expect(server.detail).toContain('7 tools');
     expect(report.checks.find((c) => c.name === 'runs on disk')).toMatchObject({ ok: true });
-    // every failing check hands back the one next step that fixes it
-    for (const c of report.checks) if (!c.ok) expect(c.fix.length).toBeGreaterThan(10);
-  }, 90000);
+
+    for (const c of report.checks) {
+      // Every per-provider row carries its client and is advisory: the loop is
+      // usable as soon as ONE provider is wired up, so a stale second agent
+      // must never be able to fail a working machine.
+      if (c.name.startsWith('registered ·')) {
+        expect(c.client).toBeTruthy();
+        expect(c.advisory).toBe(true);
+        expect(['ok', 'absent', 'broken']).toContain(c.state);
+      }
+      // A failing row hands back its one next step — unless there is none
+      // worth printing, which is the "detected but the CLI is gone" case.
+      if (!c.ok && c.fix !== undefined) expect(c.fix.length).toBeGreaterThan(10);
+    }
+    // 120s, not 90: the check now spawns one vendor CLI per detected provider
+    // (in parallel), and `claude mcp list` health-checks every server it finds.
+  }, 120000);
 });
 
 describe('rungraph mcp --install', () => {
-  // The success path shells out to `claude mcp add`, which would edit the
-  // developer's real MCP config — so only the guarded path is exercised here.
+  // Usage guards only. The install paths themselves are exercised against
+  // throwaway config homes in tests/clients.test.js — every one of the four
+  // vendors turned out to be integration-testable, which is what retired the
+  // old "this would edit the developer's real config" excuse.
   it('rejects an invalid scope without touching anything', async () => {
+    // Still a PRE-FLIGHT check, and it has to stay one: a bare `--install` now
+    // means "install into every detected provider", so a scope check that ran
+    // after selection would spawn vendor CLIs before rejecting the flag.
     const err = await exec('node', [BIN, 'mcp', '--install', '--scope', 'nonsense'], { env }).catch(
       (e) => e,
     );
     expect(err.code).toBe(1);
     expect(err.stderr).toContain('invalid --scope');
+    expect(err.stdout).toBe('');
   });
 });
