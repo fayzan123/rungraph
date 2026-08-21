@@ -234,8 +234,8 @@ npx rungraph serve --no-open
 <span class="c"># {"url":"http://127.0.0.1:4321"} — same data over HTTP + SSE live tail</span></code></pre>
     <p class="fineprint">
       The same surface is available as MCP tools — <code>rungraph mcp --install</code>.
-      The IR is versioned and vendor-neutral, with three adapters today: Claude Code,
-      Codex CLI, and Hermes Agent. Schema in
+      The IR is versioned and vendor-neutral, with four adapters today: Claude Code,
+      Codex CLI, Hermes Agent and opencode. Schema in
       <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">SCHEMA.md</a>.
     </p>
   </div>
@@ -288,12 +288,15 @@ npx rungraph serve --no-open
             <summary>Which agents does it read?</summary>
             <div class="a">
               <p>
-                Three, each from wherever it already writes: <b>Claude Code</b>
+                Four, each from wherever it already writes: <b>Claude Code</b>
                 (<code>~/.claude/projects</code>), <b>Codex CLI</b>
-                (<code>~/.codex/sessions</code>) and <b>Hermes Agent</b> (the SQLite
-                database at <code>~/.hermes/state.db</code>). One scan picks up all
-                three. When more than one of them has runs on the machine, a chip
-                rail above the run list filters by agent.
+                (<code>~/.codex/sessions</code>), <b>Hermes Agent</b> (the SQLite
+                database at <code>~/.hermes/state.db</code>) and <b>opencode</b> (one
+                global SQLite database under <code>~/.local/share/opencode</code>).
+                One scan picks up all four. When more than one of them has runs on the
+                machine, a chip rail above the run list filters by agent. The two
+                SQLite readers need Node ≥ 22.13; on older versions they self-disable
+                with a warning and everything else still works.
               </p>
             </div>
           </details>
@@ -317,8 +320,8 @@ npx rungraph serve --no-open
                   warning and everything else still works.
                 </li>
                 <li>
-                  <code>mcp --install</code> is a convenience for one CLI. The MCP
-                  server itself is plain stdio and identical for every agent — see
+                  <code>mcp --install</code> registers with every agent it can see. The
+                  MCP server itself is plain stdio and identical for every agent — see
                   <a href="#q-only-claude">below</a>.
                 </li>
                 <li>
@@ -336,8 +339,8 @@ npx rungraph serve --no-open
             <div class="a">
               <p>
                 Neither, exactly: it is computed <b>on demand, from files your agent
-                already wrote</b>. Claude Code, Codex and Hermes each write a full
-                transcript as they work. rungraph parses that transcript when you open
+                already wrote</b>. All four agents write a full transcript as they
+                work — Claude Code and Codex as JSONL, Hermes and opencode into SQLite. rungraph parses that transcript when you open
                 the run, and the server keeps an mtime-keyed cache, so a run that has
                 not changed is never parsed twice.
               </p>
@@ -693,17 +696,19 @@ npx rungraph serve --no-open
                 and the seven tool names are identical everywhere — as is the loop.
               </p>
               <p>
-                <code>npx rungraph mcp --install</code> is a one-command shortcut that
-                delegates to the <code>claude</code> CLI, because that CLI owns its own
-                config format and will keep owning it. Every other agent registers the
-                same server with its own command — Hermes, for instance:
+                <code>npx rungraph mcp --install</code> registers with <b>every agent
+                whose runs are already on this machine</b> — Claude Code, Codex, Hermes
+                and opencode — by driving each vendor's own CLI, because each of them
+                owns its config format and will keep owning it. rungraph never edits an
+                agent's config file itself.
               </p>
-              <pre class="qa-code"><code>hermes mcp add rungraph --command npx --args -y rungraph mcp</code></pre>
+              <pre class="qa-code"><code>npx rungraph mcp --install --client all</code></pre>
               <p>
-                — or with the JSON block <code>--install</code> prints whenever it
-                cannot do the registration for you. Either way,
+                — installs into all four regardless of what was detected, and anything
+                that cannot be delegated to prints the exact block to paste instead, so
+                the command never dead-ends. Either way,
                 <code>npx rungraph mcp --check</code> verifies the whole path end to
-                end and prints exactly what to fix.
+                end, one row per detected agent, and prints exactly what to fix.
               </p>
             </div>
           </details>
