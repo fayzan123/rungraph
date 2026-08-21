@@ -121,34 +121,52 @@ The dashboard is for you; the MCP server is for your agent. They are two ends of
 one loop, not two products.
 
 ```
-npx rungraph mcp --install     # one time, then restart Claude Code
+npx rungraph mcp --install     # one time, then restart your agent
 npx rungraph mcp --check       # is it working? prints exactly what to fix
 ```
 
-The server is plain MCP over stdio, so **any MCP-capable agent can wire it —
-not just Claude Code**. Hermes, for example:
+**rungraph ships four adapters, so it installs into four agents.** Bare
+`--install` registers with every agent whose runs are already on this machine —
+Claude Code, Codex, Hermes and opencode — and tells you what it did:
 
 ```
-hermes mcp add rungraph --command npx --args -y rungraph mcp
+claude    registered (scope: user)
+codex     registered
+hermes    already registered
+opencode  registered
 ```
 
-**opencode** closes the same two-ended loop — ask in its TUI, get answered
-there, watch the dashboard light up — and rungraph prints exactly what to add:
+Nothing is guessed and nothing is prompted. Detection is what rungraph can
+*prove*: a provider counts as present because rungraph has read its
+transcripts, not because a binary is on your PATH. `--client <name>` targets
+one; `--client all` installs into all four regardless.
 
-```
-npx rungraph mcp --install --client opencode
-```
+Each install is **delegated to the vendor's own CLI**, because each vendor owns
+its config format and will keep owning it — `claude mcp add`, `codex mcp add`,
+`hermes mcp add`, `opencode mcp add`. rungraph never edits an agent's config
+file itself. Where a delegation fails, rungraph prints the exact block to paste
+instead, so the command never dead-ends in "it didn't work".
 
-That one is a **paste rather than a command**, and the reason is opencode's, not
-rungraph's: `opencode mcp add` is an interactive TUI wizard with no flags, so
-there is nothing to delegate to. rungraph prints the `mcp` block for your
-`~/.config/opencode/opencode.jsonc` and the `AGENTS.md` line that makes opencode
-call `focus_nodes` after it answers — and **writes nothing**, because opencode's
-config files are JSONC (comments are legal) and rewriting one without a JSONC
-parser would destroy them. `--client` is never guessed: a machine with both
-agents installed has no right answer to sniff for. (opencode reads `AGENTS.md`
-first and `CLAUDE.md` as a compat path, unless `OPENCODE_DISABLE_CLAUDE_CODE` is
-set — so an existing `CLAUDE.md` line already reaches it.)
+The server is plain MCP over stdio, and the command it registers is always
+`rungraph mcp` on stdio — so any other MCP-capable agent can be pointed at the
+same server by hand. For the four above, `--install --client <name>` does the
+registration for you and only falls back to printing a block if it cannot.
+
+> **Breaking, at 0.5.0.** Three things changed for anyone scripting this:
+>
+> - **Bare `--install` used to mean `--client claude`.** It now registers with
+>   every agent detected on the machine, so it writes configs it previously did
+>   not touch. `--client claude` restores the old behaviour exactly.
+> - **`--install --json` moved every per-client field into `clients[]`.**
+>   `report.clients[0]` is the old object plus a `status` of `installed` /
+>   `already` / `pasted` / `failed`. Top-level `installed` is now a **count**,
+>   not a boolean, and `wrote` is gone — every client delegates to its vendor's
+>   own CLI, so rungraph never writes an agent's config file.
+> - **`--check --json` keeps `{ ok, checks }`,** but the check named
+>   `registered with claude` is gone: there is now one `registered · <client>`
+>   row per detected agent.
+>
+> See [SCHEMA.md](SCHEMA.md).
 
 Then start a new session and ask the same questions. The tool names
 (`list_runs`, `find_nodes`, `get_graph`, `get_detail`, `focus_nodes`,
@@ -156,9 +174,9 @@ Then start a new session and ask the same questions. The tool names
 so is the loop: the agent answers in your terminal, then calls `focus_nodes`
 and the open graph lights up the nodes it's talking about. (If your agent's
 Hermes/opencode runs are missing, your default Node is older than 22.13 — point
-`--command` at a Node ≥ 22.13 `npx` and they appear.)
+the registered command at a Node ≥ 22.13 and they appear.)
 
-Then ask, in Claude Code, the kinds of questions a transcript can actually
+Then ask, in your agent, the kinds of questions a transcript can actually
 answer:
 
 - *which edits in my last run failed — and did any stay broken?*
@@ -167,7 +185,7 @@ answer:
 - *what was the actual error behind that red node?*
 - *did it actually run the tests, or just say it did?*
 
-Claude calls `find_nodes` / `get_graph` / `get_detail` and **answers in your
+Your agent calls `find_nodes` / `get_graph` / `get_detail` and **answers in your
 terminal** — your model, your session, fully inspectable. Then it calls
 `focus_nodes`, and **the graph you have open lights up the exact nodes the
 answer is about** — switching to the right run, or opening a browser tab, if
@@ -394,12 +412,14 @@ rungraph serve [--no-open]     start server; prints {"url": …}
 rungraph export <runId…>       write a shareable .rungraph bundle (see --help)
 rungraph open <bundle…>        serve bundle files, ephemerally
 rungraph mcp [--install]       MCP server on stdio; --install registers it once
-                               (--client opencode prints a block to paste instead)
+                               (registers with every detected agent; prints a block
+                               to paste for anything it cannot delegate to)
 rungraph mcp --check           verify the agent side end to end
   --project <path>             only runs for this project directory
   --port <n>                   preferred port (auto-increments if taken)
   --last <n>                   export: the n most recent runs of this project
-  --client <c>                 mcp --install: claude (default) | opencode
+  --client <c>                 mcp --install: claude | codex | hermes | opencode | all
+                               (default: every agent detected on this machine)
   --scope <s>                  mcp --install --client claude: user (default) | project | local
 ```
 

@@ -169,34 +169,60 @@ is for you; the MCP server is for your agent; they are two ends of one loop.
 ### Set it up
 
 ```bash
-npx rungraph mcp --install     # registers with Claude Code, user scope
-# then restart Claude Code
+npx rungraph mcp --install     # registers with every agent detected here
+# then restart that agent (or start a new session)
 npx rungraph mcp --check       # confirm it worked
 ```
 
-For **opencode**, which speaks MCP and so closes the same loop:
+rungraph ships four adapters and installs into four agents — Claude Code,
+Codex, Hermes and opencode. Bare `--install` registers with every one whose
+runs are already on this machine and reports per agent:
 
-```bash
-npx rungraph mcp --install --client opencode
+```
+claude    registered (scope: user)
+codex     registered
+hermes    already registered
+opencode  registered
 ```
 
-That one prints a config block to paste and **writes nothing** — opencode's own
-`opencode mcp add` is an interactive wizard with no flags, and its config files
-are JSONC, where a rewrite without a JSONC parser would eat your comments. It
-also prints an `AGENTS.md` line that tells opencode to call `focus_nodes` after
-it answers. `--client` is never guessed: a machine with both agents installed
-has no right answer to sniff for.
+Detection is what rungraph can *prove*: a provider counts as present because
+rungraph has read its transcripts, not because a binary is on your PATH — so a
+freshly installed agent with no runs yet is not named. `--client <name>` targets
+one; `--client all` installs into all four regardless. Nothing is prompted, and
+nothing is sniffed.
+
+Each install is delegated to the vendor's own CLI, because the vendor owns its
+config format. rungraph never edits an agent's config file itself. If a
+delegation fails, rungraph prints the exact block to paste — so the command
+never ends in "it didn't work" with no next step.
 
 `--check` is the honest answer to "is this working?":
 
 ```
-✔ runs on disk             130 runs found
-✔ mcp server               answers over stdio, 7 tools
-✔ registered with claude   registered and connected
-✔ dashboard server         serving on http://127.0.0.1:4321
+✔ runs on disk           130 runs found
+✔ mcp server             answers over stdio, 7 tools
+✔ registered · claude    registered and connected
+○ registered · codex     not registered
+✔ dashboard server       serving on http://127.0.0.1:4321
+
+  → npx rungraph mcp --install --client codex
 ```
 
-Every failing line prints the one next step that fixes it.
+One row per **detected** agent, and it passes when at least one of them is
+wired up — a Claude-only user must not fail this check forever because they
+also have six-month-old Codex transcripts on disk. `○` is advice; `✖` means
+registered but not working — Claude Code and opencode both health-check as they
+list, so they report a server that cannot start; Codex and Hermes only report an
+entry they have deliberately disabled. Every failing line prints the one next
+step that fixes it.
+
+### The nudge
+
+The first time you run `npx rungraph` without the MCP half installed, `serve`
+says so on stderr, once per run, with the command. It goes quiet as soon as an
+agent has actually handshaked with the MCP server — not when you run
+`--install`, because installing into a config that never loads is exactly the
+case worth still hearing about. `RUNGRAPH_NO_NUDGE=1` silences it for good.
 
 > `--install` writes a status line to **stderr**, which some terminals paint
 > red. That is not an error — check the exit code, or just run `--check`.
@@ -210,10 +236,11 @@ writes them for you, from **that run's own data**, with a copy button:
 > *which steps touched `frontend/src/app.jsx` in this run?*
 > *what did the "audit auth module" agent find?*
 
-Paste one into Claude Code. What happens:
+Paste one into your agent — the dashboard's own copy button says the same, and
+means any of the four. What happens:
 
-1. Claude calls `find_nodes` / `get_graph` / `get_detail` — which now carry the
-   signals and the file attribution, so it reasons over facts rather than
+1. Your agent calls `find_nodes` / `get_graph` / `get_detail` — which now carry
+   the signals and the file attribution, so it reasons over facts rather than
    guessing from labels.
 2. **It answers in your terminal** — your model, your session, fully
    inspectable. rungraph never runs a model and has no API key.
@@ -261,9 +288,13 @@ asking questions never requires the dashboard to be open.
 
 | symptom | cause / fix |
 |---|---|
-| `mcp --install` output looks like an error | it writes status to stderr; exit code is 0. Run `--check`. |
-| Claude doesn't see the tools | restart Claude Code after `--install`; then `--check`. |
-| `the claude CLI is not on PATH` | `--install` prints the exact JSON to paste into your MCP config. |
+| `mcp --install` output looks like an error | it writes status to stderr; exit code is 0 if at least one agent ended usable. Run `--check`. |
+| your agent doesn't see the tools | restart it (or start a new session) after `--install`; then `--check`. |
+| `the claude CLI is not on PATH` | `--install` prints the exact block to paste into that agent's MCP config. |
+| `✖ registered, but claude cannot connect to it` | the registration has gone stale. `claude mcp add` refuses duplicates, so re-running `--install` reports "already" and changes nothing — remove it first (`--check` prints the exact command), then install again. |
+| `--install` says `already registered — rewritten with the current launch command` | codex, Hermes and opencode overwrite on a re-add, so your config now points at the current command even though nothing "new" was installed. Restart that agent. |
+| `--check` says an agent is detected but its CLI is missing | advisory, not a failure: runs on disk prove you *used* that agent; the binary may since have gone. |
+| serve keeps printing the MCP nudge | no agent has handshaked yet — check the registration actually loads, or set `RUNGRAPH_NO_NUDGE=1`. |
 | the highlight never appears | nothing was open. It now opens a tab for you; if not, `--check` the dashboard line. |
 | a pane is missing | you collapsed it — `[` or `]`. Remembered per browser. |
 | a run shows a banner about unrecognized records | your Claude Code is newer than your rungraph. The graph still renders; `npx rungraph@latest`. |

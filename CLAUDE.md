@@ -10,10 +10,14 @@ Zero-setup, agent-first visualizer for AI coding-agent runs: `npx rungraph` reco
   - `docs/superpowers/specs/2026-08-12-signal-and-focus-layer-design.md` — signals, focus, files, MCP.
   - `docs/superpowers/specs/2026-08-20-opencode-adapter-design.md` — the opencode adapter,
     `src/sqlite.js`, and the core `IRNode.reverted` field.
+  - `docs/superpowers/specs/2026-08-20-mcp-install-loop-design.md` — `src/clients.js`,
+    multi-client `--install`/`--check`, the launch resolver and the `serve` nudge. Read its
+    **Implementation amendments** section: two of its ground-truth claims were falsified by
+    re-probing during the build, and the code follows the probe, not the spec.
 - **v1 and the signal & focus layer are implemented.** Scanner, adapter, IR, CLI, server,
   live-tail watcher, the Preact frontend, `deriveSignals`, file attribution, the FocusSet
   spine, and `rungraph mcp` all ship.
-- **Four adapters ship:** claude-code, codex, hermes, opencode. The last two read SQLite
+- **Four adapters ship, and four clients:** claude-code, codex, hermes, opencode. The last two read SQLite
   through the shared `src/sqlite.js` and need Node ≥ 22.13; on older Nodes they self-disable
   with a structured warning, and only when a database actually exists to be skipped.
 
@@ -73,7 +77,7 @@ real sessions, never reasoned into place.
 
 ## Shared code, one implementation
 
-Six things exist exactly once because a second copy could disagree with the first:
+Seven things exist exactly once because a second copy could disagree with the first:
 
 - `src/signals.js` — the run's opinion. Server-side only.
 - `src/find.js` — the matcher. **No imports at all**, so the frontend bundle imports it directly
@@ -98,6 +102,16 @@ Six things exist exactly once because a second copy could disagree with the firs
   moment this whole rule was written for: two copies of the recovery policy
   could disagree. `tests/hermes.test.js` passing unmodified across the
   extraction is the extraction's own test.
+- `src/clients.js` — the MCP client table: how rungraph installs into an agent and
+  how it reads back whether it is there. `--install`, `--check` and `serve`'s nudge each
+  need that answer, and three copies of it DID disagree — `--install` knew two clients,
+  `--check` knew one, and the README published a third (a Hermes line that silently
+  no-ops when scripted). Keyed to `ADAPTERS` by `adapter`, because an adapter's runs on
+  disk are the entire detection mechanism; `tests/clients.test.js` fails CI if an adapter
+  has no entry, so a fifth adapter cannot land without deciding how that provider
+  installs. It does NOT take the no-imports rule — nothing in `frontend/` imports it, and
+  §6's provider-neutral dashboard copy is what keeps that true. Every vendor behaviour in
+  it was probed against the real CLI, and the per-entry comments record what was SEEN.
 - `frontend/src/focus.js` — the FocusSet spine. Attention markers, file clicks, text find and
   the agent's answer are not four features; they all reduce to "light up this set of nodes, and
   say why". Non-members **dim, never hide** — hiding collapses the layout and destroys the
@@ -135,6 +149,16 @@ phantom lane and not a coverage penalty). Both passed the whole suite before the
 because nothing in the corpus crossed those two features. One cross-adapter test asserts the tool-node status invariant
 (`error` iff `errorCount >= callCount`) over all four corpora — it previously existed as four
 independent copies and was asserted nowhere.
+
+`tests/clients.test.js` covers the MCP install loop, and splits the same way the SQLite
+adapters do: the table shape, the launch resolver, the breadcrumb/nudge and a
+`--check --json` case driven by **PATH shims** all run everywhere including CI, while one
+integration test per vendor is gated on that vendor's binary and is the developer's local
+gate. Those four run real `mcp add` commands, so every vendor config home is redirected
+into the sandbox **by default** rather than per-test — a fail-safe written after a test that
+only meant to read a JSON report delegated for real and registered rungraph in the
+developer's own `~/.config/opencode/opencode.jsonc`. Note which variable isolates opencode:
+`XDG_CONFIG_HOME`, not `OPENCODE_CONFIG` — opencode honours the latter on its READ path only.
 
 **Calibration is local and recorded, never inferred.** The opencode gate ran the adapter over
 this machine's real corpus on 2026-08-20 (10 runs / 2,561 rows, the fork excluded because it

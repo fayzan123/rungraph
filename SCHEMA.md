@@ -446,7 +446,23 @@ re-execute on load; only `{source:'agent',nodeIds,label,reason}` is an
 explicit set. A link landing on a server that lacks the run consults
 `GET /api/locate/:runId` and offers a jump to the server that has it.
 
-Register it once with `rungraph mcp --install`.
+Register it once with `rungraph mcp --install`, which registers with every
+agent whose runs are on this machine (`--client claude|codex|hermes|opencode|all`
+targets one, or all four). `--install --json` reports per client:
+`{ detected, installed, already, pasted, failed, launch, clients: [...] }`. The
+per-client object keeps every field a single-client install used to return at top
+level (`client`, `installed`, `alreadyInstalled`, `scope`, `command`, `config`,
+`reason`, and the paste-tier `configPath`/`configExists`/`candidates`/
+`instructions`/`instructionsFile`), and adds `status` — `installed` / `already` /
+`pasted` / `failed`, the one field to read. **One field was removed:** `wrote`,
+which had become misleading once every client delegated — the vendor's own CLI
+writes its own config file and rungraph writes none of them. `--check --json` keeps `{ ok, checks }`, and the new per-row fields (`client`,
+a `state` of `ok`/`absent`/`broken`, `advisory`) are additive. **The DATA is not
+additive, though:** the single check named `registered with claude` no longer
+exists. It became one `registered · <client>` row per detected provider, so
+`checks.find(c => c.name === 'registered with claude')` now returns undefined.
+`ok` still means "the loop is usable", which is now "at least one detected
+provider is registered".
 
 ## Versioning
 
