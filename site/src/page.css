@@ -237,6 +237,65 @@ button:focus-visible,
 }
 .benefits li::before { content: '●  '; color: var(--sage-dim); font-size: 8px; vertical-align: 2px; }
 
+/* ---------- works-with marquee ----------
+   Five adapter marks gliding left, a full-bleed band between the hero and the
+   stage. Pure CSS: the track holds ten identical sets and translates by -50%
+   (five sets), so the wrap is seamless by construction and the band stays
+   covered on viewports up to ~3600px. Never pauses. Under
+   prefers-reduced-motion it does not scroll at all: the duplicate set is
+   dropped and the five items sit in a static wrapping row (also the exact
+   layout a no-CSS-animation environment degrades to). */
+.works-with { margin: 0 0 34px; }
+.works-with > .microlabel { color: var(--ink-faint); margin-bottom: 14px; padding: 0 var(--gutter); }
+.marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+.marquee-track { display: flex; width: max-content; }
+.marquee-set {
+  display: flex;
+  align-items: center;
+  gap: 64px;
+  padding: 0 64px 0 0;
+  margin: 0;
+  list-style: none;
+}
+.marquee-set li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  transition: color 160ms ease-out;
+}
+.marquee-set li:hover { color: var(--ink); }
+.adapter-mark { height: 28px; width: 28px; display: block; transition: color 160ms ease-out; }
+/* On hover every mark lifts to full-strength ink, uniformly — the li:hover
+   rule above provides it (a Claude brand-orange variant was tried and cut:
+   one coloured item in an otherwise white row read as an inconsistency). */
+/* opencode's official mark is two-tone: full frame, quieter inner block. */
+.mark-opencode .oc-core { opacity: 0.45; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* speed, not period, is the tuned quantity: ~28px/s. The half-track is
+     five sets (~4600px), hence the long period. */
+  .marquee-track { animation: marquee-glide 164s linear infinite; }
+}
+@keyframes marquee-glide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee { mask-image: none; -webkit-mask-image: none; }
+  .marquee-track { width: auto; }
+  .marquee-set { flex-wrap: wrap; gap: 14px 34px; padding: 0 var(--gutter); }
+  .marquee-set[aria-hidden] { display: none; }
+}
+
 /* ---------- the stage (embed) ---------- */
 .stage {
   position: relative;
@@ -386,13 +445,14 @@ button:focus-visible,
   .js [data-revealed] > * { opacity: 1; transform: none; }
 
   /* Page-load choreography: the hero settles in once, top to bottom. */
-  .hero > *, .nav {
+  .hero > *, .nav, .works-with {
     animation: hero-in 700ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
   .hero > h1 { animation-delay: 60ms; }
   .hero > .lede { animation-delay: 140ms; }
   .hero > .cta-row { animation-delay: 220ms; }
   .hero > .benefits { animation-delay: 300ms; }
+  .works-with { animation-delay: 380ms; }
 }
 @keyframes hero-in {
   from { opacity: 0; transform: translateY(14px); }
