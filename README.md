@@ -13,9 +13,11 @@ Your coding agent already wrote down everything it did. `rungraph` reads those
 transcripts — and hands your agent the tools to read them too. You ask in your
 terminal: *"why did the Edit on `token.js` keep failing?"* The answer arrives
 there, in your own session, from your own model, fully inspectable. Then the
-graph you have open **lights up the exact nodes the answer is about**, and
-hands back a link that reopens that view for anyone you send it to. See
-[Ask your agent about a run](#ask-your-agent-about-a-run).
+graph you have open **lights up the exact nodes the answer is about**. Pick the
+runs behind a PR and export them as one file: the reviewer opens it on their
+own machine, sees the same graph, and their agent can question your work. See
+[Ask your agent about a run](#ask-your-agent-about-a-run) and
+[Sharing a run](#sharing-a-run).
 
 ```
 npx rungraph
