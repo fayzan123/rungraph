@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { fetchDetail } from './api.js';
 import { fmtTokens, fmtDuration } from './canvas.jsx';
 import { SIGNAL_GLYPHS } from './strip.jsx';
-import { adapterName, filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
+import { adapterName, compactPath, filesIndex, rankedFocusNodes, relPath, signalsForNode } from './focus.js';
 import { suggestQuestions } from './suggest.js';
 import { coverageStats, unknownTypeSummary } from '../../src/coverage.js';
 
@@ -92,12 +92,12 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
         {totals.tokens != null && (<><dt>tokens</dt><dd>{fmtTokens(totals.tokens)}</dd></>)}
         {cov && (
           <>
-            <dt>records</dt>
+            <dt>read</dt>
             <dd
               data-partial={String(cov.unrecognized > 0 || cov.sourcesUnread > 0)}
-              title="records this adapter read, out of the records it examined"
+              title="records this adapter could interpret, out of the records it examined"
             >
-              {cov.records - cov.unrecognized} / {cov.records}
+              {cov.records - cov.unrecognized} of {cov.records} records
               {cov.sourcesUnread > 0 && (
                 <span class="microlabel">
                   {' '}+ {cov.sourcesUnread} unread source{cov.sourcesUnread === 1 ? '' : 's'}
@@ -167,7 +167,7 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
                 onClick={() => onFocusFile?.(f.path)}
                 title={f.path}
               >
-                <span class="grow">{relPath(f.path, project)}</span>
+                <span class="grow">{compactPath(relPath(f.path, project))}</span>
                 <span class="n">{f.count}</span>
               </button>
             ))}
@@ -177,6 +177,74 @@ function RunOverview({ graph, project, focus, onSelectNode, onFocusSignal, onFoc
 
       <AskYourAgent graph={graph} project={project} />
     </>
+  );
+}
+
+/**
+ * A call's input, as the fields it was made of. Adapters hand the inspector
+ * `input` as pretty-printed JSON, which for a shell command means a `command`
+ * string full of `\"` escapes and `\n` pairs — the least readable form of
+ * the one thing the user came to read. When the text parses as a flat object
+ * (string / number / boolean values, a handful of keys) it renders as
+ * key → value with strings shown raw; anything else falls back to the text.
+ */
+function CallInput({ text }) {
+  const pairs = flatPairs(text);
+  if (!pairs) return <pre>{text}</pre>;
+  return (
+    <div class="call-input">
+      {pairs.map(([k, v]) => (
+        <div class="pair" key={k}>
+          <span class="microlabel k">{k}</span>
+          <pre>{v}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function flatPairs(text) {
+  if (typeof text !== 'string' || text.length > 20_000 || text[0] !== '{') return null;
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return null; // capped or truncated by the adapter — show as is
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const entries = Object.entries(obj);
+  if (entries.length === 0 || entries.length > 12) return null;
+  const out = [];
+  for (const [k, v] of entries) {
+    if (typeof v === 'string') out.push([k, v]);
+    else if (typeof v === 'number' || typeof v === 'boolean' || v === null) out.push([k, String(v)]);
+    else return null; // nested — the JSON is the honest view of that
+  }
+  return out;
+}
+
+/**
+ * In a collapsed group of many calls, the failed ones are what the user
+ * opened the node to find, and they can sit forty blobs down. One chip per
+ * failure, jumping to it.
+ */
+function FailedCallJumps({ calls }) {
+  const failed = calls.map((c, i) => (c.isError ? i + 1 : null)).filter(Boolean);
+  if (failed.length === 0 || calls.length < 4) return null;
+  return (
+    <div class="call-jumps">
+      <span class="microlabel">{failed.length === 1 ? 'failed:' : `${failed.length} failed:`}</span>
+      {failed.slice(0, 12).map((n) => (
+        <button
+          class="ghost err"
+          key={n}
+          onClick={() => document.getElementById(`call-${n}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+        >
+          ✕ #{n}
+        </button>
+      ))}
+      {failed.length > 12 && <span class="microlabel">+{failed.length - 12} more</span>}
+    </div>
   );
 }
 
@@ -355,7 +423,7 @@ function NodeDetail({
           <div class="rows">
             {node.files.map((f) => (
               <button class="row" key={f} onClick={() => onFocusFile?.(f)} title={f}>
-                <span class="grow">{relPath(f, project)}</span>
+                <span class="grow">{compactPath(relPath(f, project))}</span>
               </button>
             ))}
           </div>
@@ -429,14 +497,15 @@ function DetailBody({ detail }) {
             </>
           )}
           <div class="microlabel section-label">{detail.calls.length} call{detail.calls.length === 1 ? '' : 's'}</div>
+          <FailedCallJumps calls={detail.calls} />
           {detail.calls.map((c, i) => (
-            <div class="tool-call" key={i}>
+            <div class="tool-call" key={i} id={`call-${i + 1}`}>
               <div class="head">
                 <span class={c.isError ? 'err' : 'ok'}>{c.isError ? '✕' : '✓'}</span>
                 <span>#{i + 1}</span>
                 {c.durationMs != null && <span>{fmtDuration(c.durationMs)}</span>}
               </div>
-              <pre>{c.input}</pre>
+              <CallInput text={c.input} />
               {c.output && <pre>{c.output}</pre>}
             </div>
           ))}

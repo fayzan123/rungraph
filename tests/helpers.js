@@ -6,6 +6,10 @@ export const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtu
 export const CODEX_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'codex');
 export const HERMES_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'hermes');
 export const OPENCODE_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'opencode');
+/** Cursor is two roots under one adapter: the IDE store dir and the cursor-agent data dir. */
+export const CURSOR_IDE_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cursor', 'ide');
+export const CURSOR_CLI_FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cursor', 'cli');
+export const CURSOR_FIXTURE_ROOTS = [CURSOR_IDE_FIXTURE_ROOT, CURSOR_CLI_FIXTURE_ROOT];
 
 /**
  * Pin every fixture file's mtime to a fixed past instant so liveness
@@ -24,6 +28,7 @@ export async function pinFixtureMtimes(when = new Date('2026-08-01T13:00:00Z')) 
   await walk(CODEX_FIXTURE_ROOT);
   await walk(HERMES_FIXTURE_ROOT);
   await walk(OPENCODE_FIXTURE_ROOT);
+  await walk(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cursor'));
 }
 
 export const SESSION_RUN_ID =
@@ -95,15 +100,49 @@ export const OC_LANE_CHILD_ID = 'ses_fxe1000000000lanechild';
 export const OC_DENY_TASK_RUN_ID = 'opencode:ses_fxf00000000000denytask';
 
 /**
+ * Cursor: the fixture corpus (tests/cursor.test.js, Node ≥ 22.13 only).
+ * IDE composers under tests/fixtures/cursor/ide/state.vscdb, CLI chats under
+ * tests/fixtures/cursor/cli/chats/<md5(cwd)>/<agentId>/.
+ */
+export const CU_CLEAN_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-00000000c1ea';
+export const CU_TROUBLE_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-000000780b1e';
+export const CU_REJECTION_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-0000000e7ec7';
+export const CU_INFLIGHT_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-00000000f11e';
+export const CU_SUBAGENT_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-0000005ab000';
+export const CU_CHILD_TASK_ID = 'task-c0c0c0c0-0000-4000-8000-0000005ab001';
+export const CU_CHILD_INFO_ID = 'c0c0c0c0-0000-4000-8000-0000005ab002';
+export const CU_MISSING_CHILD_ID = 'c0c0c0c0-0000-4000-8000-0000005ab0ff';
+export const CU_TOMBSTONED_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-0000007011b5';
+export const CU_UNSUPPORTED_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-000000000003';
+export const CU_DEGRADED_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-000000000009';
+export const CU_CROSS_PROJECT_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-00000000c055';
+export const CU_BUCKET_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-000000b0c4e7';
+export const CU_SECRETS_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-0000005ec7e7';
+export const CU_CLI_REV2_RUN_ID = 'cursor:13fc220d-0000-4000-8000-000000000002';
+export const CU_CLI_REV3_RUN_ID = 'cursor:2acba01b-0000-4000-8000-000000000003';
+export const CU_CLI_INFLIGHT_RUN_ID = 'cursor:f11ef11e-0000-4000-8000-000000000004';
+export const CU_CLI_BROKEN_ROOT_RUN_ID = 'cursor:badf00d0-0000-4000-8000-000000000005';
+export const CU_GRANDCHILD_ID = 'c0c0c0c0-0000-4000-8000-0000005ab011';
+export const CU_BATCH_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-00000000ba7c';
+export const CU_EDIT_RUN_ID = 'cursor:c0c0c0c0-0000-4000-8000-000000000ed1';
+export const CU_CLI_BATCH_RUN_ID = 'cursor:ba7cba7c-0000-4000-8000-000000000006';
+export const CU_CLI_SIBLING_RUN_ID = 'cursor:51b11b51-0000-4000-8000-000000000007';
+/** The two live key values the IDE fixtures carry, and the CLI's 64-hex one. None may ever reach an IR. */
+export const CU_IDE_BLOB_KEY = 'Q3Vyc29yQmxvYktleUZpeHR1cmVTZWNyZXRWYWx1ZTAwMDE=';
+export const CU_IDE_SUMMARY_KEY = 'U3BlY3VsYXRpdmVLZXlGaXh0dXJlU2VjcmV0VmFsdWUwMDAy';
+export const CU_CLI_BLOB_KEY = 'fe5262' + 'c0ffee'.repeat(9) + '0042';
+
+/**
  * Every run a full scan of the claude + codex fixture roots contains: 8
  * Claude (2 sessions + clean + trouble + secrets + 2 drift + 1 workflow) + 3 Codex
  * (clean + subagent parent + old-format; child/grandchild rollouts are not
  * independent runs). Hermes fixture runs are NOT in this count — the
- * cross-cutting suites disable BOTH SQLite adapters (RUNGRAPH_HERMES_HOME=''
- * and RUNGRAPH_OPENCODE_HOME='') so they stay green on the Node 20 CI leg,
- * and tests/hermes.test.js / tests/opencode.test.js scan those fixtures
- * behind their own node:sqlite gates. Disabling them also keeps a suite from
- * wandering into the developer's REAL opencode database, which is one global
- * file in a fixed location rather than a per-project tree.
+ * cross-cutting suites disable all THREE SQLite adapters (RUNGRAPH_HERMES_HOME='',
+ * RUNGRAPH_OPENCODE_HOME='', and both Cursor roots) so they stay green on the
+ * Node 20 CI leg, and tests/hermes.test.js / tests/opencode.test.js /
+ * tests/cursor.test.js scan those fixtures behind their own node:sqlite gates.
+ * Disabling them also keeps a suite from wandering into the developer's REAL
+ * opencode and Cursor databases, which are global files in fixed locations
+ * rather than per-project trees.
  */
 export const FIXTURE_RUN_COUNT = 11;

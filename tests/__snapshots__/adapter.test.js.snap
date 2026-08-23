@@ -6,7 +6,7 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "kind": "session",
     "project": "/home/dev/acme",
     "runId": "claude-code:-home-dev-acme:11111111-1111-4111-8111-111111111111",
-    "sizeBytes": 41973,
+    "sizeBytes": 42402,
     "startedAt": "2026-08-01T12:00:01.500Z",
     "title": "Fix flaky login test",
   },
@@ -30,7 +30,7 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "kind": "session",
     "project": "/home/dev/acme",
     "runId": "claude-code:-home-dev-acme:33333333-3333-4333-8333-333333333333",
-    "sizeBytes": 8597,
+    "sizeBytes": 8961,
     "startedAt": "2026-08-01T12:01:16.500Z",
     "title": "Add CHANGELOG entry",
   },
@@ -180,7 +180,7 @@ exports[`parse: session > produces the expected IR 1`] = `
   "meta": {
     "adapter": "claude-code",
     "coverage": {
-      "records": 49,
+      "records": 51,
       "sourcesUnread": 0,
       "unrecognized": 2,
     },

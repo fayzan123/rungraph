@@ -4,9 +4,10 @@ import * as claudeCode from './adapters/claude-code/index.js';
 import * as codex from './adapters/codex/index.js';
 import * as hermes from './adapters/hermes/index.js';
 import * as opencode from './adapters/opencode/index.js';
+import * as cursor from './adapters/cursor/index.js';
 
 /** Registered adapters. */
-export const ADAPTERS = [claudeCode, codex, hermes, opencode];
+export const ADAPTERS = [claudeCode, codex, hermes, opencode, cursor];
 
 /** How recently a run's files must have changed to be badged "live". */
 const ACTIVE_WINDOW_MS = 45_000;
@@ -37,7 +38,29 @@ export function defaultRootDirs() {
       // be run from, which finds nothing and reports no opencode runs.
       join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), 'opencode'),
     ),
+    // Cursor is two stores under one adapter: the IDE's global state.vscdb
+    // and cursor-agent's per-chat directories. Two env-overridable roots
+    // compose into one array; the adapter classifies each root BY SHAPE
+    // (state.vscdb → IDE, chats/ → CLI), so order here is immaterial and an
+    // override set to '' disables that surface alone — both empty disables
+    // the adapter through the "empty array → skip" rule below.
+    cursor: [
+      ...roots('RUNGRAPH_CURSOR_GLOBAL_STORAGE', join(cursorUserData(), 'User', 'globalStorage')),
+      // `||`, not `??`, for CURSOR_DATA_DIR — the XDG_DATA_HOME lesson above:
+      // an exported-but-empty variable spells "unset".
+      ...roots('RUNGRAPH_CURSOR_CLI_HOME', process.env.CURSOR_DATA_DIR || join(homedir(), '.cursor')),
+    ],
   };
+}
+
+/**
+ * Cursor's Electron `userData` directory. Only macOS is verified (spec §16
+ * item 9); Linux and Windows follow Electron's convention.
+ */
+function cursorUserData() {
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Cursor');
+  if (process.platform === 'win32') return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Cursor');
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Cursor');
 }
 
 /**

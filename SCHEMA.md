@@ -40,7 +40,9 @@ consumers must tolerate its absence (a bundle written by an older rungraph has
 none), and must treat absence as *unknown*, never as complete.
 
 - `records` — records the adapter **examined**, in **its own unit**: non-blank
-  JSONL lines for `claude-code` and `codex`, walked rows for `hermes`. Because
+  JSONL lines for `claude-code` and `codex`, walked rows for `hermes` and
+  `opencode`, and for `cursor` conversation **headers** walked (IDE) or root
+  snapshot **entries** walked (CLI). Because
   the unit is adapter-defined, a ratio is only meaningful *within one run* and
   `records` is never compared across adapters. A tolerated final malformed
   record (mid-write truncation during live tail) counts here and **not** in
@@ -101,11 +103,45 @@ bags):
     naming a session row that is *gone* — is charged to `sourcesUnread`.
 - **`node.ext.opencode.truncated`** (tool nodes) — how many of that group's
   collapsed calls carry a preview instead of full output.
+- **`meta.ext.cursor`** — one bag, two shapes, told apart by `surface`:
+  `"ide"` (a Cursor IDE conversation out of `state.vscdb`) or `"cli"` (a
+  `cursor-agent` chat out of its per-chat `store.db`).
+  - IDE: `{ surface: "ide", _v, status?, unifiedMode?, forceMode?, isAgentic?,
+    agentBackend?, model?, contextUsage?, totalLinesAdded?, totalLinesRemoved?,
+    filesChangedCount?, isArchived?, unsupportedVersion?, skippedBubbles?,
+    orphanBubbles?, missingChildComposers?, unknownTypes?, unknownToolStatuses? }`.
+    `_v` is Cursor's composer format version (17 today); a composer below the
+    adapter's floor (`_v < 9`) is **listed, never parsed**, carries
+    `unsupportedVersion: true`, and reports every header as `unrecognized`
+    under the type name `composer-v<N>`, so the badge reads "only 0% of this
+    run could be parsed" rather than implying it was read.
+  - CLI: `{ surface: "cli", mode?, isRunEverything?, model?, cliSchemaVersion?,
+    rootUnreadable?, unmatchedResults?, unknownTypes?, unknownBlockTypes? }`.
+    `isRunEverything` is `cursor-agent --force`; `cliSchemaVersion` appears only
+    when `meta.json`'s `schemaVersion` is not the `1` this adapter was built
+    on; `rootUnreadable` names which of the four reasons left the graph empty
+    (`meta`, `no-root-id`, `root-missing`, `root-unparseable`) — such a run
+    reports `records: 0, sourcesUnread: 1` and is still listed.
+  - **`totals.tokens` is always `0` for Cursor.** Per-message token counts are
+    `{0, 0}` on every record measured, and the IDE composer's
+    `contextTokensUsed / contextTokenLimit` is a **context-window gauge, not
+    spend** — reporting it as totals would overstate cost by an unknowable
+    factor. It is carried as `contextUsage: { tokensUsed, tokenLimit, percent }`
+    with its meaning intact. This is a real gap relative to Hermes and opencode.
+  - `unknownToolStatuses` and `unknownBlockTypes` are **drift tallies, not
+    coverage events**: a tool call whose `status` is outside the vocabulary the
+    adapter knows is still classified on its evidence (never as `running`), and
+    a message holding an unknown block type still counts as read. They are
+    separate from `unknownTypes` on purpose, so the coverage note does not
+    mistake vocabulary drift for unread records.
+  - Neither of Cursor's two encryption-key fields is ever copied into this bag,
+    the IR or the details — and `redactTree` additionally redacts any value
+    under those field names by position (see the secrets scan).
 - **`node.ext.codex`** (agent nodes) — `{ nickname, agentPath, depth }`,
   Codex's multi-agent lineage.
 - **`meta.ext.<adapter>.unknownTypes`** — `{ "<record type>": count }`, the
   record types that adapter could not interpret. Present on any adapter, hence
-  the `<adapter>` key (`claudeCode`, `codex`, `hermes`, `opencode`). Type names are vendor
+  the `<adapter>` key (`claudeCode`, `codex`, `hermes`, `opencode`, `cursor`). Type names are vendor
   vocabulary, which is why they live in `ext` rather than beside `coverage`: a
   percentage alone is unactionable, because "read 95%, all of it one metadata
   type" and "read 95%, and 400 assistant turns are missing" are the same number
@@ -383,6 +419,15 @@ deliberate, named act. No entropy heuristics — the pattern list is calibrated
 against real corpora for near-zero false positives, and the scanner **fails
 closed**: if it throws, nothing leaves.
 
+One rule is keyed by field **name** rather than value shape: a non-empty value
+under `blobEncryptionKey` or `speculativeSummarizationEncryptionKey` (the two
+live keys Cursor keeps on its records) is a finding and is redacted as
+`[REDACTED:key-name]` wherever it sits in the tree. Those values are a bare
+64-hex string and a base64 string that no prefix pattern can catch, and the
+obvious value-shape fix — a 64-hex pattern — would redact every content-hash
+id in Cursor's stores. The adapter never copies either field in the first
+place; this rule guards the day a future payload dumps a raw record.
+
 ### Structure-only census
 
 The governing rule: **derived and mechanical survives; authored text dies.**
@@ -447,8 +492,11 @@ explicit set. A link landing on a server that lacks the run consults
 `GET /api/locate/:runId` and offers a jump to the server that has it.
 
 Register it once with `rungraph mcp --install`, which registers with every
-agent whose runs are on this machine (`--client claude|codex|hermes|opencode|all`
-targets one, or all four). `--install --json` reports per client:
+agent whose runs are on this machine (`--client claude|codex|hermes|opencode|cursor|all`
+targets one, or all five). Cursor is the paste tier — `cursor-agent mcp` has
+no `add` — so its row is always `pasted`, and its per-client object carries a
+`deeplink` (`cursor://anysphere.cursor-deeplink/mcp/install?…`) beside the
+block: the IDE's own one-click install, printed and never invoked. `--install --json` reports per client:
 `{ detected, installed, already, pasted, failed, launch, clients: [...] }`. The
 per-client object keeps every field a single-client install used to return at top
 level (`client`, `installed`, `alreadyInstalled`, `scope`, `command`, `config`,

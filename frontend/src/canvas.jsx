@@ -36,6 +36,7 @@ export function Canvas({
   onUserPan,
   focus,
   focusSeq,
+  revealSeq,
   onClearFocus,
   onOpenFind,
   inspectorOpen,
@@ -61,6 +62,7 @@ export function Canvas({
   const prevRunId = useRef(null);
   const prevInspectorOpen = useRef(false);
   const pannedSeq = useRef(0); // focusSeq the viewport has already moved for
+  const revealedSeq = useRef(0); // revealSeq the viewport has already moved for
   const placedLive = useRef(false); // the `live` value the initial view used
   const placedWidth = useRef(0); // canvas width the initial view was framed for
   const userMoved = useRef(false); // any deliberate pan/zoom this run
@@ -112,8 +114,17 @@ export function Canvas({
     const runId = graph?.meta?.runId;
     const isNewRun = runId !== prevRunId.current || prevHeight.current === 0;
     prevRunId.current = runId;
+    // Where a too-wide run opens: on its first node, or its latest when live.
+    const anchorX = (isLive) => {
+      let best = null;
+      for (const pos of layout.nodes.values()) {
+        if (!best) best = pos;
+        else if (isLive ? pos.y + pos.h > best.y + best.h : pos.y < best.y || (pos.y === best.y && pos.x < best.x)) best = pos;
+      }
+      return best ? best.x + best.w / 2 : null;
+    };
     if (isNewRun) {
-      setView(initialView(layout, b, live));
+      setView(initialView(layout, b, live, 40, anchorX(live)));
       placedLive.current = live;
       placedWidth.current = b.width;
       userMoved.current = false;
@@ -122,13 +133,13 @@ export function Canvas({
       // the first frame is measured against a canvas that has not finished
       // shrinking and the graph settles off-centre. Re-frame once the width
       // stops moving — but never after the user has taken the view themselves.
-      setView(initialView(layout, b, placedLive.current));
+      setView(initialView(layout, b, placedLive.current, 40, anchorX(placedLive.current)));
       placedWidth.current = b.width;
     } else if (live && !placedLive.current && !userMoved.current) {
       // Deep-linked run: the graph can lay out before the index scan reveals
       // it is live. Re-anchor to the latest activity once we know — but only
       // if the user hasn't already moved the view.
-      setView(initialView(layout, b, true));
+      setView(initialView(layout, b, true, 40, anchorX(true)));
       placedLive.current = true;
     } else if (follow && layout.height > prevHeight.current) {
       setView((v) => ({
@@ -366,6 +377,17 @@ export function Canvas({
     onUserPan?.(); // an answer the user asked for outranks auto-follow
   }, [focusSeq, focus, layout]);
 
+  // A node chosen from outside the canvas (the inspector's match list, Enter
+  // in find) pans to it — the same move the minimap and the keyboard walk
+  // already make. Keyed on the ref so a reveal that beat the layout still
+  // pans as soon as the layout lands.
+  useEffect(() => {
+    if (revealSeq === undefined || revealSeq === revealedSeq.current) return;
+    if (!layout || selection?.type !== 'node') return;
+    revealedSeq.current = revealSeq;
+    centerNode(selection.id);
+  }, [revealSeq, selection, layout]);
+
   if (!graph) {
     return (
       <div class="canvas-wrap" ref={wrapRef}>
@@ -375,6 +397,31 @@ export function Canvas({
           {!error && (
             <div class="microlabel">every session still on disk is already here — no setup</div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // A run that parsed to NOTHING must still say something — never-blank-
+  // screen reaches the canvas too. The strip's coverage badge carries the
+  // verdict; this is the same fact, in words, where the user is looking.
+  if (graph.nodes.length === 0) {
+    const c = graph.meta?.coverage;
+    const unread = c && c.records > 0 && c.unrecognized >= c.records;
+    return (
+      <div class="canvas-wrap" ref={wrapRef}>
+        <div class="canvas-empty">
+          <div class="glyph">◍</div>
+          <div>
+            {unread
+              ? `nothing in this run could be parsed — ${c.records} record${c.records === 1 ? '' : 's'}, none recognized`
+              : 'this run has no turns or tool calls to draw'}
+          </div>
+          <div class="microlabel">
+            {unread
+              ? 'the transcript format may be older or newer than this rungraph version'
+              : 'an empty session, or one that ended before its first turn'}
+          </div>
         </div>
       </div>
     );
@@ -707,7 +754,9 @@ function NodeView({ node, pos, selected, focused, dim, reverted, badge }) {
 
 function nodeMeta(n) {
   const parts = [];
-  if (n.kind === 'tool' && n.callCount > 1) parts.push(`×${n.callCount}`);
+  // Not the call count: every adapter already appends ` ×N` to a collapsed
+  // group's LABEL (the convention `toolFamily()` in signals.js strips), so
+  // repeating it here printed "Read · find.js ×2" over a second "×2".
   if (n.errorCount) parts.push(`${n.errorCount} err`);
   if (n.model) parts.push(n.model.length > 20 ? n.model.slice(0, 19) + '…' : n.model);
   if (n.tokens) parts.push(`${fmtTokens(n.tokens.input + n.tokens.output)} tok`);

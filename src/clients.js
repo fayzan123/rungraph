@@ -15,9 +15,9 @@ import { statOrNull } from './util.js';
  * it there?". Three copies of that answer are three things that can disagree,
  * and they DID disagree — `--install` knew two clients, `--check` knew one,
  * and the README knew a third (a Hermes line that silently no-ops when
- * scripted). rungraph ships four adapters; it should ship four clients, and
+ * scripted). rungraph ships five adapters; it should ship five clients, and
  * `tests/clients.test.js` makes that a build break rather than a good
- * intention.
+ * intention — the Cursor entry was added under exactly that guard.
  *
  * **This module does not take the no-imports rule** that binds `find.js`,
  * `coverage.js` and `secrets.js`. Those three are pure because the frontend
@@ -28,10 +28,12 @@ import { statOrNull } from './util.js';
  * it arrives over the API, not by import.
  *
  * Every vendor behaviour encoded below was PROBED against that vendor's real
- * CLI on 2026-08-20/21, each time against a throwaway config home, never the
- * developer's own. Versions: claude 2.1.238, codex-cli 0.144.4, Hermes Agent
- * v0.20.1, opencode 1.18.19. Nothing here is inferred from documentation, and
- * the per-entry comments record what was seen rather than what was expected.
+ * CLI on 2026-08-20/21 (Cursor on 2026-08-23), each time against a throwaway
+ * config home, never the developer's own. Versions: claude 2.1.238, codex-cli
+ * 0.144.4, Hermes Agent v0.20.1, opencode 1.18.19, cursor-agent 2026.08.11 /
+ * Cursor 3.16.29. Nothing here is inferred from documentation, and the
+ * per-entry comments record what was seen rather than what was expected —
+ * including, for Cursor, the one line that is still unverified.
  */
 
 /** rungraph's own bin, resolved from this module's location. */
@@ -673,7 +675,93 @@ export const CLIENTS = [
     restartHint: 'start a new opencode session',
     instructionsFile: 'AGENTS.md',
   },
+
+  {
+    name: 'cursor',
+    label: 'Cursor',
+    adapter: 'cursor',
+    // THE FIRST GENUINE PASTE-TIER CLIENT, and a decision rather than a
+    // fallback: `cursor-agent mcp` has `login | list | list-tools | enable |
+    // disable` and NO `add` (probed 2026-08-23, cursor-agent 2026.08.11), and
+    // rungraph never edits an agent's config file itself — a JSON-merge path
+    // with backup semantics would exist for one client only, and the README
+    // promises it does not. The IDE's own one-click install is the deeplink
+    // below; the config file is plain JSON read by BOTH surfaces (the IDE
+    // file-watches it), so one paste covers the IDE and the CLI.
+    tier: 'paste',
+    bin: 'cursor-agent',
+    pasteReason: '`cursor-agent mcp` has no `add`; Cursor reads ~/.cursor/mcp.json directly',
+    installStdin: null,
+    // Never reached: installOne() short-circuits the paste tier before any
+    // delegation. Present because the table's shape test requires one on
+    // every entry, and a delegate-tier future (if Cursor ships `mcp add`)
+    // would replace it rather than add it.
+    verdict() {
+      return 'failed';
+    },
+    listArgv: ['mcp', 'list'],
+    // VERIFIED VERBATIM for the absent case: with nothing configured,
+    // `cursor-agent mcp list` prints
+    //   No MCP servers configured (expected in .cursor/mcp.json or ~/.cursor/mcp.json)
+    // and exits 0. The healthy-line format is UNVERIFIED (nothing was
+    // registered on the probe machine — spec §16 item 11), so the match is
+    // deliberately loose: a line naming rungraph as a word. Whether listing
+    // handshakes with registered servers (and so needs the breadcrumb guard)
+    // is unverified too; runVendor's RUNGRAPH_NO_BREADCRUMB covers it either way.
+    isRegistered(output) {
+      const plain = output.replace(/\u001b\[[0-9;]*m/g, '');
+      // The server NAME at the start of a line (after any bullet, glyph or
+      // indent), and nothing else: `\brungraph\b` would also match a path
+      // in another server's args (`…/GitHub/rungraph`) or a server called
+      // `rungraph-other`, and report the loop usable when it is not — a false
+      // positive on the one question --check exists to answer.
+      const line = plain.split('\n').find((l) => /^[\s●○•*✓✔✗✘-]*rungraph(?![\w.\/-])/.test(l));
+      if (!line) return { ok: false, state: 'absent', detail: 'not registered' };
+      if (/\bdisabled\b/i.test(line)) {
+        return { ok: false, state: 'broken', detail: 'registered but disabled — `cursor-agent mcp enable rungraph`' };
+      }
+      return { ok: true, state: 'ok', detail: 'registered' };
+    },
+    // `~/.cursor/mcp.json` — the one file BOTH surfaces are verified to read
+    // (the IDE file-watches it; `cursor-agent mcp list` names it). Not the
+    // CLI's `$XDG_CONFIG_HOME/cursor` config-dir resolution: with
+    // XDG_CONFIG_HOME exported (common on Linux) that path would be one the
+    // IDE never looks at, and the "one paste covers both" promise would be
+    // false with nothing pointing at the cause. A project-level
+    // `<repo>/.cursor/mcp.json` works too and is named in the notes.
+    configPath: () => join(homedir(), '.cursor', 'mcp.json'),
+    configBlock(launch) {
+      const value = { mcpServers: { rungraph: { command: launch.command, args: launch.args } } };
+      return { format: 'json', value, text: jsonBlock(value) };
+    },
+    // `cursor://anysphere.cursor-deeplink/mcp/install?name=<n>&config=<base64 JSON>`
+    // — a real route in 3.16.29's deeplink router; it opens Cursor's own
+    // install confirmation. rungraph prints it and never invokes it.
+    //
+    // Percent-encoded, because it is a QUERY value: base64 can contain `+`,
+    // which a query parser turns into a space (the absolute-path launch case
+    // produces one for any home directory with a non-ASCII character in it),
+    // and `=` padding. `encodeURIComponent` keeps both intact through any
+    // `URLSearchParams`-style reader. Whether Cursor's handler decodes a
+    // payload holding non-ASCII bytes is unverified; the paste block beside
+    // the link is the path that needs no handler.
+    deeplink: (launch) =>
+      'cursor://anysphere.cursor-deeplink/mcp/install?name=rungraph&config=' +
+      encodeURIComponent(
+        Buffer.from(JSON.stringify({ command: launch.command, args: launch.args }), 'utf8').toString('base64'),
+      ),
+    notes: [
+      'Cursor setup is one paste (or one click on the deeplink) because `cursor-agent mcp` has no `add` — a vendor fact, not a rungraph limitation',
+      'a project-level <repo>/.cursor/mcp.json with the same block works too; both the IDE and cursor-agent read it',
+    ],
+    restartHint: 'reload the Cursor window, or start a new cursor-agent session',
+    // Cursor documents AGENTS.md support; unverified on this build (spec §16
+    // item 15). If it turns out not to, this becomes `.cursor/rules/` — a
+    // one-string change.
+    instructionsFile: 'AGENTS.md',
+  },
 ];
+
 
 /**
  * Where opencode looks for its config, most specific first. `OPENCODE_CONFIG`

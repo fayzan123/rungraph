@@ -21,17 +21,20 @@ npx rungraph
 ```
 
 That's the whole setup. It scans `~/.claude/projects`, `~/.codex/sessions`,
-`~/.hermes` and `~/.local/share/opencode`, starts a server on
-`127.0.0.1:4321`, and opens your browser. Requires Node ≥ 20 (Hermes and
-opencode runs need ≥ 22.13 for the built-in SQLite reader — on older Nodes
-they're skipped with a warning and everything else works;
-`RUNGRAPH_HERMES_HOME` and `RUNGRAPH_OPENCODE_HOME` point the scan elsewhere,
-and opencode's own `XDG_DATA_HOME` is honoured).
+`~/.hermes`, `~/.local/share/opencode` and Cursor's two stores (the IDE's
+`state.vscdb` under its application-support directory, and `~/.cursor/chats`
+for `cursor-agent`), starts a server on `127.0.0.1:4321`, and opens your
+browser. Requires Node ≥ 20 (Hermes, opencode and Cursor runs need ≥ 22.13 for
+the built-in SQLite reader — on older Nodes they're skipped with a warning and
+everything else works; `RUNGRAPH_HERMES_HOME`, `RUNGRAPH_OPENCODE_HOME`,
+`RUNGRAPH_CURSOR_GLOBAL_STORAGE` and `RUNGRAPH_CURSOR_CLI_HOME` point the scan
+elsewhere, and opencode's `XDG_DATA_HOME` and Cursor's `CURSOR_DATA_DIR` are
+honoured).
 
 There is nothing to configure and nothing to instrument. rungraph reads the
-JSONL transcripts Claude Code and Codex already write — and Hermes Agent's and
-opencode's SQLite databases — so **every session still on your disk is already
-there**, including ones from before you installed rungraph.
+JSONL transcripts Claude Code and Codex already write — and Hermes Agent's,
+opencode's and Cursor's SQLite databases — so **every session still on your
+disk is already there**, including ones from before you installed rungraph.
 (Claude Code prunes old transcripts after its `cleanupPeriodDays` retention
 setting, 30 days by default, so how far back "already there" reaches is that
 setting's call, not rungraph's.)
@@ -174,16 +177,22 @@ npx rungraph mcp --install     # registers with every agent detected here
 npx rungraph mcp --check       # confirm it worked
 ```
 
-rungraph ships four adapters and installs into four agents — Claude Code,
-Codex, Hermes and opencode. Bare `--install` registers with every one whose
-runs are already on this machine and reports per agent:
+rungraph ships five adapters and installs into five agents — Claude Code,
+Codex, Hermes, opencode and Cursor. Bare `--install` registers with every one
+whose runs are already on this machine and reports per agent:
 
 ```
 claude    registered (scope: user)
 codex     registered
 hermes    already registered
 opencode  registered
+cursor    paste required — block below
 ```
+
+Cursor is the one paste: `cursor-agent mcp` has no `add`, so rungraph prints
+the `mcpServers` block for `~/.cursor/mcp.json` (read by both the IDE and the
+CLI) and a `cursor://…/mcp/install` link that opens Cursor's own confirmation
+dialog. rungraph never opens the link or edits the file.
 
 Detection is what rungraph can *prove*: a provider counts as present because
 rungraph has read its transcripts, not because a binary is on your PATH — so a
@@ -350,5 +359,9 @@ rungraph mcp --check --json
 ```
 
 The IR is versioned and documented in [SCHEMA.md](../SCHEMA.md). It is
-vendor-neutral — Claude Code, Codex CLI, Hermes Agent and opencode are the four
-adapters today, and a `.rungraph` bundle opens with no adapter at all.
+vendor-neutral — Claude Code, Codex CLI, Hermes Agent, opencode and Cursor are
+the five adapters today, and a `.rungraph` bundle opens with no adapter at all.
+Cursor's adapter reads both the IDE and `cursor-agent`, and says what it does
+not do: cloud agents, conversations older than Cursor's `_v:9` format (listed
+with a "0% read" badge, never parsed), resume for IDE conversations, and token
+totals (Cursor records none).

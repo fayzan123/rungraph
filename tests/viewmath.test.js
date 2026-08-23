@@ -7,6 +7,7 @@ import {
   wheelZoomFactor,
   fitView,
   initialView,
+  READABLE_FLOOR,
   centerOn,
   minimapFrame,
   minimapToLayout,
@@ -88,9 +89,18 @@ describe('initialView (readable zoom)', () => {
     expect((layout.height + 40) * v.scale + v.ty).toBeCloseTo(box.height);
   });
 
-  it('never goes below the minimum scale', () => {
+  it('never opens below the readable floor: a too-wide run opens on its anchor instead', () => {
     const v = initialView({ width: 100000, height: 100 }, box, false);
-    expect(v.scale).toBe(MIN_SCALE);
+    expect(v.scale).toBe(READABLE_FLOOR);
+    expect(v.tx).toBe(40); // no anchor: left edge, padded
+    // With an anchor (the first node's center), that node sits mid-viewport.
+    const a = initialView({ width: 100000, height: 100 }, box, false, 40, 50000);
+    expect(a.scale).toBe(READABLE_FLOOR);
+    expect(a.tx + 50000 * a.scale).toBeCloseTo(box.width / 2);
+    // A layout that fits at the floor is still centered; the anchor is ignored.
+    const fits = initialView({ width: 1500, height: 100 }, box, false, 40, 0);
+    expect(fits.scale).toBeCloseTo(box.width / 1500);
+    expect(fits.tx).toBeCloseTo(0);
   });
 });
 

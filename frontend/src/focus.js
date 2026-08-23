@@ -132,6 +132,31 @@ export function relPath(path, root) {
   return path;
 }
 
+/**
+ * A display path that keeps its FILENAME when it has to be cut. The file
+ * lists ellipsize long paths with CSS from the right, which is the wrong end:
+ * two reads under `~/.claude/projects/-Users-…` rendered as identical rows
+ * with the one distinguishing part — the filename — clipped off. Cut the
+ * middle instead, on a separator where possible, with the full path left to
+ * the tooltip.
+ *
+ * Pure, so it can be unit-tested like the rest of this file.
+ *
+ * @param {string} display  the already-relativized path
+ * @param {number} [max]    characters to keep
+ */
+export function compactPath(display, max = 46) {
+  if (typeof display !== 'string' || display.length <= max) return display ?? '';
+  const tailLen = Math.floor(max * 0.6);
+  const headLen = max - tailLen - 1;
+  let tail = display.slice(-tailLen);
+  // Start the tail on a segment boundary when one is within reach, so it
+  // reads `…/skills-cursor/SKILL.md` rather than `…lls-cursor/SKILL.md`.
+  const cut = tail.search(/[/\\]/);
+  if (cut > 0 && cut < tailLen / 2) tail = tail.slice(cut);
+  return `${display.slice(0, headLen)}…${tail}`;
+}
+
 /** The focused nodes, in run order, for the inspector's ranked list. */
 export function rankedFocusNodes(ir, focus) {
   if (!focus) return [];

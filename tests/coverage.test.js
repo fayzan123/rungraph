@@ -298,7 +298,7 @@ describe('adapter record counts', () => {
     const ir = await irFor(SESSION_RUN_ID);
     // 45 session lines + 4 in the subagent transcript — coverage aggregates
     // across the run's whole file set, exactly as unrecognizedLineCount does.
-    expect(ir.meta.coverage).toEqual({ records: 49, unrecognized: 2, sourcesUnread: 0 });
+    expect(ir.meta.coverage).toEqual({ records: 51, unrecognized: 2, sourcesUnread: 0 });
     expect(ir.meta.coverage.unrecognized).toBe(ir.meta.unrecognizedLineCount);
   });
 

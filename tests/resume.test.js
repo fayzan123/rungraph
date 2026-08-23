@@ -225,6 +225,8 @@ describe('toIndexEntry resume block', () => {
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
     process.env.RUNGRAPH_HERMES_HOME = '';
   process.env.RUNGRAPH_OPENCODE_HOME = '';
+  process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+  process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
     ({ runs } = await scan());
   });
   afterAll(() => {
@@ -232,6 +234,8 @@ describe('toIndexEntry resume block', () => {
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
     delete process.env.RUNGRAPH_HERMES_HOME;
   delete process.env.RUNGRAPH_OPENCODE_HOME;
+  delete process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE;
+  delete process.env.RUNGRAPH_CURSOR_CLI_HOME;
   });
 
   it('sessions carry copy strings and the platform launch capability', () => {
@@ -322,6 +326,8 @@ describe('toIndexEntry loose flag', () => {
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
     process.env.RUNGRAPH_HERMES_HOME = '';
   process.env.RUNGRAPH_OPENCODE_HOME = '';
+  process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+  process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
     try {
       const { runs } = await scan();
       for (const r of runs) {
@@ -334,6 +340,8 @@ describe('toIndexEntry loose flag', () => {
       delete process.env.RUNGRAPH_CODEX_SESSIONS;
       delete process.env.RUNGRAPH_HERMES_HOME;
   delete process.env.RUNGRAPH_OPENCODE_HOME;
+  delete process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE;
+  delete process.env.RUNGRAPH_CURSOR_CLI_HOME;
     }
   });
 });
@@ -353,6 +361,8 @@ describe('POST /api/resume', () => {
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
     process.env.RUNGRAPH_HERMES_HOME = '';
   process.env.RUNGRAPH_OPENCODE_HOME = '';
+  process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+  process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
     server = await startServer({
       preferredPort: 4780,
       launch: async (argv, cwd) => {
@@ -366,6 +376,8 @@ describe('POST /api/resume', () => {
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
     delete process.env.RUNGRAPH_HERMES_HOME;
   delete process.env.RUNGRAPH_OPENCODE_HOME;
+  delete process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE;
+  delete process.env.RUNGRAPH_CURSOR_CLI_HOME;
     await server.close();
   });
 

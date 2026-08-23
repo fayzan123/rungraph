@@ -20,7 +20,7 @@ import {
 const exec = promisify(execFile);
 const BIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'rungraph.js');
 let tmp;
-const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT, RUNGRAPH_HERMES_HOME: '', RUNGRAPH_OPENCODE_HOME: '' };
+const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT, RUNGRAPH_HERMES_HOME: '', RUNGRAPH_OPENCODE_HOME: '', RUNGRAPH_CURSOR_GLOBAL_STORAGE: '', RUNGRAPH_CURSOR_CLI_HOME: '' };
 
 const run = async (...args) => {
   try {
@@ -173,7 +173,7 @@ describe('golden CLI (agent contract)', () => {
     // when a human presses Enter, and when scripted it prints the tool list,
     // cancels, writes nothing and exits 0. It must not be published anywhere.
     expect(r.stdout).not.toContain('hermes mcp add rungraph');
-    expect(r.stdout).toContain('claude | codex | hermes | opencode | all');
+    expect(r.stdout).toContain('claude | codex | hermes | opencode | cursor | all');
   });
 
   it('--help documents export and open', async () => {

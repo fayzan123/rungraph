@@ -147,6 +147,39 @@ export const SECRET_PATTERNS = [
 ];
 
 /**
+ * Field NAMES whose value is a secret by position, not by shape.
+ *
+ * Cursor keeps two live encryption keys on its records — `blobEncryptionKey`
+ * (a bare 64-hex string on the CLI store, base64 on the IDE) and
+ * `speculativeSummarizationEncryptionKey` — and `redactTree()` scored ZERO on
+ * both: every entry in SECRET_PATTERNS is a vendor-prefixed token, and nothing
+ * matches a bare hash. The obvious fix — a 64-hex pattern — is wrong on its
+ * first day: Cursor's blob ids, its `latestRootBlobId`, and every
+ * `agentKv:blob:<sha256>` key are 64-hex too, so that pattern would redact
+ * thousands of harmless identifiers and make the export's redaction count
+ * meaningless. Precision over recall, again.
+ *
+ * So the second line of defence is keyed by NAME: `walkStrings` already
+ * carries the path, and a value sitting under one of these field names is
+ * redacted wherever it is, whatever it looks like, reported as
+ * `[REDACTED:key-name]`. Vendor-neutral — a list of field names, not of
+ * vendors — and it cannot fire on a value that merely looks like a hash.
+ * (The first line is the Cursor adapter never copying either field into the
+ * IR, `details` or `ext` at all; this guards the day a future `details`
+ * dumps a raw record.)
+ *
+ * A Set of exact names. Matched against the LAST path segment only.
+ */
+export const SECRET_KEY_NAMES = new Set(['blobEncryptionKey', 'speculativeSummarizationEncryptionKey']);
+export const KEY_NAME_KIND = 'key-name';
+
+/** Is this walk path's leaf a field whose value is a secret by position? */
+export function isSecretKeyPath(path) {
+  const leaf = Array.isArray(path) ? path[path.length - 1] : undefined;
+  return typeof leaf === 'string' && SECRET_KEY_NAMES.has(leaf);
+}
+
+/**
  * Scan one string. Returns one entry per pattern kind that matched, with a
  * count — never the matched text itself, which the caller must not echo.
  *
@@ -225,7 +258,16 @@ export function walkStrings(value, path, visit) {
  */
 export function redactTree(tree) {
   let redacted = 0;
-  walkStrings(tree, [], (_path, text, set) => {
+  walkStrings(tree, [], (path, text, set) => {
+    // By position first: a value under a secret field NAME is replaced whole,
+    // whatever it looks like. An empty value is nothing to redact.
+    if (isSecretKeyPath(path)) {
+      if (text) {
+        redacted += 1;
+        set(`[REDACTED:${KEY_NAME_KIND}]`);
+      }
+      return;
+    }
     const { text: out, redacted: n } = redactSecrets(text);
     if (n > 0) {
       redacted += n;

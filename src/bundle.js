@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 import { userInfo } from 'node:os';
 import { findRun, ADAPTERS } from './scanner.js';
 import { IR_VERSION } from './ir.js';
-import { scanText, walkStrings, redactTree } from './secrets.js';
+import { KEY_NAME_KIND, isSecretKeyPath, scanText, walkStrings, redactTree } from './secrets.js';
 
 /**
  * `.rungraph` bundles — the share layer's file format. Gzipped JSON:
@@ -274,7 +274,13 @@ function structureToolLabel(n) {
 export function scanEnvelope(envelope) {
   const byKey = new Map();
   walkStrings(envelope, [], (path, text) => {
-    for (const hit of scanText(text)) {
+    // The same two rules redactTree applies, so what blocks an export is
+    // exactly what redaction would have replaced: a non-empty value under a
+    // secret field name is a finding by position, before any pattern runs.
+    const hits = isSecretKeyPath(path) && text
+      ? [{ kind: KEY_NAME_KIND, name: 'encryption key field', hint: `${path[path.length - 1]}: …`, count: 1 }]
+      : scanText(text);
+    for (const hit of hits) {
       const loc = describeLocation(envelope, path);
       const key = JSON.stringify([loc.runId, loc.nodeId, loc.where, hit.kind]);
       const cur = byKey.get(key);

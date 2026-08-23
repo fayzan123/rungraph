@@ -42,6 +42,7 @@ export function Strip({
   onToggleSignal,
   onShowAll,
   onQuery,
+  onJumpToMatch,
   onCloseFind,
 }) {
   const inputRef = useRef(null);
@@ -133,6 +134,10 @@ export function Strip({
             autocomplete="off"
             onInput={(e) => onQuery?.(e.currentTarget.value)}
             onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                return onJumpToMatch?.();
+              }
               if (e.key !== 'Escape') return;
               e.preventDefault();
               onCloseFind?.();

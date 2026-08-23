@@ -51,6 +51,14 @@ export function App() {
   const [graph, setGraph] = useState(null);
   const [graphError, setGraphError] = useState(null);
   const [selection, setSelection] = useState(null); // {type:'node'|'edge', id}
+  // Bumped when a node is chosen from OUTSIDE the canvas (inspector list, a
+  // find match, Enter in the find box): the canvas then pans to it. Clicks on
+  // the canvas itself never bump it — the node is already under the cursor.
+  const [revealSeq, setRevealSeq] = useState(0);
+  const revealNode = (id) => {
+    setSelection({ type: 'node', id });
+    setRevealSeq((n) => n + 1);
+  };
   const [follow, setFollow] = useState(true);
   const [connected, setConnected] = useState(true);
 
@@ -607,6 +615,13 @@ export function App() {
             }}
             onQuery={runQuery}
             onCloseFind={clearFocus}
+            onJumpToMatch={() => {
+              // Enter in the find box: reveal the first match. Typing never
+              // pans (it would thrash the view on every keystroke); Enter is
+              // the user saying "take me there".
+              const first = focus?.source === 'find' ? focus.nodeIds[0] : undefined;
+              if (first) revealNode(first);
+            }}
           />
           <Canvas
             graph={graph}
@@ -618,6 +633,7 @@ export function App() {
             onUserPan={() => setFollow(false)}
             focus={focus}
             focusSeq={focusSeq}
+            revealSeq={revealSeq}
             onClearFocus={clearFocus}
             onOpenFind={() => {
               acknowledge();
@@ -644,7 +660,7 @@ export function App() {
           focus={focus}
           onClose={() => setSelection(null)}
           onOpenRun={selectRun}
-          onSelectNode={(id) => setSelection({ type: 'node', id })}
+          onSelectNode={revealNode}
           onFocusSignal={toggleSignal}
           onFocusFile={(path) => {
             acknowledge();
@@ -773,13 +789,36 @@ function Picker({ index, runId, onSelect, onResume }) {
   // agent just pointed at must never land on a hidden row. Deliberately NOT
   // keyed on `filter`: clicking a chip while an off-adapter run is selected
   // is the user's own act, and must not be instantly undone.
+  //
+  // Keyed on the selected run's ADAPTER, never on `index` itself: the index
+  // refreshes every few seconds while any run is live, and an effect keyed
+  // on it re-ran the clear on every refresh — so a chip clicked while an
+  // off-adapter run was selected was undone within a second, which is
+  // exactly the case the sentence above promises to leave alone. (Found by
+  // dogfooding with a live session open.)
+  const selectedAdapter = index?.runs?.find((r) => r.runId === runId)?.adapter;
   useEffect(() => {
-    if (!runId) return;
-    setFilter((cur) => {
-      const entry = index?.runs?.find((r) => r.runId === runId);
-      return cur && entry && entry.adapter !== cur ? null : cur;
-    });
-  }, [runId, index]);
+    if (!runId || !selectedAdapter) return;
+    setFilter((cur) => (cur && selectedAdapter !== cur ? null : cur));
+  }, [runId, selectedAdapter]);
+
+  // The selected row is brought into view when the selection arrives from
+  // OUTSIDE the list — a deep link, an inspector jump, a focus_nodes arrival
+  // — where the row may sit thousands of pixels down a list the user never
+  // scrolled. Own clicks are already in view; `nearest` makes those a no-op.
+  // After the group-reveal effect above, so a row in a closed group exists
+  // by the time this runs.
+  useEffect(() => {
+    if (!runId || typeof document === 'undefined') return;
+    const row = document.querySelector('.run-item[data-selected="true"]');
+    const list = row?.closest('.picker');
+    if (!row || !list) return;
+    const r = row.getBoundingClientRect();
+    const l = list.getBoundingClientRect();
+    // Only when it is actually out of view — an own click on a visible row
+    // must not shuffle the list — and then to the middle, not the edge.
+    if (r.top < l.top || r.bottom > l.bottom) row.scrollIntoView?.({ block: 'center' });
+  }, [runId, selectedGroupKey]);
 
   const setGroup = (key, open) =>
     setPrefs((cur) => saveGroupPrefs({ ...cur, [key]: open ? 'open' : 'closed' }));
