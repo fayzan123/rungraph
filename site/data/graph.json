@@ -11,6 +11,11 @@
    "agents": 1
   },
   "unrecognizedLineCount": 0,
+  "coverage": {
+   "records": 302,
+   "unrecognized": 0,
+   "sourcesUnread": 0
+  },
   "startedAt": "2026-08-17T23:54:43.689Z",
   "endedAt": "2026-08-18T00:23:22.329Z"
  },
