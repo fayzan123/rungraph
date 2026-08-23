@@ -60,11 +60,36 @@ export function fitView(layout, box, pad = 40) {
  * top (first prompt) for finished runs, at the bottom (latest activity) for
  * live runs.
  */
-export function initialView(layout, box, live, pad = 40) {
-  const scale = clampScale(Math.min(1, box.width / layout.width));
+/**
+ * The smallest scale the OPENING view will use. "Readable zoom" was
+ * `min(1, viewport / layoutWidth)`, which for a workflow of fifty side-by-side
+ * lanes is 0.05 — a strip of pixels nobody can read, and the exact failure
+ * the minimap was added to solve. Below this floor the run opens on its
+ * first node (latest node when live) at readable size instead, and the
+ * minimap carries the overview.
+ */
+export const READABLE_FLOOR = 0.45;
+
+/**
+ * @param {{width:number,height:number}} layout
+ * @param {{width:number,height:number}} box
+ * @param {boolean} live
+ * @param {number} [pad]
+ * @param {number|null} [anchorX]  layout x to center on when the layout is
+ *   too wide to fit at the floor — the first node's center (or the latest's,
+ *   live). Null centers the layout, which is right only when it fits.
+ */
+export function initialView(layout, box, live, pad = 40, anchorX = null) {
+  const scale = clampScale(Math.max(READABLE_FLOOR, Math.min(1, box.width / layout.width)));
+  const fits = layout.width * scale <= box.width;
+  const tx = fits
+    ? (box.width - layout.width * scale) / 2
+    : anchorX != null
+      ? box.width / 2 - anchorX * scale
+      : pad;
   return {
     scale,
-    tx: (box.width - layout.width * scale) / 2,
+    tx,
     ty: live ? box.height - (layout.height + pad) * scale : pad,
   };
 }

@@ -7,6 +7,7 @@ import {
   pruneFocus,
   filesIndex,
   relPath,
+  compactPath,
   rankedFocusNodes,
   signalsForNode,
   badgedNodeIds,
@@ -103,6 +104,19 @@ describe('files lane', () => {
   it('displays paths relative to the project root, and falls back to absolute', () => {
     expect(relPath(`${ROOT}/src/a.js`, ROOT)).toBe('src/a.js');
     expect(relPath('/elsewhere/b.js', ROOT)).toBe('/elsewhere/b.js');
+  });
+
+  it('compactPath keeps the filename when it has to cut, and cuts nothing short', () => {
+    expect(compactPath('src/a.js')).toBe('src/a.js');
+    const long = '/Users/fayzanmalik/.cursor/skills-cursor/update-settings/SKILL.md';
+    const out = compactPath(long, 46);
+    expect(out.length).toBeLessThanOrEqual(46);
+    expect(out.endsWith('/SKILL.md')).toBe(true);
+    expect(out.startsWith('/Users/fayzan')).toBe(true);
+    expect(out).toContain('…');
+    // Two paths that differ only at the end stay distinguishable.
+    expect(compactPath(long.replace('SKILL.md', 'README.md'), 46)).not.toBe(out);
+    expect(compactPath(undefined)).toBe('');
     expect(relPath('/elsewhere/b.js', undefined)).toBe('/elsewhere/b.js');
     expect(relPath(ROOT, ROOT)).toBe(ROOT); // the root itself keeps its name
   });
