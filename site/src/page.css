@@ -326,9 +326,13 @@ button:focus-visible,
   top: 44px; /* below the signal strip — the chips must stay readable */
   /* clear of the inspector pane, which owns the stage's right edge */
   right: calc(min(384px, 30vw) + 22px);
+  /* the pill sizes to content and grows LEFTWARD; without a cap a long
+     caption walks off the stage's left edge on 700–1000px viewports */
+  max-width: calc(100% - min(384px, 30vw) - 44px);
   z-index: 5;
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 2px 16px;
   align-items: baseline;
   padding: 6px 12px;
   background: color-mix(in oklch, var(--bg-panel) 88%, transparent);
