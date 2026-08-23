@@ -1000,6 +1000,53 @@ describe.skipIf(!hasNodeSqlite)('cross-adapter tool-node invariant', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The second cross-adapter invariant: the compaction seam. Three adapters
+// represented it three ways — Codex an edge reason, opencode an ext count,
+// Claude Code nothing at all — so the same event was a ⚑, a number, and an
+// invisible rewrite of history depending on the vendor. The rule, decided
+// once (TODO 2026-08-23): wherever an adapter records a compaction, the seam
+// rides a SEQUENCE edge as exactly `after context compaction`; vendor detail
+// may sit in the ext bag on top, but the spine marker is the contract.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!hasNodeSqlite)('cross-adapter compaction seam', () => {
+  it('a compaction is a sequence-edge reason in one vocabulary, in every adapter that records one', async () => {
+    const [claude, codex, hermes, opencode, cursor] = await Promise.all([
+      import('../src/adapters/claude-code/index.js'),
+      import('../src/adapters/codex/index.js'),
+      import('../src/adapters/hermes/index.js'),
+      import('../src/adapters/opencode/index.js'),
+      import('../src/adapters/cursor/index.js'),
+    ]);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const corpora = [
+      ['claude-code', claude, [join(here, 'fixtures', 'projects')]],
+      ['codex', codex, [join(here, 'fixtures', 'codex')]],
+      ['hermes', hermes, [join(here, 'fixtures', 'hermes')]],
+      ['opencode', opencode, [join(here, 'fixtures', 'opencode')]],
+      ['cursor', cursor, [join(here, 'fixtures', 'cursor', 'ide'), join(here, 'fixtures', 'cursor', 'cli')]],
+    ];
+    const CANON = 'after context compaction';
+    const hits = new Map(); // adapter name → seam edges seen
+    for (const [name, adapter, roots] of corpora) {
+      for (const ref of await adapter.detect(roots)) {
+        const { ir } = await adapter.parse(ref);
+        for (const e of ir.edges) {
+          if (typeof e.reason !== 'string' || !/compact/i.test(e.reason)) continue;
+          expect(e.reason, `${ref.runId} ${e.id}`).toBe(CANON);
+          expect(e.kind, `${ref.runId} ${e.id}`).toBe('sequence');
+          hits.set(name, (hits.get(name) ?? 0) + 1);
+        }
+      }
+    }
+    // Meaningful only if exercised: the three adapters whose formats record
+    // compactions each carry a seam fixture, and each must have produced the
+    // marker. A fourth format that grows a compaction concept joins this list.
+    expect([...hits.keys()].sort()).toEqual(['claude-code', 'codex', 'opencode']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The loop: MCP install, and the fields the agent end needs.
 // ---------------------------------------------------------------------------
 

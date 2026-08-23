@@ -241,7 +241,11 @@ rungraph export --last 2 --as Bilal
 # rungraph: wrote acme-2026-08-15.rungraph (412,882 bytes)
 ```
 
-The inventory prints every time: people don't realize how much lives in a
+The inventory prints every time, because transcripts log file **reads**
+verbatim: a write gets a diff and a reviewer, but a read gets nothing — when an
+agent merely opens your `.env`, every key it saw is sitting in the session file
+with no diff to catch it. (That is how an npm token and two API keys turned up
+in this project's own corpus.) People don't realize how much lives in a
 transcript, so the tool shows it before it leaves. And export **blocks** if it
 finds a high-confidence secret (AWS keys, GitHub/Slack/API tokens, private-key
 blocks — anchored patterns, calibrated for near-zero false positives), listing

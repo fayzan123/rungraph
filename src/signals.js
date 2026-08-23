@@ -317,6 +317,11 @@ function courseChanges(ordered, edges, pos, loud) {
     // A reason landing on a node that is already badged high is nearly always
     // "after X error" — said louder, and in the right place, by that signal.
     if (loud.has(e.to)) continue;
+    // The compaction seam is a FACT, not a decision: every adapter writes it
+    // in this one vocabulary (the cross-adapter seam rule) and the canvas
+    // already shows it as the edge ⚑. Promoting it would chip every long
+    // session — recall the signal layer deliberately trades for precision.
+    if (why === 'after context compaction') continue;
     picked.set(e.to, why);
   }
   if (picked.size === 0) return null;

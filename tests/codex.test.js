@@ -10,6 +10,7 @@ import {
   CODEX_CHILD_THREAD_ID,
   CODEX_GRANDCHILD_THREAD_ID,
   CODEX_OLD_RUN_ID,
+  CODEX_COMPACT_RUN_ID,
 } from './helpers.js';
 
 beforeAll(() => pinFixtureMtimes());
@@ -26,6 +27,7 @@ describe('codex detect', () => {
       CODEX_CLEAN_RUN_ID,
       CODEX_SUBAGENT_RUN_ID,
       CODEX_OLD_RUN_ID,
+      CODEX_COMPACT_RUN_ID,
     ]);
     const clean = refs.find((r) => r.runId === CODEX_CLEAN_RUN_ID);
     expect(clean.project).toBe('/home/dev/acme');
@@ -199,5 +201,21 @@ describe('codex parse', () => {
     }
     expect(details.get(turns[0].id).responseText).toContain('Three files');
     expect(deriveSignals(ir)).toEqual([]); // a clean historic session stays clean
+  });
+
+  it('a compaction rides the next spine edge, and is a fact rather than a signal', async () => {
+    // The cross-adapter seam rule, asserted here without the sqlite gate so
+    // the Node 20 CI leg still covers codex's half of it.
+    const { ir } = await parse(await refFor(CODEX_COMPACT_RUN_ID));
+    const turns = ir.nodes.filter((n) => n.kind === 'turn');
+    expect(turns.map((n) => n.label)).toEqual([
+      'Summarize the migration status',
+      'Finish the storage migration',
+    ]);
+    const seam = ir.edges.find((e) => e.reason === 'after context compaction');
+    expect(seam?.kind).toBe('sequence');
+    expect(seam.from).toBe(turns[0].id);
+    expect(seam.to).toBe(turns[1].id);
+    expect(deriveSignals(ir)).toEqual([]);
   });
 });

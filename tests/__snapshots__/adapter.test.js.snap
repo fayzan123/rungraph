@@ -66,6 +66,14 @@ exports[`detect > finds sessions and workflow runs with titles 1`] = `
     "startedAt": "2026-08-01T12:02:49.500Z",
     "title": "Migrate storage layer",
   },
+  {
+    "kind": "session",
+    "project": "/home/dev/acme",
+    "runId": "claude-code:-home-dev-acme:88888888-8888-4888-8888-888888888888",
+    "sizeBytes": 5389,
+    "startedAt": "2026-08-01T12:03:36.000Z",
+    "title": "Release checklist",
+  },
 ]
 `;
 

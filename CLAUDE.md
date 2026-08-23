@@ -141,7 +141,11 @@ zero signals, because the coverage triggers exist for exactly the moment the UI 
 otherwise imply completeness. The **secrets run** (`5555…`) carries one of every scanner
 pattern kind across all five places outgoing text lives; the fifth is a **node label**,
 which is what pins redaction to the `callTool` choke point instead of to `get_detail`
-(labels reach `find_nodes` and `get_graph` without any payload being fetched). Pure frontend
+(labels reach `find_nodes` and `get_graph` without any payload being fetched). The
+**compaction seam run** (`8888…`, seam records 1:1 on a live 2.1.241 `/compact` probe,
+2026-08-23) pins three things: the fabricated summary is never a prompt a human typed, the
+seam rides the next spine edge as `after context compaction`, and the seam costs nothing in
+coverage. Pure frontend
 helpers (`viewmath`, `focus`) are unit-tested; the rendered UI is manual + demo.
 CI: GitHub Actions, Node ≥ 20.
 
@@ -161,7 +165,11 @@ denied subagent has the rejection string and no session id — it is an interven
 phantom lane and not a coverage penalty). Both passed the whole suite before their fixes,
 because nothing in the corpus crossed those two features. One cross-adapter test asserts the tool-node status invariant
 (`error` iff `errorCount >= callCount`) over all five adapters' corpora — it previously existed as four
-independent copies and was asserted nowhere.
+independent copies and was asserted nowhere. A second asserts the **compaction-seam rule**:
+wherever an adapter records a compaction it writes exactly `after context compaction` on a
+sequence edge (claude-code, codex and opencode carry seam fixtures), and the seam is a fact,
+never a `course-change` signal — three adapters previously represented it three ways (edge
+reason, ext count, nothing at all).
 
 The Cursor corpus (`tests/fixtures/cursor/ide/state.vscdb` and `tests/fixtures/cursor/cli/chats/…`)
 is shaped by the calibration sessions of 2026-08-20 and 2026-08-23: a **clean** IDE run, a

@@ -11,6 +11,7 @@ import {
   EMPTY_RUN_ID,
   TROUBLE_RUN_ID,
   CLEAN_RUN_ID,
+  COMPACT_RUN_ID,
 } from './helpers.js';
 
 let refs;
@@ -180,6 +181,43 @@ describe('parse: session', () => {
     expect(ir.meta.unrecognizedLineCount).toBe(0);
     // An empty run is not a blind one: two records, both read.
     expect(ir.meta.coverage).toEqual({ records: 2, unrecognized: 0, sourcesUnread: 0 });
+  });
+});
+
+describe('parse: the compaction seam', () => {
+  // A `/compact` writes two records: a system/compact_boundary and the summary
+  // as a `user` line (both probed live on 2.1.241, 2026-08-23). Before this
+  // fixture existed the boundary was silently dropped and the summary rendered
+  // as a prompt a human typed — an unbroken spine with a synthetic turn on it,
+  // exactly the false continuous timeline the opencode fixture forbids.
+  it('the compact summary is never a prompt a human typed', async () => {
+    const { ir } = await parse(ref(COMPACT_RUN_ID));
+    const turns = ir.nodes.filter((n) => n.kind === 'turn');
+    expect(turns.map((n) => n.label)).toEqual([
+      'Walk the release checklist',
+      'Carry on with the tag step',
+    ]);
+  });
+
+  it('the seam rides the next spine edge, with the metadata in ext', async () => {
+    const { ir } = await parse(ref(COMPACT_RUN_ID));
+    const seam = ir.edges.find((e) => e.reason === 'after context compaction');
+    expect(seam?.kind).toBe('sequence');
+    // From the pre-compaction turn to the post-compaction one — no node in
+    // between, because the seam is lineage, not an event of its own.
+    expect(seam.from).toMatch(/^t:/);
+    expect(seam.to).toMatch(/^t:/);
+    expect(ir.meta.ext.claudeCode.compaction).toBe(1);
+    expect(ir.meta.ext.claudeCode.compactions).toEqual([
+      { trigger: 'manual', preTokens: 33963, postTokens: 8502 },
+    ]);
+  });
+
+  it('the seam costs nothing in coverage', async () => {
+    const { ir } = await parse(ref(COMPACT_RUN_ID));
+    expect(ir.meta.unrecognizedLineCount).toBe(0);
+    expect(ir.meta.coverage.unrecognized).toBe(0);
+    expect(ir.meta.coverage.sourcesUnread).toBe(0);
   });
 });
 

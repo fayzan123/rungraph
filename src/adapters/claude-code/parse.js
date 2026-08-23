@@ -109,6 +109,7 @@ async function parseSession(ref, opts) {
     if (obj.type === 'user') b.userLine(obj, i);
     else if (obj.type === 'assistant') b.assistantLine(obj, i);
     else if (obj.type === 'system' && obj.subtype === 'turn_duration') b.turnDuration(obj);
+    else if (obj.type === 'system' && obj.subtype === 'compact_boundary') b.compactBoundary(obj);
   }
   b.finish(live);
 
@@ -128,6 +129,16 @@ async function parseSession(ref, opts) {
   // `ext` bag — the vendor-neutral IR rule. Merged, not assigned: the agent
   // transcripts parsed above have already contributed to the same bag.
   mergeIntoExt(g, unknownTypes);
+  if (b.compactions.length) {
+    g.meta.ext = {
+      ...(g.meta.ext ?? {}),
+      claudeCode: {
+        ...(g.meta.ext?.claudeCode ?? {}),
+        compaction: b.compactions.length,
+        compactions: b.compactions,
+      },
+    };
+  }
   g.meta.totals = {
     tokens: sumTokens(g, b),
     toolCalls: b.toolCallCount,
@@ -174,6 +185,7 @@ class GraphBuilder {
     this.toolNames = new Map(); // tool node id → plain tool name (labels are descriptive)
     this.toolFiles = new Map(); // tool node id → union of paths its calls touched
     this.narration = null; // assistant text since the last tool call, this turn
+    this.compactions = []; // one {trigger, preTokens, postTokens} per seam
   }
 
   node(n) {
@@ -540,6 +552,20 @@ class GraphBuilder {
       this.turn.node.durationMs = obj.durationMs;
       this.closeTurn();
     }
+  }
+
+  compactBoundary(obj) {
+    // History was rewritten under the model — the same seam Codex records as
+    // `compacted`: lineage on the next spine edge, never a node of its own.
+    // The summary that follows is excluded by `isPromptLine`, so the reason
+    // lands on the edge into whatever really moves next.
+    this.pendingReason = 'after context compaction';
+    const m = obj.compactMetadata ?? {};
+    this.compactions.push({
+      ...(typeof m.trigger === 'string' ? { trigger: m.trigger } : {}),
+      ...(Number.isFinite(m.preTokens) ? { preTokens: m.preTokens } : {}),
+      ...(Number.isFinite(m.postTokens) ? { postTokens: m.postTokens } : {}),
+    });
   }
 
   closeTurn() {

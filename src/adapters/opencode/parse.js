@@ -492,6 +492,10 @@ class SessionWalker {
       row.time_created,
     );
     this.chain(id);
+    // The cross-adapter seam rule: a compaction ALSO rides the next spine
+    // edge as lineage, in the one vocabulary Codex and Claude Code use — the
+    // turn node is opencode's extra detail on top, not a substitute marker.
+    if (compaction) this.pendingReason = 'after context compaction';
     const turn = {
       id,
       node,

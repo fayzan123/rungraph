@@ -62,6 +62,13 @@ percentage, quiet/loud classification and the MCP note all come from it.
 Known `ext` bags (all optional; consumers must tolerate absence — and unknown
 bags):
 
+- **`meta.ext.claudeCode`** — `{ compaction?, compactions?, unknownTypes? }`.
+  `compaction` counts the run's compaction seams; `compactions` carries one
+  `{ trigger?, preTokens?, postTokens? }` per seam, from the binary's own
+  `compactMetadata` (`trigger` is `"manual"` for `/compact`, `"auto"` at the
+  context limit). The seam itself is vendor-neutral — see the edge `reason`
+  contract under **edges** — and the summary message the binary fabricates
+  (`isCompactSummary`) is never rendered as a turn a human typed.
 - **`meta.ext.hermes`** — `{ model, estimatedCostUsd, source, gitBranch,
   gitRepoRoot, profile, archived, rewindCount, inactiveMessageCount,
   modelSwitchCount?, schemaVersion }`. `source` is how the session reached
@@ -241,6 +248,13 @@ one meaning coverage has.
 - `sequence` — temporal order within a lane (the backbone chain).
 - `spawn` — parent → child agent/workflow.
 - `return` — child → parent, carrying the result.
+- One `reason` value is a cross-adapter contract rather than free text:
+  `"after context compaction"` on a `sequence` edge marks a compaction seam —
+  history was rewritten under the model at this point. Every adapter whose
+  format records a compaction writes exactly this string (claude-code, codex
+  and opencode today; `tests/opencode.test.js` holds the invariant), it is
+  never promoted into a `course-change` signal (a seam is a fact, not a
+  decision), and vendor detail rides the `ext` bags on top.
 
 ## groups
 

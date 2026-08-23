@@ -118,6 +118,11 @@ export function blocksOf(message, type) {
 /** True if a user line is a human-typed prompt that starts a turn. */
 export function isPromptLine(obj) {
   if (obj.type !== 'user' || obj.isMeta) return false;
+  // The compact summary is synthetic — the binary groups `isCompactSummary`
+  // and `isVisibleInTranscriptOnly` with `isMeta` as "not typed by a human"
+  // (some paths carry only one of the two flags). Without this, the summary's
+  // string content reads as a prompt and puts a turn nobody typed on the spine.
+  if (obj.isCompactSummary || obj.isVisibleInTranscriptOnly) return false;
   const c = obj.message?.content;
   if (typeof c === 'string') {
     if (c.startsWith('<local-command-stdout>')) return false;

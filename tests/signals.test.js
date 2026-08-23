@@ -258,6 +258,18 @@ describe('course-change', () => {
     const nodes = [tool('a'), tool('b')];
     expect(deriveSignals(ir(nodes, chain(nodes)))).toEqual([]);
   });
+
+  it('the compaction seam is a fact, not a course change', () => {
+    // Every adapter writes the seam in one vocabulary (the cross-adapter seam
+    // rule) and the canvas already shows it as the edge ⚑. It is routine, not
+    // trouble — promoting it would chip every long session, which is exactly
+    // the recall the signal layer trades away for precision. The opencode
+    // corpus asserts the same rule from the adapter side.
+    const nodes = [tool('a'), tool('b')];
+    const edges = chain(nodes);
+    edges[0].reason = 'after context compaction';
+    expect(deriveSignals(ir(nodes, edges))).toEqual([]);
+  });
 });
 
 describe('contract', () => {

@@ -19,6 +19,7 @@ const S4 = '44444444-4444-4444-8444-444444444444'; // trouble run — one of eve
 const S5 = '55555555-5555-4555-8555-555555555555'; // secrets run — one of every scanner pattern
 const S6 = '66666666-6666-4666-8666-666666666666'; // lightly drifted — the coverage QUIET trigger
 const S7 = '77777777-7777-4777-8777-777777777777'; // heavily drifted — the coverage LOUD trigger
+const S8 = '88888888-8888-4888-8888-888888888888'; // compaction seam — the summary must never read as a prompt
 const WF = 'wf_12345678-abc';
 const AGENT_FLAT = 'a123456789abcdef0'; // Agent-tool subagent
 const AGENT_W1 = 'aaaa000000000001f'; // workflow agent, phase Find
@@ -273,6 +274,7 @@ async function main() {
   await troubleSession();
   await secretsSession();
   await driftSessions();
+  await compactionSession();
   await codexFixtures();
   await hermesFixtures();
   await opencodeFixtures();
@@ -304,6 +306,7 @@ async function codexFixtures() {
   const C2C = 'c2c2c2c2-0000-7000-8000-00000000c41d';
   const C2G = 'c2c2c2c2-0000-7000-8000-00000000c42d'; // grandchild (depth 2)
   const C3 = 'c3c3c3c3-0000-7000-8000-000000000003'; // old format (0.89, no task events)
+  const C4 = 'c4c4c4c4-0000-7000-8000-000000000004'; // compaction seam
 
   let codexClock = Date.parse('2026-08-01T10:00:00.000Z');
   const cts = (stepMs = 2000) => new Date((codexClock += stepMs)).toISOString();
@@ -488,6 +491,31 @@ async function codexFixtures() {
   L5.push(line('event_msg', { type: 'token_count', ...usage(2500, 120, 5500, 270) }));
   L5.push(line('event_msg', { type: 'agent_message', message: 'token.js owns refresh (line 12).', memory_citation: null }));
   await writeFile(join(OLD_DAY, `rollout-2026-07-30T09-00-00-${C3}.jsonl`), L5.map((x) => JSON.stringify(x)).join('\n') + '\n');
+
+  // ---------- C4: the compaction seam ----------
+  // `compacted` carries the rewritten history; the `context_compacted` echo
+  // follows. Neighborhood modeled on the reference corpus (30 real files:
+  // … token_count → compacted → turn_context → token_count →
+  // context_compacted …). The seam must ride the next spine edge as
+  // `after context compaction` — the cross-adapter rule, asserted in
+  // tests/opencode.test.js beside the tool-node invariant.
+  const L6 = [];
+  L6.push(line('session_meta', meta(C4)));
+  L6.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c4a', model_context_window: 258400 }));
+  L6.push(line('turn_context', turnCtx('turn-c4a')));
+  L6.push(line('event_msg', { type: 'user_message', message: 'Summarize the migration status', images: [] }));
+  L6.push(line('event_msg', { type: 'agent_message', message: 'Migration is 80% done; storage remains.', phase: 'final_answer', memory_citation: null }));
+  L6.push(line('event_msg', { type: 'token_count', ...usage(12000, 400, 12000, 400) }));
+  L6.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c4a', last_agent_message: 'Migration is 80% done; storage remains.', completed_at: new Date(codexClock).toISOString(), duration_ms: 21000, time_to_first_token_ms: 1500 }));
+  L6.push(line('compacted', { message: '', replacement_history: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Summarize the migration status' }] }, { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'The conversation so far: the migration is 80% done; storage remains.' }] }] }));
+  L6.push(line('turn_context', turnCtx('turn-c4b')));
+  L6.push(line('event_msg', { type: 'token_count', ...usage(3000, 0, 15000, 400) }));
+  L6.push(line('event_msg', { type: 'context_compacted' }));
+  L6.push(line('event_msg', { type: 'task_started', turn_id: 'turn-c4b', model_context_window: 258400 }));
+  L6.push(line('event_msg', { type: 'user_message', message: 'Finish the storage migration', images: [] }));
+  L6.push(line('event_msg', { type: 'agent_message', message: 'Storage migrated; all tables moved.', phase: 'final_answer', memory_citation: null }));
+  L6.push(line('event_msg', { type: 'task_complete', turn_id: 'turn-c4b', last_agent_message: 'Storage migrated; all tables moved.', completed_at: new Date(codexClock).toISOString(), duration_ms: 30000, time_to_first_token_ms: 900 }));
+  await writeFile(join(DAY, `rollout-2026-08-01T12-00-00-${C4}.jsonl`), L6.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 /**
@@ -973,6 +1001,68 @@ async function cleanSession() {
   L.push({ type: 'bridge-session', sessionId: S3, bridgeSessionId: 'cse_fx00000000000000000003', lastSequenceNum: 2, ownerAccountUuid: '00000000-0000-4000-8000-0000000000a1', ownerOrganizationUuid: '00000000-0000-4000-8000-0000000000b1' });
 
   await writeFile(join(PROJ, `${S3}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
+}
+
+/**
+ * Session 8 — the compaction seam. The two seam records are 1:1 on what a real
+ * 2.1.241 `/compact` wrote (probed 2026-08-23, throwaway session 9235409f…):
+ * a `system`/`compact_boundary` whose `compactMetadata.preservedSegment` names
+ * an `anchorUuid` that IS the summary's own uuid — real messages survive the
+ * seam — then the summary as a `user` line flagged `isCompactSummary` +
+ * `isVisibleInTranscriptOnly`. The fixture pins three things: the summary is
+ * not a prompt a human typed, the seam rides the next spine edge as
+ * `after context compaction`, and the seam costs nothing in coverage (both
+ * records are read completely).
+ */
+async function compactionSession() {
+  const L = [];
+  const push = (extra) => {
+    const l = envelope(S8, L.at(-1)?.uuid ?? null, extra);
+    L.push(l);
+    return l;
+  };
+  L.push({ type: 'mode', mode: 'normal', sessionId: S8 });
+
+  const t1 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Walk the release checklist' } });
+  L.push({ type: 'ai-title', aiTitle: 'Release checklist', sessionId: S8 });
+  const a1 = push({ type: 'assistant', requestId: 'req_fxP001', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Changelog and version stamp are both ready; the checklist is half done.' }, 'end_turn', 70) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 30000, messageCount: 2, isMeta: false });
+
+  const anchor = uuid(); // the summary's uuid, referenced by the boundary
+  const boundary = push({
+    type: 'system',
+    subtype: 'compact_boundary',
+    content: 'Conversation compacted',
+    isMeta: false,
+    level: 'info',
+    parentUuid: null,
+    logicalParentUuid: a1.uuid,
+    compactMetadata: {
+      trigger: 'manual',
+      preTokens: 33963,
+      durationMs: 7042,
+      preservedSegment: { headUuid: t1.uuid, anchorUuid: anchor, tailUuid: a1.uuid },
+      preservedMessages: { anchorUuid: anchor, uuids: [t1.uuid, a1.uuid], allUuids: [t1.uuid, a1.uuid] },
+      postTokens: 8502,
+      cumulativeDroppedTokens: 25461,
+    },
+  });
+  push({
+    type: 'user',
+    parentUuid: boundary.uuid,
+    uuid: anchor,
+    promptId: uuid(),
+    isVisibleInTranscriptOnly: true,
+    isCompactSummary: true,
+    message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nThe release checklist was walked through the changelog and the version stamp; the tag step remains.\n\nContinue the conversation from where it left off without asking the user any further questions.' },
+  });
+
+  const t2 = push({ type: 'user', promptId: uuid(), message: { role: 'user', content: 'Carry on with the tag step' } });
+  push({ type: 'assistant', requestId: 'req_fxP002', message: assistantMsg('claude-fable-5', { type: 'text', text: 'Tagged v0.2.0 and pushed the tag.' }, 'end_turn', 60) });
+  push({ type: 'system', subtype: 'turn_duration', durationMs: 21000, messageCount: 2, isMeta: false });
+  void t2;
+
+  await writeFile(join(PROJ, `${S8}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
 
 /**

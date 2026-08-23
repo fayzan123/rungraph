@@ -51,6 +51,9 @@ export const DRIFT_QUIET_RUN_ID =
 /** Heavily drifted, zero signals — the coverage LOUD trigger (21% read). */
 export const DRIFT_LOUD_RUN_ID =
   'claude-code:-home-dev-acme:77777777-7777-4777-8777-777777777777';
+/** The compaction seam — the summary must never read as a prompt. */
+export const COMPACT_RUN_ID =
+  'claude-code:-home-dev-acme:88888888-8888-4888-8888-888888888888';
 
 /** Codex: a clean run (zero signals) and a subagent run (cross-file lineage). */
 export const CODEX_CLEAN_RUN_ID = 'codex:c1c1c1c1-0000-7000-8000-000000000001';
@@ -59,6 +62,8 @@ export const CODEX_CHILD_THREAD_ID = 'c2c2c2c2-0000-7000-8000-00000000c41d';
 export const CODEX_GRANDCHILD_THREAD_ID = 'c2c2c2c2-0000-7000-8000-00000000c42d';
 /** 0.89-era: no task events; turns bound by user_message ordering. */
 export const CODEX_OLD_RUN_ID = 'codex:c3c3c3c3-0000-7000-8000-000000000003';
+/** The codex compaction seam — `compacted` must ride the next spine edge. */
+export const CODEX_COMPACT_RUN_ID = 'codex:c4c4c4c4-0000-7000-8000-000000000004';
 
 /** Hermes: the fixture DB corpus (tests/hermes.test.js, Node ≥ 22.13 only). */
 export const HERMES_CLEAN_RUN_ID = 'hermes:20260801_120000_c1ea01';
@@ -133,10 +138,10 @@ export const CU_IDE_SUMMARY_KEY = 'U3BlY3VsYXRpdmVLZXlGaXh0dXJlU2VjcmV0VmFsdWUwM
 export const CU_CLI_BLOB_KEY = 'fe5262' + 'c0ffee'.repeat(9) + '0042';
 
 /**
- * Every run a full scan of the claude + codex fixture roots contains: 8
- * Claude (2 sessions + clean + trouble + secrets + 2 drift + 1 workflow) + 3 Codex
- * (clean + subagent parent + old-format; child/grandchild rollouts are not
- * independent runs). Hermes fixture runs are NOT in this count — the
+ * Every run a full scan of the claude + codex fixture roots contains: 9
+ * Claude (2 sessions + clean + trouble + secrets + 2 drift + compaction seam +
+ * 1 workflow) + 4 Codex (clean + subagent parent + old-format + compaction
+ * seam; child/grandchild rollouts are not independent runs). Hermes fixture runs are NOT in this count — the
  * cross-cutting suites disable all THREE SQLite adapters (RUNGRAPH_HERMES_HOME='',
  * RUNGRAPH_OPENCODE_HOME='', and both Cursor roots) so they stay green on the
  * Node 20 CI leg, and tests/hermes.test.js / tests/opencode.test.js /
@@ -145,4 +150,4 @@ export const CU_CLI_BLOB_KEY = 'fe5262' + 'c0ffee'.repeat(9) + '0042';
  * opencode and Cursor databases, which are global files in fixed locations
  * rather than per-project trees.
  */
-export const FIXTURE_RUN_COUNT = 11;
+export const FIXTURE_RUN_COUNT = 13;
