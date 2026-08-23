@@ -65,6 +65,8 @@ const baseEnv = () => ({
   RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT,
   RUNGRAPH_HERMES_HOME: '',
   RUNGRAPH_OPENCODE_HOME: '',
+  RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+  RUNGRAPH_CURSOR_CLI_HOME: '',
   RUNGRAPH_STATE_DIR: join(tmp, 'state'),
   RUNGRAPH_PORT_DIR: join(tmp, 'ports'),
   ...vendorSandbox(),
@@ -505,6 +507,8 @@ describe('the breadcrumb, and serve’s nudge', () => {
         RUNGRAPH_CLAUDE_PROJECTS: '',
         RUNGRAPH_CODEX_SESSIONS: '',
         RUNGRAPH_OPENCODE_HOME: OPENCODE_FIXTURE_ROOT,
+        RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+        RUNGRAPH_CURSOR_CLI_HOME: '',
       };
       await exec('node', [BIN, 'mcp', '--install', '--client', 'opencode'], { env });
 

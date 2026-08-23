@@ -37,6 +37,8 @@
   --hermes: oklch(0.73 0.1 310);
   --hermes-dim: oklch(0.52 0.07 310);
   --opencode: oklch(0.74 0.09 192);
+  --cursor: oklch(0.74 0.11 355);
+  --cursor-dim: oklch(0.52 0.08 355);
   --opencode-dim: oklch(0.53 0.065 192);
 
   --node-turn: oklch(0.26 0.02 68);
@@ -181,7 +183,14 @@ button.ghost[data-on="true"] {
   border-right: 1px solid var(--hairline-soft);
   background: var(--bg-panel);
   overflow-y: auto;
-  padding: 10px 0 24px;
+  /* The rail above the list reflowed (chips re-wrapping) every time the
+     scrollbar appeared or vanished with a filter change. Reserve the gutter. */
+  scrollbar-gutter: stable;
+  /* No top padding: a sticky child cannot rise above its container's content
+     box, so 10px here left a 10px band above the stuck rail that scrolled
+     rows showed through. The rail carries that space itself, with its own
+     background behind it. */
+  padding: 0 0 24px;
 }
 .picker .section {
   padding: 10px 14px 4px;
@@ -775,6 +784,13 @@ button.ghost[data-on="true"] {
 
 /* Ranked lists — focused nodes, signals, files. Every row is a real button so
    the whole triage path is keyboard reachable. */
+.inspector .call-input { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }
+.inspector .call-input .pair { display: grid; grid-template-columns: minmax(64px, max-content) 1fr; gap: 0 10px; align-items: start; }
+.inspector .call-input .pair .k { padding-top: 4px; color: var(--ink-faint); }
+.inspector .call-input .pair pre { margin: 0; min-width: 0; }
+.inspector .call-jumps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
+.inspector .call-jumps .err { color: var(--clay); border-color: color-mix(in oklch, var(--clay) 45%, transparent); }
+
 .inspector .rows {
   display: flex;
   flex-direction: column;
@@ -901,15 +917,21 @@ button.ghost[data-on="true"] {
   color: var(--opencode);
   border-color: color-mix(in oklch, var(--opencode-dim) 70%, transparent);
 }
+.adapter-tag[data-adapter="cursor"] {
+  color: var(--cursor);
+  border-color: color-mix(in oklch, var(--cursor-dim) 70%, transparent);
+}
 .run-item .sub .adapter { color: var(--ink-faint); }
 .run-item .sub .adapter[data-adapter="claude-code"] { color: var(--amber-dim); }
 .run-item .sub .adapter[data-adapter="codex"] { color: var(--steel); }
 .run-item .sub .adapter[data-adapter="hermes"] { color: var(--hermes); }
 .run-item .sub .adapter[data-adapter="opencode"] { color: var(--opencode); }
+.run-item .sub .adapter[data-adapter="cursor"] { color: var(--cursor); }
 .kv dd[data-adapter="codex"] { color: var(--steel); }
 .kv dd[data-adapter="claude-code"] { color: var(--amber-dim); }
 .kv dd[data-adapter="hermes"] { color: var(--hermes); }
 .kv dd[data-adapter="opencode"] { color: var(--opencode); }
+.kv dd[data-adapter="cursor"] { color: var(--cursor); }
 
 /* ---------- agent rail ---------- */
 
@@ -924,7 +946,7 @@ button.ghost[data-on="true"] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 14px 9px;
+  padding: 16px 14px 9px;
   margin-bottom: 2px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--hairline-soft);
@@ -949,6 +971,7 @@ button.ghost[data-on="true"] {
 .agent-rail .chip[data-adapter="codex"] { color: var(--steel); }
 .agent-rail .chip[data-adapter="hermes"] { color: var(--hermes); }
 .agent-rail .chip[data-adapter="opencode"] { color: var(--opencode); }
+.agent-rail .chip[data-adapter="cursor"] { color: var(--cursor); }
 /* The active chip borrows its own adapter's hue (currentColor), so "which
    agent am I filtered to" is answered by the same accent the row tags wear. */
 .agent-rail .chip[data-on="true"] {

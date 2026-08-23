@@ -102,7 +102,7 @@ function client(env) {
 let mcp;
 let portDir;
 let tmp;
-const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT, RUNGRAPH_HERMES_HOME: '', RUNGRAPH_OPENCODE_HOME: '' };
+const env = { ...process.env, RUNGRAPH_CLAUDE_PROJECTS: FIXTURE_ROOT, RUNGRAPH_CODEX_SESSIONS: CODEX_FIXTURE_ROOT, RUNGRAPH_HERMES_HOME: '', RUNGRAPH_OPENCODE_HOME: '', RUNGRAPH_CURSOR_GLOBAL_STORAGE: '', RUNGRAPH_CURSOR_CLI_HOME: '' };
 
 /** Write a registry entry the way a live server would. */
 const registerServer = async (port, sources = ['local'], startedAt = new Date().toISOString(), pid = process.pid) => {
@@ -375,6 +375,8 @@ describe('MCP tools (server running)', () => {
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
     process.env.RUNGRAPH_HERMES_HOME = '';
   process.env.RUNGRAPH_OPENCODE_HOME = '';
+  process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+  process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
     server = await startServer({ preferredPort: 4712 });
     await registerServer(server.port);
   });
@@ -383,6 +385,8 @@ describe('MCP tools (server running)', () => {
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
     delete process.env.RUNGRAPH_HERMES_HOME;
   delete process.env.RUNGRAPH_OPENCODE_HOME;
+  delete process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE;
+  delete process.env.RUNGRAPH_CURSOR_CLI_HOME;
     await rm(join(portDir, `${server.port}.json`), { force: true });
     await server.close();
   });
@@ -429,6 +433,8 @@ describe('MCP aggregation (two servers, one a bundle viewer)', () => {
     process.env.RUNGRAPH_CODEX_SESSIONS = CODEX_FIXTURE_ROOT;
     process.env.RUNGRAPH_HERMES_HOME = '';
   process.env.RUNGRAPH_OPENCODE_HOME = '';
+  process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+  process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
     const { buildBundle } = await import('../src/bundle.js');
     const { gzipSync } = await import('node:zlib');
     const { envelope } = await buildBundle([CLEAN_RUN_ID], {
@@ -456,6 +462,8 @@ describe('MCP aggregation (two servers, one a bundle viewer)', () => {
     delete process.env.RUNGRAPH_CODEX_SESSIONS;
     delete process.env.RUNGRAPH_HERMES_HOME;
   delete process.env.RUNGRAPH_OPENCODE_HOME;
+  delete process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE;
+  delete process.env.RUNGRAPH_CURSOR_CLI_HOME;
   });
 
   it('list_runs merges both servers, tagging the bundle run with provenance and its dashboard', async () => {

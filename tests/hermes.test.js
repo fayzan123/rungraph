@@ -404,6 +404,8 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
           // OTHER node:sqlite adapter and would add its own on a machine that
           // has it installed, so this suite must not depend on that.
           RUNGRAPH_OPENCODE_HOME: '',
+          RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+          RUNGRAPH_CURSOR_CLI_HOME: '',
         },
       });
       const data = JSON.parse(stdout);
@@ -425,6 +427,8 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
       codex: process.env.RUNGRAPH_CODEX_SESSIONS,
       hermes: process.env.RUNGRAPH_HERMES_HOME,
       opencode: process.env.RUNGRAPH_OPENCODE_HOME,
+      cursorIde: process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE,
+      cursorCli: process.env.RUNGRAPH_CURSOR_CLI_HOME,
     };
     let server;
     try {
@@ -433,6 +437,8 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
       process.env.RUNGRAPH_CODEX_SESSIONS = '';
       process.env.RUNGRAPH_HERMES_HOME = tmp;
       process.env.RUNGRAPH_OPENCODE_HOME = '';
+      process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE = '';
+      process.env.RUNGRAPH_CURSOR_CLI_HOME = '';
       const { startServer } = await import('../src/server.js');
       server = await startServer({ preferredPort: 4991 });
       const index = await (await fetch(`${server.url}/api/index`)).json();
@@ -444,6 +450,8 @@ describe.skipIf(!hasNodeSqlite)('hermes warnings through the CLI', () => {
         ['RUNGRAPH_CODEX_SESSIONS', saved.codex],
         ['RUNGRAPH_HERMES_HOME', saved.hermes],
         ['RUNGRAPH_OPENCODE_HOME', saved.opencode],
+        ['RUNGRAPH_CURSOR_GLOBAL_STORAGE', saved.cursorIde],
+        ['RUNGRAPH_CURSOR_CLI_HOME', saved.cursorCli],
       ]) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
@@ -717,6 +725,8 @@ describe('hermes graceful degrade (adapter self-disables)', () => {
           // node:sqlite warning here and the count assertion fails — the
           // Hermes suite must not depend on which other agents are installed.
           RUNGRAPH_OPENCODE_HOME: '',
+          RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+          RUNGRAPH_CURSOR_CLI_HOME: '',
         },
       },
     );

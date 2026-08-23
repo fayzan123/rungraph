@@ -14,20 +14,32 @@ Zero-setup, agent-first visualizer for AI coding-agent runs: `npx rungraph` reco
     multi-client `--install`/`--check`, the launch resolver and the `serve` nudge. Read its
     **Implementation amendments** section: two of its ground-truth claims were falsified by
     re-probing during the build, and the code follows the probe, not the spec.
+  - `docs/superpowers/specs/2026-08-20-cursor-adapter-design.md` — the Cursor adapter (one
+    adapter, two stores), the key-name redaction rule in `src/secrets.js`, and the first
+    genuine paste-tier client. Read its **Implementation amendments** and the §14
+    calibration record: the build deviated from the spec's letter in fifteen recorded places —
+    four from the build, eleven from the 53-agent adversarial review after it.
 - **v1 and the signal & focus layer are implemented.** Scanner, adapter, IR, CLI, server,
   live-tail watcher, the Preact frontend, `deriveSignals`, file attribution, the FocusSet
   spine, and `rungraph mcp` all ship.
-- **Four adapters ship, and four clients:** claude-code, codex, hermes, opencode. The last two read SQLite
-  through the shared `src/sqlite.js` and need Node ≥ 22.13; on older Nodes they self-disable
-  with a structured warning, and only when a database actually exists to be skipped.
+- **Five adapters ship, and five clients:** claude-code, codex, hermes, opencode, cursor. The
+  last three read SQLite through the shared `src/sqlite.js` and need Node ≥ 22.13; on older
+  Nodes they self-disable with a structured warning, and only when a database actually exists
+  to be skipped. Cursor is **two stores under one adapter** — the IDE's global `state.vscdb`
+  (every project's conversations in one key-value table) and `cursor-agent`'s per-chat
+  `store.db` (a content-addressed blob store whose conversation order lives in a protobuf
+  root snapshot) — because the rail should show one vendor for one product. Refs carry
+  `surface: 'ide' | 'cli'`; the scan root array holds both roots and the adapter classifies
+  each by shape. No Cursor field says whether a tool call succeeded (a refused command is
+  `status: completed`), so `outcome.js` is a calibrated classifier shared by both surfaces.
 
 ## The one loop
 
 The MCP surface is for the agent, the canvas is for the human, and they are **two ends of one
 loop** rather than two products: the user asks in their Claude Code terminal, Claude answers
 there (their model, their session, their observability), then calls `focus_nodes` and the open
-dashboard lights up. opencode closes the same loop (it speaks MCP); Codex and Hermes
-structurally cannot, which is most of why opencode earned an adapter. The CLI/IR is plumbing that serves the dashboard, not a co-equal
+dashboard lights up. opencode and Cursor close the same loop (both speak MCP); Codex and
+Hermes structurally cannot, which is most of why opencode and Cursor earned adapters. The CLI/IR is plumbing that serves the dashboard, not a co-equal
 deliverable. Deliberately rejected: an embedded chatbot or headless `claude -p` behind the
 localhost UI — it would mean owning model pinning, prompt maintenance and a chat UI, and would
 hide the conversation somewhere the user cannot inspect it.
@@ -147,8 +159,32 @@ looking at, never on the child it dispatched, so the lane must INHERIT the bound
 denied subagent has the rejection string and no session id — it is an intervention, not a
 phantom lane and not a coverage penalty). Both passed the whole suite before their fixes,
 because nothing in the corpus crossed those two features. One cross-adapter test asserts the tool-node status invariant
-(`error` iff `errorCount >= callCount`) over all four corpora — it previously existed as four
+(`error` iff `errorCount >= callCount`) over all five adapters' corpora — it previously existed as four
 independent copies and was asserted nowhere.
+
+The Cursor corpus (`tests/fixtures/cursor/ide/state.vscdb` and `tests/fixtures/cursor/cli/chats/…`)
+is shaped by the calibration sessions of 2026-08-20 and 2026-08-23: a **clean** IDE run, a
+**trouble** run holding all four observed encodings of "did not succeed" (a `status: error`
+read, a `completed` command with `additionalData.status: error`, a `completed` command with
+`additionalData.status: rejected`, a `cancelled` edit) plus the abort, a **rejection** run, an
+**in-flight** run carrying one `loading` call and one call with a status outside the 3.16.29
+vocabulary (must NOT read as running), a **subagent** tree found by both routes — including a
+grandchild linked only by its own `parentComposerId` — with one missing child, a
+**tombstoned** run with NULL and absent rows, skip-flagged bubbles and a refused command whose
+body is gone, a **refused batch** of three families (one denial) followed by a retry (a
+second), an **applied edit** with a checkpoint record, a
+**`_v:3`** composer (listed, 0% read, loud), a **degraded `_v:9`** composer with the modern
+fields removed, a **cross-project** composer, a **bucket** composer, a **secrets** composer
+carrying both encryption-key fields and a 64-hex blob id beside one scanner pattern in each
+of the five outgoing places, and — on the CLI side — the rev-2 shape (parallel batch, two
+refusals → two denial nodes), the rev-3 shape (`error` + `failure{exitCode:3, isError:false}`
++ an applied `StrReplace`), a three-family refused batch from one message, a **sibling batch**
+(one call refused, its sibling failed and never fixed — the refusal must not excuse the
+sibling), an in-flight root and an unreadable root. Nine approved commands
+in the trouble run carry `blockReason` and the dialog's default `selectedOption`, which is the
+calibration guard for the two fields §6 of the spec rules out. A 10 000-composer store is
+synthesised at test time for the `detect()` budget, and one test drives `watchRun` across the
+CLI's WAL delete/recreate.
 
 `tests/clients.test.js` covers the MCP install loop, and splits the same way the SQLite
 adapters do: the table shape, the launch resolver, the breadcrumb/nudge and a
@@ -164,7 +200,11 @@ developer's own `~/.config/opencode/opencode.jsonc`. Note which variable isolate
 this machine's real corpus on 2026-08-20 (10 runs / 2,561 rows, the fork excluded because it
 duplicates its origin's history): zero unrecognized, zero unread sources, and the outlier
 signal fired on **0 of 70 turns**. `THRESHOLDS` was not touched. Recall was not assessed and
-nothing here claims it was.
+nothing here claims it was. The Cursor gate ran over this machine's real corpus on 2026-08-23
+(3 modern IDE composers / 101 headers, 2 CLI chats / 26 messages, 6 pre-`_v:9` composers
+listed unread): zero unrecognized, zero unread sources on every modern run, `intervention` on
+the trouble and rejection runs and the rev-2 CLI chat, nothing on the clean run, and `outlier`
+on **0 of 6 turns**. `THRESHOLDS` was not touched.
 
 ## Stack
 

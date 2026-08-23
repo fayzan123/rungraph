@@ -949,25 +949,28 @@ describe.skipIf(!hasNodeSqlite)('opencode live tail / resume', () => {
 // ---------------------------------------------------------------------------
 
 describe.skipIf(!hasNodeSqlite)('cross-adapter tool-node invariant', () => {
-  it('status is `error` IFF every collapsed call failed, in all four adapters', async () => {
-    const [claude, codex, hermes, opencode] = await Promise.all([
+  it('status is `error` IFF every collapsed call failed, in all five adapters', async () => {
+    const [claude, codex, hermes, opencode, cursor] = await Promise.all([
       import('../src/adapters/claude-code/index.js'),
       import('../src/adapters/codex/index.js'),
       import('../src/adapters/hermes/index.js'),
       import('../src/adapters/opencode/index.js'),
+      import('../src/adapters/cursor/index.js'),
     ]);
     const here = dirname(fileURLToPath(import.meta.url));
     const corpora = [
-      [claude, join(here, 'fixtures', 'projects')],
-      [codex, join(here, 'fixtures', 'codex')],
-      [hermes, join(here, 'fixtures', 'hermes')],
-      [opencode, join(here, 'fixtures', 'opencode')],
+      [claude, [join(here, 'fixtures', 'projects')]],
+      [codex, [join(here, 'fixtures', 'codex')]],
+      [hermes, [join(here, 'fixtures', 'hermes')]],
+      [opencode, [join(here, 'fixtures', 'opencode')]],
+      // Both Cursor surfaces — the fifth adapter's corpora, added the day it landed.
+      [cursor, [join(here, 'fixtures', 'cursor', 'ide'), join(here, 'fixtures', 'cursor', 'cli')]],
     ];
     let checked = 0;
     let sawError = 0;
     let sawPartial = 0;
-    for (const [adapter, root] of corpora) {
-      for (const ref of await adapter.detect([root])) {
+    for (const [adapter, roots] of corpora) {
+      for (const ref of await adapter.detect(roots)) {
         const { ir } = await adapter.parse(ref);
         for (const n of ir.nodes) {
           if (n.kind !== 'tool') continue;
@@ -1033,6 +1036,8 @@ describe('opencode MCP install', () => {
     RUNGRAPH_CODEX_SESSIONS: '',
     RUNGRAPH_HERMES_HOME: '',
     RUNGRAPH_OPENCODE_HOME: '',
+    RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+    RUNGRAPH_CURSOR_CLI_HOME: '',
     ...extra,
   });
 
@@ -1054,7 +1059,11 @@ describe('opencode MCP install', () => {
       // on the same run and legitimately contains `mcpServers`. A needle taken
       // from the whole output would either always match or never match, and
       // "never match" is the worse failure: it passes forever.
-      const ocBlock = stdout.slice(stdout.indexOf('── opencode'));
+      // …and cut at the NEXT client's heading, now that a fifth client (Cursor,
+      // whose block is `mcpServers`) prints after opencode.
+      const ocStart = stdout.indexOf('── opencode');
+      const ocEnd = stdout.indexOf('\n── ', ocStart + 1);
+      const ocBlock = stdout.slice(ocStart, ocEnd === -1 ? undefined : ocEnd);
       expect(ocBlock).toContain('"mcp"');
       expect(ocBlock).not.toContain('mcpServers');
       expect(stdout).toContain('"mcpServers"'); // claude's block, for contrast
@@ -1103,7 +1112,7 @@ describe('opencode MCP install', () => {
     }
   }, 60000);
 
-  it('the client is never guessed: an unknown one is exit 1, and --help names all four', async () => {
+  it('the client is never guessed: an unknown one is exit 1, and --help names all five', async () => {
     await expect(
       exec('node', [BIN, 'mcp', '--install', '--client', 'nope'], { env: pasteEnv() }),
     ).rejects.toMatchObject({ code: 1 });
@@ -1111,7 +1120,7 @@ describe('opencode MCP install', () => {
     expect(stdout).toContain('--client <c>');
     // Not "claude (default) | opencode" any more: bare --install means every
     // DETECTED agent, and there are four to choose from.
-    expect(stdout).toContain('claude | codex | hermes | opencode | all');
+    expect(stdout).toContain('claude | codex | hermes | opencode | cursor | all');
     expect(stdout).not.toContain('claude (default) | opencode');
   });
 });
@@ -1132,6 +1141,8 @@ describe.skipIf(!hasNodeSqlite)('opencode through the MCP read tools', () => {
     RUNGRAPH_CODEX_SESSIONS: '',
     RUNGRAPH_HERMES_HOME: '',
     RUNGRAPH_OPENCODE_HOME: OPENCODE_FIXTURE_ROOT,
+    RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+    RUNGRAPH_CURSOR_CLI_HOME: '',
     RUNGRAPH_PORT_DIR: portDir,
     // Every call() below handshakes, and a handshake records a breadcrumb.
     // Without this each one would write the developer's real ~/.rungraph and
@@ -1439,6 +1450,8 @@ describe.skipIf(!hasNodeSqlite)('opencode review regressions', () => {
       codex: process.env.RUNGRAPH_CODEX_SESSIONS,
       hermes: process.env.RUNGRAPH_HERMES_HOME,
       opencode: process.env.RUNGRAPH_OPENCODE_HOME,
+      cursorIde: process.env.RUNGRAPH_CURSOR_GLOBAL_STORAGE,
+      cursorCli: process.env.RUNGRAPH_CURSOR_CLI_HOME,
     };
     try {
       process.env.RUNGRAPH_CLAUDE_PROJECTS = '';
@@ -1457,6 +1470,8 @@ describe.skipIf(!hasNodeSqlite)('opencode review regressions', () => {
         ['RUNGRAPH_CODEX_SESSIONS', saved.codex],
         ['RUNGRAPH_HERMES_HOME', saved.hermes],
         ['RUNGRAPH_OPENCODE_HOME', saved.opencode],
+        ['RUNGRAPH_CURSOR_GLOBAL_STORAGE', saved.cursorIde],
+        ['RUNGRAPH_CURSOR_CLI_HOME', saved.cursorCli],
       ]) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
@@ -1483,6 +1498,8 @@ describe('opencode graceful degrade (adapter self-disables)', () => {
         RUNGRAPH_CODEX_SESSIONS: '',
         RUNGRAPH_HERMES_HOME: '',
         RUNGRAPH_OPENCODE_HOME: OPENCODE_FIXTURE_ROOT,
+        RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+        RUNGRAPH_CURSOR_CLI_HOME: '',
       },
     });
     const data = JSON.parse(stdout);
@@ -1507,6 +1524,8 @@ describe('opencode graceful degrade (adapter self-disables)', () => {
           RUNGRAPH_CODEX_SESSIONS: '',
           RUNGRAPH_HERMES_HOME: '',
           RUNGRAPH_OPENCODE_HOME: tmp,
+          RUNGRAPH_CURSOR_GLOBAL_STORAGE: '',
+          RUNGRAPH_CURSOR_CLI_HOME: '',
         },
       });
       expect(JSON.parse(stdout).warnings).toBeUndefined();

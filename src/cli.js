@@ -28,7 +28,7 @@ USAGE
   rungraph export <runId…>       Write a shareable .rungraph bundle (see EXPORT).
   rungraph open <bundle…>        Serve .rungraph bundle files (ephemeral, read-only).
   rungraph mcp [--install]       Run the MCP server on stdio (--install registers it once,
-                                 with claude, codex, hermes and opencode).
+                                 with claude, codex, hermes, opencode and cursor).
   rungraph mcp --check           Is the agent side set up and working? Prints what to fix.
 
 OPTIONS
@@ -39,7 +39,7 @@ OPTIONS
   --install          mcp: register rungraph with every agent whose runs are on this
                      machine, then exit. Anything that cannot be delegated to
                      prints a config block to paste; nothing is ever a prompt.
-  --client <c>       mcp --install: claude | codex | hermes | opencode | all.
+  --client <c>       mcp --install: claude | codex | hermes | opencode | cursor | all.
                      Default is every DETECTED agent (one whose transcripts
                      rungraph can read), never a guess. 'all' installs into all
                      four regardless of what was detected.

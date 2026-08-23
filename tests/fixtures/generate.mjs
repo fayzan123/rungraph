@@ -170,7 +170,12 @@ async function main() {
   // must let this one fall through to unrecognized, because the day the field
   // carries content is the day swallowing it silently would manufacture a
   // blind spot and still report 100% coverage.
-  L.push({ type: 'atis-latch', atis: 'a payload nobody has ever seen', sessionId: S1 });
+  // A latch whose SHAPE nobody has seen — an extra key — stays unrecognized;
+  // a populated `atis` alone (the 2026-08-23 corpus shape) is recognized, as
+  // is the remote-control bridge's own contentless record.
+  L.push({ type: 'atis-latch', atis: 'a payload nobody has ever seen', sessionId: S1, content: 'real words' });
+  L.push({ type: 'atis-latch', atis: 'v1.c3220c7ab05b70ed.QNL592FpjRqIWXt3.8e9298b0.fixturetoken', sessionId: S1 });
+  L.push({ type: 'bridge-session', sessionId: S1, bridgeSessionId: 'cse_fx00000000000000000001', lastSequenceNum: 0, ownerAccountUuid: '00000000-0000-4000-8000-0000000000a1', ownerOrganizationUuid: '00000000-0000-4000-8000-0000000000b1' });
   L.push({ type: 'last-prompt', lastPrompt: "Don't touch the TTL. Just run the hardening workflow.", leafUuid: wrap.uuid, sessionId: S1 });
 
   await writeFile(join(PROJ, `${S1}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
@@ -271,6 +276,7 @@ async function main() {
   await codexFixtures();
   await hermesFixtures();
   await opencodeFixtures();
+  await cursorFixtures();
 
   console.error('fixtures written to', ROOT);
 }
@@ -963,6 +969,8 @@ async function cleanSession() {
   // clean run is the coverage precision guard — it must stay at 100% read, so
   // this line proves the type is recognized BY SHAPE and not merely skipped.
   L.push({ type: 'atis-latch', atis: '', sessionId: S3 });
+  L.push({ type: 'atis-latch', atis: 'c3220c7ab05b70ed', sessionId: S3 });
+  L.push({ type: 'bridge-session', sessionId: S3, bridgeSessionId: 'cse_fx00000000000000000003', lastSequenceNum: 2, ownerAccountUuid: '00000000-0000-4000-8000-0000000000a1', ownerOrganizationUuid: '00000000-0000-4000-8000-0000000000b1' });
 
   await writeFile(join(PROJ, `${S3}.jsonl`), L.map((x) => JSON.stringify(x)).join('\n') + '\n');
 }
@@ -1881,4 +1889,1027 @@ async function opencodeFixtures() {
   }
 
   db.close();
+}
+
+/**
+ * Cursor fixtures, modeled 1:1 on the two stores probed on 2026-08-20 and
+ * 2026-08-23 (Cursor 3.14.7 → 3.16.29, cursor-agent 2026.08.11):
+ *
+ *   tests/fixtures/cursor/ide/state.vscdb               Surface A — the IDE
+ *   tests/fixtures/cursor/cli/chats/<md5(cwd)>/<id>/    Surface B — cursor-agent
+ *
+ * IDE: ONE `cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)`
+ * table holding `composerData:<id>` records, `bubbleId:<cid>:<bid>` rows and
+ * `checkpointId:<cid>:<id>` records — all JSON, with `toolFormerData.params`
+ * / `.result` / `.error` as JSON STRINGS inside the JSON. Composer-level
+ * timestamps are epoch ms; header- and bubble-level `createdAt` are ISO
+ * strings (two units in one format — deliberately reproduced). The 3.16
+ * `composerHeaders` table exists and is POPULATED, so the adapter's
+ * never-queries rule can be told apart from "nothing to read".
+ *
+ * CLI: `meta.json` (plain JSON with `cwd`), and `store.db` with `blobs(id,
+ * data)` + `meta(key, value)`: `meta['0']` hex-encoded JSON carrying a
+ * 64-hex `blobEncryptionKey`, message blobs as plain JSON, and a protobuf
+ * ROOT SNAPSHOT whose top-level repeated field 1 lists the message blob ids
+ * in order. Earlier roots persist as blobs (one per model step), and per-step
+ * spine blobs are nested protobuf the adapter never walks. Blob ids are
+ * sha256 of the content, as in the real store.
+ *
+ * Both files are COMMITTED, never hand-edited; regeneration needs Node ≥ 22.13.
+ * Fully synthetic content. Worktrees use `/home/dev/…`, which must not exist
+ * on dev or CI machines.
+ */
+async function cursorFixtures() {
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = await import('node:sqlite'));
+  } catch {
+    console.error('skipping cursor fixtures: node:sqlite unavailable (regeneration needs Node 22.13+)');
+    return;
+  }
+  const { createHash } = await import('node:crypto');
+  const CU_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'cursor');
+  await rm(CU_ROOT, { recursive: true, force: true });
+  await mkdir(join(CU_ROOT, 'ide'), { recursive: true });
+
+  const ACME = '/home/dev/acme';
+  const NOTES = '/home/dev/notes';
+
+  // ======================================================================
+  // Surface A — the IDE store
+  // ======================================================================
+  const db = new DatabaseSync(join(CU_ROOT, 'ide', 'state.vscdb'));
+  db.exec(`
+    CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+    CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+    CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, createdAt INTEGER,
+      lastUpdatedAt INTEGER, isArchived INTEGER, isSubagent INTEGER, recency INTEGER,
+      checkpointAt INTEGER, value TEXT);
+  `);
+  const put = db.prepare('INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)');
+  // The list-cache, populated so "never queried" is distinguishable from
+  // "nothing to read" (the opencode `session_message` rule).
+  db.prepare('INSERT INTO composerHeaders VALUES (?,?,?,?,?,?,?,?,?)').run(
+    'c0c0c0c0-0000-4000-8000-00000000c1ea', 'ws-fx', 1785592800000, 1785592860000, 0, 0, 1, 1785592800000,
+    JSON.stringify({ type: 'head', agentLocation: { type: 'local' }, isWorktree: false, numSubComposers: 0 }),
+  );
+  db.prepare('INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)').run('composer.composerHeaders.migratedToTable', '1');
+
+  // Deterministic clocks. Composer-level = epoch ms; bubble-level = ISO.
+  let cuMs = Date.parse('2026-08-01T14:00:00Z');
+  const tick = (step = 1500) => (cuMs += step);
+  const isoAt = (ms) => new Date(ms).toISOString();
+  let bubbleN = 0;
+  const bid = () => `b0b0b0b0-0000-4000-8000-${String(++bubbleN).padStart(12, '0')}`;
+  let callN = 0;
+  const callId = () => `call-${String(++callN).padStart(8, '0')}-0000-4000-8000-000000000000-0\nfc_fx${String(callN).padStart(6, '0')}_0`;
+
+  const IDE_KEYS = {
+    blobEncryptionKey: 'Q3Vyc29yQmxvYktleUZpeHR1cmVTZWNyZXRWYWx1ZTAwMDE=',
+    speculativeSummarizationEncryptionKey: 'U3BlY3VsYXRpdmVLZXlGaXh0dXJlU2VjcmV0VmFsdWUwMDAy',
+  };
+
+  /** A full composer record in the 3.16.29 (`_v:17`) shape. */
+  const composer = (id, over = {}) => ({
+    _v: 17,
+    composerId: id,
+    richText: '',
+    hasLoaded: true,
+    text: '',
+    conversationMap: {},
+    status: 'completed',
+    context: { composers: [], fileSelections: [], selections: [], mentions: {} },
+    generatingBubbleIds: [],
+    isReadingLongFile: false,
+    codeBlockData: {},
+    originalFileStates: {},
+    newlyCreatedFiles: [],
+    newlyCreatedFolders: [],
+    hasChangedContext: true,
+    activeTabsShouldBeReactive: true,
+    capabilities: [{ type: 15, data: { bubbleDataMap: '{}' } }, { type: 19, data: {} }],
+    isFileListExpanded: false,
+    unifiedMode: 'agent',
+    activeCustomMode: null,
+    forceMode: 'edit',
+    usageData: {},
+    contextUsagePercent: 11.6796875,
+    contextTokensUsed: 29900,
+    contextTokenLimit: 256000,
+    allAttachedFileCodeChunksUris: [],
+    modelConfig: { modelName: 'grok-4.6', maxMode: false, selectedModels: [{ modelId: 'grok-4.6', parameters: [] }] },
+    subComposerIds: [],
+    subagentComposerIds: [],
+    capabilityContexts: [],
+    todos: [],
+    hasUnreadMessages: false,
+    totalLinesAdded: 0,
+    totalLinesRemoved: 0,
+    addedFiles: 0,
+    removedFiles: 0,
+    isDraft: false,
+    isBestOfNSubcomposer: false,
+    isBestOfNParent: false,
+    isSpec: false,
+    isProject: false,
+    trackedGitRepos: [{ repoPath: ACME, branches: [] }],
+    ...IDE_KEYS,
+    isNAL: true,
+    agentBackend: 'cursor-agent',
+    conversationState: '~',
+    queueItems: [],
+    latestChatGenerationUUID: '00000000-0000-4000-8000-0000000000aa',
+    isAgentic: true,
+    filesChangedCount: 0,
+    workspaceIdentifier: {
+      id: 'fx-workspace',
+      uri: { $mid: 1, fsPath: ACME, external: `file://${ACME}`, path: ACME, scheme: 'file' },
+    },
+    fullConversationHeadersOnly: [],
+    ...over,
+  });
+
+  /**
+   * Bubble builders. Each returns `{ header, bubble }`; a composer is a list
+   * of those, written by `writeComposer`.
+   */
+  const humanBubble = (text, over = {}) => {
+    const id = bid();
+    const at = isoAt(tick());
+    return {
+      header: {
+        bubbleId: id,
+        type: 1,
+        grouping: { isRenderable: true, hasText: true, isShortPlainText: true, toolDisplayComputed: true },
+        contentHeightHint: 44,
+        createdAt: at,
+      },
+      bubble: {
+        _v: 3,
+        type: 1,
+        bubbleId: id,
+        requestId: `req-${id.slice(-6)}`,
+        tokenCount: { inputTokens: 0, outputTokens: 0 },
+        unifiedMode: 2,
+        createdAt: at,
+        conversationState: '~',
+        richText: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }),
+        text,
+        context: { mentions: {} },
+        modelInfo: { modelName: 'grok-4.6' },
+        checkpointId: `cp-${id.slice(-6)}`,
+        isAgentic: true,
+        supportedTools: [],
+        todos: [],
+        workspaceUris: [],
+        ...over,
+      },
+    };
+  };
+  const thinkingBubble = (text, ms = 2000) => {
+    const id = bid();
+    const at = isoAt(tick(ms));
+    return {
+      header: {
+        bubbleId: id,
+        type: 2,
+        grouping: { isRenderable: true, capabilityType: 30, hasThinking: true, thinkingDurationMs: ms, toolDisplayComputed: true },
+        createdAt: at,
+      },
+      bubble: {
+        _v: 3, type: 2, bubbleId: id, requestId: '', tokenCount: { inputTokens: 0, outputTokens: 0 },
+        unifiedMode: 2, createdAt: at, conversationState: '~', text: '', capabilityType: 30,
+        thinkingStyle: 1, thinking: { text, signature: '' }, thinkingDurationMs: ms,
+      },
+    };
+  };
+  const textBubble = (text, over = {}) => {
+    const id = bid();
+    const at = isoAt(tick());
+    const turnDurationMs = over.turnDurationMs;
+    return {
+      header: {
+        bubbleId: id,
+        type: 2,
+        grouping: {
+          isRenderable: true, hasText: true, isKeptFinalAiVisibleOutsideWorkedForGroup: true, toolDisplayComputed: true,
+          ...(turnDurationMs ? { turnDurationMs } : {}),
+        },
+        createdAt: at,
+        contentHeightHint: 44,
+      },
+      bubble: {
+        _v: 3, type: 2, bubbleId: id, requestId: '', tokenCount: { inputTokens: 0, outputTokens: 0 },
+        unifiedMode: 2, createdAt: at, conversationState: '~', text, ...over,
+      },
+    };
+  };
+  /**
+   * A tool bubble. `params` / `result` / `error` are objects here and are
+   * JSON-STRINGIFIED into the record, as Cursor writes them.
+   */
+  const toolBubble = (name, tool, { status = 'completed', params, result, error, additionalData, over = {}, hover = {} } = {}) => {
+    const id = bid();
+    const at = isoAt(tick());
+    const tcid = callId();
+    const tf = {
+      toolCallId: tcid,
+      toolIndex: 0,
+      modelCallId: tcid,
+      status,
+      name,
+      rawArgs: params ? JSON.stringify(params) : '',
+      tool,
+      ...(params !== undefined ? { params: JSON.stringify(params) } : {}),
+      ...(result !== undefined ? { result: JSON.stringify(result) } : {}),
+      ...(error !== undefined ? { error: JSON.stringify(error) } : {}),
+      ...(additionalData !== undefined ? { additionalData } : {}),
+      toolCallBinary: 'QqcBCkoKSC9Vc2Vycy9kZXYvYWNtZQ==',
+    };
+    return {
+      header: {
+        bubbleId: id,
+        type: 2,
+        grouping: {
+          isRenderable: true, capabilityType: 15, isToolGroupable: true, toolCallCase: 'toolCall',
+          toolCallId: tcid, toolDisplayComputed: true, toolFormerStatus: status, toolFormerTool: tool, ...hover,
+        },
+        createdAt: at,
+      },
+      bubble: {
+        _v: 3, type: 2, bubbleId: id, requestId: '', tokenCount: { inputTokens: 0, outputTokens: 0 },
+        unifiedMode: 2, createdAt: at, conversationState: '~', text: '', capabilityType: 15,
+        toolFormerData: tf, ...over,
+      },
+    };
+  };
+  // Shorthands for the observed tools, by their observed `params`/`result` shapes.
+  const readOk = (file, lines = 40) =>
+    toolBubble('read_file_v2', 40, { params: { targetFile: file, charsLimit: 16000, effectiveUri: `file://${file}` }, result: { totalLinesInFile: lines } });
+  const readMissing = (file) =>
+    toolBubble('read_file_v2', 40, {
+      status: 'error',
+      params: { targetFile: file, limit: 200, charsLimit: 16000, effectiveUri: `file://${file}` },
+      result: { contents: 'Error: File not found', totalLinesInFile: 0 },
+      error: { clientVisibleErrorMessage: 'File not found', modelVisibleErrorMessage: 'File not found' },
+    });
+  const grep = (pattern, path = ACME) =>
+    toolBubble('ripgrep_raw_search', 41, {
+      params: { pattern, path, glob: '*.js', caseInsensitive: true },
+      additionalData: { isPruned: true, pattern, path, outputMode: 'content', totalFiles: 0, totalMatches: 0, topFiles: [] },
+    });
+  const glob = (globPattern, dir = ACME) =>
+    toolBubble('glob_file_search', 42, { params: { targetDirectory: dir, globPattern }, result: { directories: [{ absPath: dir, files: [] }] } });
+  const mcpTools = (pattern) =>
+    toolBubble('get_mcp_tools', 63, { params: { pattern }, result: { content: '{"mode":"search","tools":[]}' } });
+  const shellParams = (command, description) => ({
+    command, cwd: ACME, options: { isBackground: false }, parsingResult: { isSimpleCommand: true }, commandDescription: description,
+  });
+  /** A terminal command the user APPROVED and that ran — with the two fields that must NOT be read as failure. */
+  const shellOk = (command, description, output = 'ok\n') =>
+    toolBubble('run_terminal_command_v2', 15, {
+      params: shellParams(command, description),
+      result: { output, rejected: false, notInterrupted: true, exitCode: 0 },
+      additionalData: {
+        status: 'success',
+        startedAtMs: cuMs,
+        blockReason: `Not in allowlist: ${command.split(' ')[0]}`,
+        reviewData: { status: 'None', selectedOption: 'rejectAndTellWhatToDoDifferently', approvalType: 'user' },
+      },
+      hover: { shellStatus: 'completed' },
+    });
+  /** `status: completed` + `additionalData.status: error` + non-zero exit. */
+  const shellFailed = (command, description, exitCode = 1) =>
+    toolBubble('run_terminal_command_v2', 15, {
+      params: shellParams(command, description),
+      result: { output: `command failed (exit ${exitCode})\n`, exitCode, rejected: false, notInterrupted: true },
+      additionalData: {
+        status: 'error',
+        startedAtMs: cuMs,
+        blockReason: `Not in allowlist: ${command.split(' ')[0]}`,
+        reviewData: { status: 'None', selectedOption: 'rejectAndTellWhatToDoDifferently', approvalType: 'user' },
+      },
+      hover: { shellStatus: 'completed' },
+    });
+  /** `status: completed` + `additionalData.status: rejected` + `result.rejected: true` — the refused command. */
+  const shellRejected = (command, description) =>
+    toolBubble('run_terminal_command_v2', 15, {
+      params: shellParams(command, description),
+      result: { output: 'Rejected: User chose to skip', exitCode: 1, rejected: true },
+      additionalData: {
+        status: 'rejected',
+        blockReason: `Not in allowlist: ${command}`,
+        reviewData: {
+          status: 'Done', selectedOption: 'skip', candidatesForAllowlist: [command],
+          allowlistOptions: [{ id: command, label: command, value: command }], approvalType: 'user',
+        },
+      },
+      hover: { shellStatus: 'rejected' },
+    });
+  /** `status: cancelled` — the user skipped an edit. */
+  const editCancelled = (file) =>
+    toolBubble('edit_file_v2', 38, {
+      status: 'cancelled',
+      params: { relativeWorkspacePath: file, noCodeblock: true },
+      result: { afterContentId: 'composer.content.fx', beforeContentId: 'composer.content.fx0' },
+      error: { clientVisibleErrorMessage: 'Edit rejected: User chose to skip', modelVisibleErrorMessage: 'Edit rejected: User chose to skip' },
+      additionalData: {
+        reasonForAcceptReject: { type: 'outOfWorkspace' }, blockReason: 'outOfWorkspace', isNewFile: true,
+        reviewData: { status: 'None', selectedOption: 'accept', firstTimeReviewMode: false },
+      },
+    });
+  /** An applied edit — INFERENCE (no applied IDE edit observed; spec §16 item 2), shaped like the cancelled one minus its error. */
+  const editApplied = (file, over = {}) =>
+    toolBubble('edit_file_v2', 38, {
+      params: { relativeWorkspacePath: file, noCodeblock: true },
+      result: { afterContentId: 'composer.content.fx2', beforeContentId: 'composer.content.fx1' },
+      additionalData: { isNewFile: false, reviewData: { status: 'Done', selectedOption: 'accept' } },
+      over,
+    });
+
+  /** Write a composer + its bubbles. `items` are `{header, bubble}`; a `bubble: null` entry is a tombstoned (NULL) row; `absent: true` writes no row at all. */
+  const writeComposer = (record, items, opts = {}) => {
+    const headers = items.map((it) => it.header);
+    const last = headers.at(-1)?.createdAt;
+    const rec = {
+      ...record,
+      fullConversationHeadersOnly: headers,
+      createdAt: record.createdAt ?? Date.parse(headers[0]?.createdAt ?? isoAt(cuMs)) - 300,
+      ...(opts.noLastUpdatedAt ? {} : { lastUpdatedAt: record.lastUpdatedAt ?? (last ? Date.parse(last) + 60_000 : cuMs) }),
+    };
+    if (opts.noLastUpdatedAt) delete rec.lastUpdatedAt;
+    put.run(`composerData:${record.composerId}`, JSON.stringify(rec));
+    for (const it of items) {
+      if (it.absent) continue;
+      put.run(`bubbleId:${record.composerId}:${it.header.bubbleId}`, it.bubble === null ? null : typeof it.bubble === 'string' ? it.bubble : JSON.stringify(it.bubble));
+    }
+    for (const [k, v] of Object.entries(opts.extraKeys ?? {})) put.run(k, v);
+    return rec;
+  };
+
+  // ---- clean run: 7 headers, completed, zero signals, zero unread ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-00000000c1ea';
+    writeComposer(composer(id, { name: 'Find.js functionality overview', status: 'completed' }), [
+      humanBubble("Read src/find.js and explain in two sentences what it does. Don't change anything."),
+      thinkingBubble('Reading src/find.js to explain its purpose in two sentences.', 3386),
+      textBubble("I'll read `src/find.js` and summarize it in two sentences."),
+      readOk(`${ACME}/src/find.js`, 51),
+      mcpTools('focus_nodes|list_runs|find_nodes'),
+      thinkingBubble('Done reading; summarizing.', 1),
+      textBubble('`src/find.js` is a pure, import-free substring matcher over the Graph IR. It is shared by the server and the frontend.', { turnDurationMs: 10852 }),
+    ]);
+  }
+
+  // ---- trouble run: aborted + archived; a read error, a failed command, a refused command, a cancelled edit ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-000000780b1e';
+    const items = [
+      humanBubble('ensure auto run is off'),
+      thinkingBubble('Checking the auto-run settings.', 2830),
+      textBubble("I'll turn auto-run off in Cursor settings. Checking the current state first."),
+      readOk(`${ACME}/.cursor/skills/SKILL.md`, 123),
+      mcpTools('auto.?run|settings'),
+      grep('autoRun|auto.?run|yolo'),
+      grep('autoRun|auto.?run|yolo|auto.?approve'),
+      thinkingBubble('Looking at the settings file.', 1565),
+      readOk(`${ACME}/.cursor/settings.json`, 20),
+      glob('**/*'),
+      // tool 0 (the enum's UNSPECIFIED) with NO params — `name` is the key.
+      toolBubble('search_conversations', 0, {}),
+      thinkingBubble('Still searching.', 985),
+      readOk(`${ACME}/.cursor/skills/SKILL.md`, 123),
+      readMissing(`${ACME}/.cursor/skills-cursor/missing/SKILL.md`),
+      thinkingBubble('That file does not exist; trying another path.', 2),
+      readOk(`${ACME}/package.json`, 30),
+      glob('**/*permission*'),
+      grep('permissions\\.json|approvalMode'),
+      thinkingBubble('Querying the state database.', 4916),
+    ];
+    // Nine approved-and-ran commands carrying `blockReason` AND the default
+    // `selectedOption` — the calibration guard for the two fields §6 rules out.
+    const cmds = [
+      ['sqlite3 state.vscdb "select key from ItemTable"', 'Query Cursor state DB for auto-run keys'],
+      ['sqlite3 state.vscdb "select key from ItemTable where key like \'%autorun%\'"', 'Find autorun keys in Cursor state'],
+      ['rg -n autoRun .', 'Search for autoRun'],
+      ['python3 -c "print(1)"', 'Extract Auto-Run setting strings'],
+      ['python3 -c "print(2)"', 'Parse reactive storage for agent settings'],
+      ['python3 -c "print(3)"', 'Decode the settings blob'],
+      ['sqlite3 state.vscdb .tables', 'List cursor state tables'],
+      ['python3 -c "print(4)"', 'Check the composer settings'],
+      ['python3 -c "print(5)"', 'Print the resolved auto-run value'],
+    ];
+    for (const [i, [c, d]] of cmds.entries()) {
+      items.push(shellOk(c, d, `row ${i}\n`));
+      if (i === 2) {
+        items.push(thinkingBubble('One command failed; trying another.', 3));
+        items.push(shellFailed('ls -la /nonexistent/*.json', 'List cursor config and project files'));
+        items.push(grep('~/.cursor/permissions|userPermissions'));
+      }
+      if (i === 5) {
+        items.push(thinkingBubble('Asking to run npm test.', 2));
+        items.push(shellRejected('npm test', 'Run npm test suite'));
+        items.push(thinkingBubble('The user skipped that; continuing with reads.', 2));
+        items.push(readOk(`${ACME}/.cursor/agent-cli-state.json`, 12));
+        items.push(readOk(`${ACME}/.cursor/agent-cli-state.json`, 12));
+      }
+    }
+    items.push(thinkingBubble('Preparing the edit.', 7991));
+    items.push(textBubble("Agent auto-run is already off in the IDE. I'll pin it in permissions.json too."));
+    items.push(editCancelled(`${ACME}/.cursor/permissions.json`));
+    writeComposer(
+      composer(id, {
+        name: 'Auto run settings', status: 'aborted', isArchived: true, contextTokensUsed: 77296, contextUsagePercent: 30.19375,
+      }),
+      items,
+    );
+  }
+
+  // ---- rejection run: 14 headers, `completed` status with a `rejected` outcome, two turns ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-0000000e7ec7';
+    writeComposer(composer(id, { name: 'Src adapters and coverage', status: 'completed', contextTokensUsed: 33654 }), [
+      humanBubble('List everything in src/adapters, then read src/coverage.js.'),
+      thinkingBubble('Listing the adapters directory.', 1996),
+      textBubble("I'll list `src/adapters` and read `src/coverage.js`."),
+      glob('**/*', `${ACME}/src/adapters`),
+      readOk(`${ACME}/src/coverage.js`, 300),
+      mcpTools('focus_nodes|list_runs|find_nodes'),
+      thinkingBubble('Summarizing.', 2708),
+      textBubble('`src/adapters` has four adapters; `src/coverage.js` classifies how much of a run was read.', { turnDurationMs: 15578 }),
+      humanBubble('Run: npm test'),
+      thinkingBubble('Running the suite.', 1),
+      textBubble("I'll run the test suite with `npm test`."),
+      shellRejected('npm test', 'Run npm test suite'),
+      thinkingBubble('The command was skipped.', 2),
+      textBubble('`npm test` did not run — the command was skipped in the approval dialog.', { turnDurationMs: 5817 }),
+    ]);
+  }
+
+  // ---- in-flight run: one `loading` tool (→ running), one UNKNOWN status (→ not running, tallied) ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-00000000f11e';
+    writeComposer(composer(id, { name: 'Long build', status: 'none' }), [
+      humanBubble('Run the full build and tell me when it finishes.'),
+      thinkingBubble('Kicking off the build.', 900),
+      readOk(`${ACME}/package.json`, 30),
+      toolBubble('run_terminal_command_v2', 15, {
+        status: 'finalizing', // NOT in the 3.16.29 vocabulary — drift, must not read as running
+        params: shellParams('npm run lint', 'Lint first'),
+        result: { output: 'lint clean\n', rejected: false, exitCode: 0 },
+        additionalData: { status: 'success', startedAtMs: cuMs },
+      }),
+      toolBubble('run_terminal_command_v2', 15, {
+        status: 'loading',
+        params: shellParams('npm run build', 'Run the full build'),
+        additionalData: { startedAtMs: cuMs },
+        hover: { shellStatus: 'running' },
+      }),
+    ]);
+  }
+
+  // ---- subagent run: a parent with two child composers (both routes) and one missing child ----
+  {
+    const P = 'c0c0c0c0-0000-4000-8000-0000005ab000';
+    const C1 = `task-c0c0c0c0-0000-4000-8000-0000005ab001`; // `task-` prefix + listed in subComposerIds
+    const C2 = 'c0c0c0c0-0000-4000-8000-0000005ab002'; // found ONLY via subagentInfo.parentComposerId
+    const MISSING = 'c0c0c0c0-0000-4000-8000-0000005ab0ff';
+    const parentItems = [
+      humanBubble('Audit the adapters in parallel: one subagent per adapter, then summarize.'),
+      thinkingBubble('Delegating.', 1200),
+      textBubble("I'll dispatch two subagents."),
+      toolBubble('task_v2', 48, {
+        params: { description: 'Audit hermes adapter', prompt: 'Read src/adapters/hermes and report issues.' },
+        result: { composerId: C1, status: 'completed' },
+      }),
+      toolBubble('task_v2', 48, {
+        params: { description: 'Audit opencode adapter', prompt: 'Read src/adapters/opencode and report issues.' },
+        result: { composerId: C2, status: 'aborted' },
+      }),
+      thinkingBubble('Collecting results.', 400),
+      textBubble('Both audits are in: hermes is clean; the opencode audit was stopped early.', { turnDurationMs: 42000 }),
+    ];
+    const parentRec = writeComposer(
+      composer(P, { name: 'Parallel adapter audit', status: 'completed', unifiedMode: 'triage', subComposerIds: [C1, MISSING] }),
+      parentItems,
+    );
+    // Children are created AFTER the parent's dispatch bubbles, so their
+    // `createdAt` lands inside the parent's (only) turn.
+    const c1Items = [
+      humanBubble('Read src/adapters/hermes and report issues.'),
+      thinkingBubble('Reading.', 500),
+      readOk(`${ACME}/src/adapters/hermes/parse.js`, 700),
+      readOk(`${ACME}/src/adapters/hermes/detect.js`, 400),
+      textBubble('hermes adapter: no issues found.', { turnDurationMs: 9000 }),
+    ];
+    writeComposer(
+      composer(C1, {
+        name: 'Audit hermes adapter', status: 'completed',
+        subagentInfo: { parentComposerId: P, role: 'subagent' },
+        createdAt: Date.parse(parentItems[3].header.createdAt) + 50,
+        lastUpdatedAt: parentRec.lastUpdatedAt - 30_000,
+      }),
+      c1Items,
+    );
+    // A GRANDCHILD linked ONLY by its own `subagentInfo.parentComposerId` —
+    // C1 never lists it. The second discovery route must work below depth 1.
+    // Created inside C1's turn, so the lane spawns from that turn.
+    const G = 'c0c0c0c0-0000-4000-8000-0000005ab011';
+    writeComposer(
+      composer(G, {
+        name: 'Check hermes fixtures', status: 'completed',
+        subagentInfo: { parentComposerId: C1, role: 'subagent' },
+        createdAt: Date.parse(c1Items[2].header.createdAt) + 50,
+        lastUpdatedAt: parentRec.lastUpdatedAt - 40_000,
+      }),
+      [humanBubble('List tests/fixtures/hermes.'), glob('**/*', `${ACME}/tests/fixtures/hermes`), textBubble('Two files.', { turnDurationMs: 1500 })],
+    );
+    writeComposer(
+      composer(C2, {
+        name: 'Audit opencode adapter', status: 'aborted',
+        subagentInfo: { parentComposerId: P, role: 'subagent' },
+        createdAt: Date.parse(parentItems[4].header.createdAt) + 50,
+        lastUpdatedAt: parentRec.lastUpdatedAt - 20_000,
+      }),
+      [
+        humanBubble('Read src/adapters/opencode and report issues.'),
+        thinkingBubble('Reading.', 500),
+        readOk(`${ACME}/src/adapters/opencode/parse.js`, 1200),
+        shellFailed('node -e "process.exit(2)"', 'Probe the schema'),
+      ],
+    );
+  }
+
+  // ---- tombstoned run: NULL rows, an absent row, an orphan row; plus skip-flagged bubbles ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-0000007011b5';
+    const t1 = textBubble('A display-only notice.', { isDisplayOnly: true });
+    const t2 = textBubble('An ephemeral bubble.', { isEphemeral: true });
+    const nullTool = readOk(`${ACME}/src/a.js`, 10);
+    const nullText = textBubble('gone');
+    const absent = textBubble('never written');
+    const human2 = humanBubble('second prompt (its bubble is gone)');
+    writeComposer(
+      composer(id, { name: 'Long-lived chat', status: 'completed' }),
+      [
+        humanBubble('first prompt'),
+        t1,
+        t2,
+        thinkingBubble('ok', 100),
+        { header: nullTool.header, bubble: null }, // tombstoned TOOL bubble — header still knows the tool
+        { header: nullText.header, bubble: null }, // tombstoned assistant text
+        { header: absent.header, bubble: undefined, absent: true }, // no row at all
+        readOk(`${ACME}/src/b.js`, 12),
+        textBubble('done', { turnDurationMs: 3000 }),
+        { header: human2.header, bubble: null }, // tombstoned HUMAN bubble → a turn with no prompt
+        readOk(`${ACME}/src/c.js`, 5),
+        // A tombstoned REFUSED command: the body is gone but the header's
+        // `shellStatus: 'rejected'` still carries the verdict.
+        { header: shellRejected('rm -rf build', 'Clean the build dir').header, bubble: null },
+      ],
+      { extraKeys: { [`bubbleId:${id}:orphan-0000-4000-8000-000000000001`]: JSON.stringify({ _v: 3, type: 2, text: 'orphan' }) } },
+    );
+  }
+
+  // ---- refused batch: three refusals of three families back to back → ONE denial; a retry after → a second ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-00000000ba7c';
+    writeComposer(composer(id, { name: 'Refused batch', status: 'completed' }), [
+      humanBubble('Clean everything up and push.'),
+      thinkingBubble('Running the cleanup in parallel.', 800),
+      shellRejected('rm -rf dist', 'Remove dist'),
+      editCancelled(`${ACME}/.gitignore`),
+      shellRejected('git push --force', 'Force push'),
+      thinkingBubble('All three were refused; trying the push once more.', 300),
+      shellRejected('git push', 'Push'),
+      textBubble('Nothing was run — every command was declined.', { turnDurationMs: 4000 }),
+    ]);
+  }
+
+  // ---- applied edit + checkpoint: `checkpointId.files[].uri.fsPath` attaches to the Edit node only ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-000000000ed1';
+    const after = textBubble('Edited and verified.', { checkpointId: 'cp-after-edit', turnDurationMs: 6000 });
+    const readOnlyAfter = textBubble('Read it back; nothing changed.', { checkpointId: 'cp-after-read', turnDurationMs: 2000 });
+    writeComposer(
+      composer(id, { name: 'Add sub()', status: 'completed', totalLinesAdded: 4, filesChangedCount: 1 }),
+      [
+        humanBubble('Add a sub(a, b) export to math.js.'),
+        editApplied(`${ACME}/math.js`),
+        after,
+        humanBubble('Now read it back.'),
+        readOk(`${ACME}/math.js`, 8),
+        readOnlyAfter,
+      ],
+      {
+        extraKeys: {
+          [`checkpointId:${id}:cp-after-edit`]: JSON.stringify({
+            files: [{ uri: { $mid: 1, fsPath: `${ACME}/math.js`, scheme: 'file' } }, { uri: { $mid: 1, fsPath: `${ACME}/math.test.js`, scheme: 'file' } }],
+            nonExistentFiles: [{ uri: { fsPath: `${ACME}/ghost.js` } }],
+            newlyCreatedFolders: [],
+            activeInlineDiffs: [],
+            inlineDiffNewlyCreatedResources: {},
+          }),
+          [`checkpointId:${id}:cp-after-read`]: JSON.stringify({
+            files: [{ uri: { $mid: 1, fsPath: `${ACME}/README.md`, scheme: 'file' } }],
+            nonExistentFiles: [],
+            inlineDiffNewlyCreatedResources: {},
+          }),
+        },
+      },
+    );
+  }
+
+  // ---- unsupported version: `_v:3` with 30 headers — listed, never parsed ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-000000000003';
+    const headers = [];
+    for (let i = 0; i < 30; i++) headers.push({ bubbleId: `00000003-0000-4000-8000-${String(i).padStart(12, '0')}`, type: i % 2 === 0 ? 1 : 2 });
+    const rec = {
+      _v: 3, composerId: id, richText: '', hasLoaded: true, text: '', conversationMap: {}, status: 'aborted',
+      context: { mentions: {} }, codeBlockData: {}, lastUpdatedAt: Date.parse('2025-05-07T00:01:34.665Z'),
+      createdAt: Date.parse('2025-05-06T23:40:00.000Z'), name: 'Grocery List App Development Concept',
+      unifiedMode: 'agent', forceMode: 'edit', isAgentic: true, fullConversationHeadersOnly: headers,
+    };
+    put.run(`composerData:${id}`, JSON.stringify(rec));
+    for (const h of headers) put.run(`bubbleId:${id}:${h.bubbleId}`, JSON.stringify({ _v: 2, type: h.type, bubbleId: h.bubbleId, text: h.type === 1 ? 'old prompt' : 'old answer' }));
+  }
+
+  // ---- degraded modern: `_v:9`, modern fields removed — valid IR at reduced coverage ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-000000000009';
+    const strip = (it) => ({
+      header: { bubbleId: it.header.bubbleId, type: it.header.type }, // no grouping, no createdAt
+      bubble: it.bubble === null ? null : (({ createdAt, tokenCount, ...rest }) => rest)(it.bubble), // no createdAt
+    });
+    const items = [
+      humanBubble('degraded: explain the scanner'),
+      thinkingBubble('thinking', 700),
+      readOk(`${ACME}/src/scanner.js`, 160),
+      toolBubble('run_terminal_command_v2', 15, {
+        params: { command: 'node --version' }, // no commandDescription, no additionalData
+        result: { output: 'v22.22.3\n', exitCode: 0 },
+      }),
+      textBubble('The scanner builds the run index.'),
+    ].map(strip);
+    // One bubble whose JSON is invalid → unrecognized; one header of an unknown type → unrecognized.
+    const bad = textBubble('x');
+    items.push({ header: { bubbleId: bad.header.bubbleId, type: 2 }, bubble: '{not json' });
+    const weird = textBubble('y');
+    items.push({ header: { bubbleId: weird.header.bubbleId, type: 3 }, bubble: { _v: 3, type: 3, bubbleId: weird.header.bubbleId } });
+    const rec = composer(id, { _v: 9, status: 'completed', createdAt: cuMs });
+    delete rec.name;
+    delete rec.trackedGitRepos; // attribution falls back to workspaceIdentifier
+    delete rec.modelConfig;
+    delete rec.contextTokensUsed;
+    delete rec.contextTokenLimit;
+    delete rec.contextUsagePercent;
+    delete rec.agentBackend;
+    delete rec.speculativeSummarizationEncryptionKey;
+    writeComposer(rec, items, { noLastUpdatedAt: true });
+  }
+
+  // ---- cross-project: a clean composer attributed to ANOTHER repo ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-00000000c055';
+    writeComposer(
+      composer(id, {
+        name: 'Notes outline', status: 'completed', trackedGitRepos: [{ repoPath: NOTES, branches: [] }],
+        workspaceIdentifier: { id: 'fx-notes', uri: { $mid: 1, fsPath: NOTES, external: `file://${NOTES}`, path: NOTES, scheme: 'file' } },
+      }),
+      [
+        humanBubble('Outline the notes README.'),
+        readOk(`${NOTES}/README.md`, 80),
+        textBubble('Here is the outline.', { turnDurationMs: 4000 }),
+      ],
+    );
+  }
+
+  // ---- bucket: no repo, no workspace → `✦ Cursor chats` ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-000000b0c4e7';
+    const rec = composer(id, { status: 'completed' });
+    delete rec.trackedGitRepos;
+    delete rec.workspaceIdentifier;
+    delete rec.name; // title falls back to the first human bubble's text
+    writeComposer(rec, [humanBubble('What is a monad?'), textBubble('A monoid in the category of endofunctors.', { turnDurationMs: 2500 })]);
+  }
+
+  // ---- secrets run: both key fields + a 64-hex blob id + one scanner pattern in each of the five outgoing places ----
+  {
+    const id = 'c0c0c0c0-0000-4000-8000-0000005ec7e7';
+    const HEX64 = 'd5f4f380a5d1c0ffee00000000000000000000000000000000000000000000aa';
+    // The same spelling the other secrets fixtures use: GitHub push protection
+    // matches xox?-<digits>-… and would block every push of this repo.
+    const FAKE20 = 'FAKE'.repeat(5);
+    writeComposer(
+      composer(id, { name: 'Deploy with the new token', status: 'completed' }),
+      [
+        // 1. the prompt (turn label + detail)
+        humanBubble('Use ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij to push, then deploy.'),
+        thinkingBubble('Setting the token.', 400),
+        // 5. a NODE LABEL — the Shell hint is the commandDescription
+        toolBubble('run_terminal_command_v2', 15, {
+          // 2. tool input
+          params: shellParams('export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY; echo set', 'export AKIAZZZZZZZZZZZZZZZZ'),
+          // 3. tool output — also carries a harmless 64-hex blob id
+          result: { output: `token xoxb-FAKE-FAKE-${FAKE20}\nblob ${HEX64}\n`, rejected: false, exitCode: 0 },
+          additionalData: { status: 'success', startedAtMs: cuMs },
+        }),
+        // 4. the assistant's response text
+        textBubble('Deployed with sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 as the Anthropic key.', { turnDurationMs: 3000 }),
+      ],
+    );
+  }
+
+  // ---- excluded shapes: empty placeholders, a draft, a cloud agent, a NULL composer record ----
+  put.run('composerData:c0c0c0c0-0000-4000-8000-0000000e0001', JSON.stringify(composer('c0c0c0c0-0000-4000-8000-0000000e0001', { status: 'none', createdAt: cuMs })));
+  put.run('composerData:c0c0c0c0-0000-4000-8000-0000000e0002', JSON.stringify({ ...composer('c0c0c0c0-0000-4000-8000-0000000e0002', { status: 'none', createdAt: cuMs }), _v: 10 }));
+  put.run('composerData:c0c0c0c0-0000-4000-8000-0000000d4af7', JSON.stringify({ ...composer('c0c0c0c0-0000-4000-8000-0000000d4af7', { isDraft: true, createdAt: cuMs }), fullConversationHeadersOnly: [{ bubbleId: 'x', type: 1 }] }));
+  put.run('composerData:bc-c0c0c0c0-0000-4000-8000-00000000c10d', JSON.stringify({ ...composer('bc-c0c0c0c0-0000-4000-8000-00000000c10d', { createdAt: cuMs, createdFromBackgroundAgent: { bcId: 'bc-x' } }), fullConversationHeadersOnly: [{ bubbleId: 'y', type: 1 }] }));
+  put.run('composerData:c0c0c0c0-0000-4000-8000-00000000de4d', null);
+  // Other key families the adapter never reads, present so a prefix scan that
+  // over-reaches would pick them up.
+  put.run('agentKv:blob:' + 'ab'.repeat(32), JSON.stringify({ kind: 'blob' }));
+  put.run('codeBlockDiff:c0c0c0c0-0000-4000-8000-00000000c1ea:x', JSON.stringify({ newModelDiffWrtV0: [], originalModelDiffWrtV0: [] }));
+  put.run('messageRequestContext:c0c0c0c0-0000-4000-8000-00000000c1ea:x', JSON.stringify({ terminalFiles: [], cursorRules: [] }));
+  db.close();
+
+  // ======================================================================
+  // Surface B — cursor-agent chats
+  // ======================================================================
+  const md5 = (s) => createHash('md5').update(s).digest('hex');
+  const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+  const CLI_KEY = 'fe5262' + 'c0ffee'.repeat(9) + '0042'; // 64 hex — must never reach the IR
+
+  // Minimal protobuf encoder: enough for a root snapshot and a few spine blobs.
+  const pbVarint = (n) => {
+    const out = [];
+    let v = BigInt(n);
+    do {
+      let b = Number(v & 0x7fn);
+      v >>= 7n;
+      if (v > 0n) b |= 0x80;
+      out.push(b);
+    } while (v > 0n);
+    return Buffer.from(out);
+  };
+  const pbBytes = (field, buf) => Buffer.concat([pbVarint((field << 3) | 2), pbVarint(buf.length), buf]);
+  const pbInt = (field, n) => Buffer.concat([pbVarint(field << 3), pbVarint(n)]);
+  const hexId = (hex) => Buffer.from(hex, 'hex');
+
+  /**
+   * One chat directory. `messages` are the JSON message objects in order;
+   * `opts.rootIds` overrides which ids the root lists (the in-flight case);
+   * `opts.noRoot` writes meta['0'] without a root blob (the unreadable case).
+   */
+  const writeChat = async (cwd, agentId, messages, { createdAtMs, updatedAtMs, name = 'New Agent', isRunEverything = false, truncateAfter, noRoot = false, hasConversation = true, noStore = false, meta0Raw } = {}) => {
+    const dir = join(CU_ROOT, 'cli', 'chats', md5(cwd), agentId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'meta.json'), JSON.stringify({ schemaVersion: 1, createdAtMs, hasConversation, updatedAtMs, cwd }));
+    if (noStore) return;
+    const sdb = new DatabaseSync(join(dir, 'store.db'));
+    sdb.exec('CREATE TABLE IF NOT EXISTS blobs (id TEXT PRIMARY KEY, data BLOB); CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);');
+    const ins = sdb.prepare('INSERT OR REPLACE INTO blobs (id, data) VALUES (?, ?)');
+    const ids = [];
+    for (const m of messages) {
+      const buf = Buffer.from(JSON.stringify(m), 'utf8');
+      const id = sha256(buf);
+      ins.run(id, buf);
+      ids.push(id);
+    }
+    // Per-step spine blobs (nested protobuf the adapter never walks) and one
+    // superseded root per model step, as the real store keeps them.
+    const spine = [];
+    for (let step = 1; step <= Math.ceil(ids.length / 2); step++) {
+      const frag = pbBytes(1, Buffer.from(`step ${step} text fragment`, 'utf8'));
+      const rec = Buffer.concat([pbBytes(2, frag), pbInt(3, step), pbBytes(1, Buffer.from(`state-${agentId}-${step}`))]);
+      const sid = sha256(rec);
+      ins.run(sid, rec);
+      spine.push(sid);
+    }
+    const listed = truncateAfter != null ? ids.slice(0, truncateAfter) : ids;
+    const rootFor = (subset, stepId, at) =>
+      Buffer.concat([
+        ...subset.map((id) => pbBytes(1, hexId(id))),
+        pbBytes(5, Buffer.from('state:' + subset.length)),
+        pbBytes(8, hexId(stepId)),
+        pbBytes(9, Buffer.from('cursor-agent')),
+        pbInt(10, 1),
+        pbBytes(18, Buffer.from('model:composer-2.5-fast')),
+        pbBytes(22, Buffer.from('v1')),
+        pbInt(26, at),
+        pbBytes(27, Buffer.from('fixture-root')),
+      ]);
+    let latest = null;
+    for (let n = 3; n <= listed.length; n += 2) {
+      const root = rootFor(listed.slice(0, n), spine[Math.min(spine.length - 1, Math.floor(n / 2))], createdAtMs + n * 1000);
+      latest = sha256(root);
+      ins.run(latest, root);
+    }
+    if (latest === null || listed.length % 2 === 0) {
+      const root = rootFor(listed, spine.at(-1), updatedAtMs);
+      latest = sha256(root);
+      ins.run(latest, root);
+    }
+    const meta0 = meta0Raw ?? {
+      agentId, latestRootBlobId: noRoot ? 'ab'.repeat(32) : latest, name, mode: 'default', isRunEverything, createdAt: createdAtMs, blobEncryptionKey: CLI_KEY,
+    };
+    sdb.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('0', Buffer.from(typeof meta0 === 'string' ? meta0 : JSON.stringify(meta0), 'utf8').toString('hex'));
+    sdb.close();
+  };
+
+  const SYSTEM = { role: 'system', content: 'You are an AI coding assistant, powered by Composer. You are an interactive CLI tool that helps users with software engineering tasks. (fixture system prompt)' };
+  const injected = (cwd) => ({
+    role: 'user',
+    content:
+      `<user_info>\nOS Version: darwin 24.6.0\n\nShell: zsh\n\nWorkspace Path: ${cwd}\n\nIs directory a git repo: Yes, at ${cwd}\n</user_info>\n` +
+      `<project_layout>\nsrc/\ntests/\n</project_layout>\n<rules>\n# CLAUDE.md\nDo not leak this file into the graph.\n</rules>\n` +
+      `<git_status>\nOn branch main\nnothing to commit\n</git_status>\n` + 'x'.repeat(2000),
+    providerOptions: {
+      cursor: {
+        requestContextCompleteness: { rules: true, env: true, repositoryInfo: true, customSubagents: true, agentSkills: true, gitRepos: true, gitStatus: true, mcp: true, mcpFileSystem: true },
+        userInfoSummarizationEpoch: 0, omitCloudWorkerProcedure: false, useProjectCoordinatorPrompting: false,
+      },
+    },
+  });
+  const query = (stamp, text, requestId) => ({
+    role: 'user',
+    content: [{ type: 'text', text: `<timestamp>${stamp}</timestamp>\n<user_query>\n${text}\n</user_query>` }],
+    providerOptions: { cursor: { requestId } },
+  });
+  const reasoning = (model) => ({ type: 'reasoning', text: '', signature: 'c2ln'.repeat(40), providerOptions: { cursor: { modelName: model } } });
+  const redacted = (model) => ({ type: 'redacted-reasoning', data: 'ZGF0YQ=='.repeat(20), providerOptions: { cursor: { modelName: model } } });
+  const toolCall = (toolCallId, toolName, args) => ({ type: 'tool-call', toolCallId, toolName, args });
+  const toolResult = (toolCallId, toolName, prose, id, hl) => ({
+    role: 'tool',
+    content: [{ type: 'tool-result', toolCallId, toolName, result: prose, experimental_content: [{ type: 'text', text: prose }] }],
+    id,
+    providerOptions: { cursor: { highLevelToolCallResult: hl } },
+  });
+  const shellProse = (exitCode, out, ms) => `Exit code: ${exitCode}\n\nCommand output:\n\n\`\`\`\n${out}\n\`\`\`\n\nCommand completed in ${ms} ms.\n\nShell state (cwd, env vars) persists for subsequent calls.`;
+
+  // ---- CLI rev-2 shape: `call-…\nfc_…` ids, parallel batch, two refusals ----
+  {
+    const A = '13fc220d-0000-4000-8000-000000000002';
+    const mk = (n, i) => `call-${n}-0000-4000-8000-000000000000-${i}\nfc_${n}_${i}`;
+    const c0 = mk('76987096', 0), c1 = mk('76987096', 1), c2 = mk('76987096', 2), c3 = mk('9f73c6f7', 3);
+    const MODEL = 'cursor-grok-4.5-high';
+    const msgs = [
+      SYSTEM,
+      injected(ACME),
+      query('Saturday, Aug 1, 2026, 10:18 AM (UTC-4)', 'Read src/find.js and summarize it in one sentence. Then run the shell command: ls src/adapters . Then run the shell command: node -e "process.exit(3)" . Do not modify or create any files.', '50f83c01-0000-4000-8000-000000000001'),
+      {
+        role: 'assistant',
+        content: [
+          reasoning(MODEL),
+          { type: 'text', text: 'Reading `src/find.js` and running both shell commands.' },
+          toolCall(c0, 'Read', { path: `${ACME}/src/find.js` }),
+          toolCall(c1, 'Shell', { command: 'ls src/adapters', description: 'List adapters directory contents' }),
+          toolCall(c2, 'Shell', { command: 'node -e "process.exit(3)"', description: 'Exit Node with code 3' }),
+        ],
+        id: 'msg_264972bf-0000-4000-8000-000000000001',
+        providerOptions: { cursor: { modelProviderMessageId: 'msg_264972bf-0000-4000-8000-000000000001' } },
+      },
+      toolResult(c0, 'Read', '/** Plain substring matcher over the Graph IR. */\nexport function matchNodes() {}\n', c0, {
+        output: { success: { content: '/** Plain substring matcher over the Graph IR. */\nexport function matchNodes() {}\n', totalLines: 2, fileSize: 80, path: `${ACME}/src/find.js`, readRange: { startLine: 1, endLine: 2 } } },
+        isError: false,
+      }),
+      toolResult(c1, 'Shell', shellProse(0, 'claude-code\ncodex\nhermes\n', 292), c1, {
+        output: { success: { command: 'ls src/adapters', stdout: 'claude-code\ncodex\nhermes\n', executionTime: 2102, interleavedOutput: 'claude-code\ncodex\nhermes\n', localExecutionTimeMs: 292 }, sandboxPolicy: { type: 'TYPE_INSECURE_NONE', allowlistEscalated: true }, isBackground: false },
+        isError: false,
+      }),
+      toolResult(c2, 'Shell', 'Rejected: ', c2, { output: { rejected: { command: 'node -e "process.exit(3)"', workingDirectory: ACME } }, isError: true }),
+      {
+        role: 'assistant',
+        content: [reasoning(MODEL), { type: 'text', text: 'The exit-3 command was blocked; retrying it.' }, toolCall(c3, 'Shell', { command: 'node -e "process.exit(3)"', description: 'Exit Node with code 3' })],
+        id: 'msg_724bc567-0000-4000-8000-000000000002',
+        providerOptions: { cursor: { modelProviderMessageId: 'msg_724bc567-0000-4000-8000-000000000002' } },
+      },
+      toolResult(c3, 'Shell', 'Rejected: ', c3, { output: { rejected: { command: 'node -e "process.exit(3)"', workingDirectory: ACME } }, isError: true }),
+      {
+        role: 'assistant',
+        content: [reasoning(MODEL), { type: 'text', text: '**`src/find.js`:** a pure, import-free substring matcher over the Graph IR. `ls src/adapters` listed three adapters; the exit-3 command was rejected twice.' }],
+        id: 'msg_f2e3e76a-0000-4000-8000-000000000003',
+        providerOptions: { cursor: { modelProviderMessageId: 'msg_f2e3e76a-0000-4000-8000-000000000003' } },
+      },
+    ];
+    await writeChat(ACME, A, msgs, { createdAtMs: Date.parse('2026-08-01T14:18:29.717Z'), updatedAtMs: Date.parse('2026-08-01T14:18:47.479Z') });
+  }
+
+  // ---- CLI rev-3 shape: `tool_…` ids, assistant ids "1", redacted-reasoning, error + failure + applied StrReplace ----
+  {
+    const A = '2acba01b-0000-4000-8000-000000000003';
+    const MODEL = 'composer-2.5-fast';
+    const t = (n) => `tool_${n}-0000-4000-8000-00000000000`;
+    const step = (text, call) => ({ role: 'assistant', content: [redacted(MODEL), { type: 'text', text }, call], id: '1' });
+    const msgs = [
+      SYSTEM,
+      injected(ACME),
+      query('Saturday, Aug 1, 2026, 1:25 PM (UTC-4)', 'You are in a throwaway calibration repo. Do these steps IN ORDER, one tool call at a time:\n1. Read math.js.\n2. Read missing.js (it does not exist).\n3. Run: node -e "process.exit(3)"\n4. Run: sleep 8\n5. Edit math.js to add sub(a, b).\n6. Run: node -e "import(\'./math.js\').then(m=>console.log(m.sub(5,2)))"', '0d90717d-0000-4000-8000-000000000001'),
+      step('Starting step 1: reading `math.js`.\n', toolCall(t('7f12b86b'), 'Read', { path: `${ACME}/math.js` })),
+      toolResult(t('7f12b86b'), 'Read', 'export function add(a, b) {\n  return a + b;\n}\n', t('7f12b86b'), {
+        output: { success: { content: 'export function add(a, b) {\n  return a + b;\n}\n', totalLines: 4, fileSize: 46, path: `${ACME}/math.js`, readRange: { startLine: 1, endLine: 4 } } },
+        isError: false,
+      }),
+      step('Step 1 succeeded. Reading `missing.js` (step 2).\n', toolCall(t('425ad1db'), 'Read', { path: `${ACME}/missing.js` })),
+      toolResult(t('425ad1db'), 'Read', 'Error: File not found', t('425ad1db'), { output: { error: { errorMessage: 'File not found' } }, isError: true, rawErrorMessages: ['File not found'] }),
+      step('Step 2 failed as expected (file not found). Running step 3.\n', toolCall(t('33e24169'), 'Shell', { command: 'node -e "process.exit(3)"', description: 'Run node with exit code 3', working_directory: ACME })),
+      // `failure` with exitCode 3 and isError: FALSE — correction 12.
+      toolResult(t('33e24169'), 'Shell', shellProse(3, '', 1554), t('33e24169'), {
+        output: { failure: { command: 'node -e "process.exit(3)"', workingDirectory: ACME, exitCode: 3, executionTime: 1962, interleavedOutput: '', localExecutionTimeMs: 1554 }, sandboxPolicy: { type: 'TYPE_INSECURE_NONE' }, isBackground: false },
+        isError: false,
+      }),
+      step('Step 3 exited with code 3 as expected. Running step 4 (`sleep 8`).\n', toolCall(t('a6b972fc'), 'Shell', { command: 'sleep 8', description: 'Wait 8 seconds', block_until_ms: 15000 })),
+      toolResult(t('a6b972fc'), 'Shell', shellProse(0, '', 8276), t('a6b972fc'), {
+        output: { success: { command: 'sleep 8', executionTime: 8705, interleavedOutput: '', localExecutionTimeMs: 8276 }, sandboxPolicy: { type: 'TYPE_INSECURE_NONE' }, isBackground: false },
+        isError: false,
+      }),
+      step('Step 4 succeeded. Editing `math.js` to add `sub` (step 5).\n', toolCall(t('2aad8de3'), 'StrReplace', { path: `${ACME}/math.js`, old_string: 'export function add(a, b) {\n  return a + b;\n}', new_string: 'export function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}' })),
+      toolResult(t('2aad8de3'), 'StrReplace', `The file ${ACME}/math.js has been updated.`, t('2aad8de3'), {
+        output: { success: { path: `${ACME}/math.js`, linesAdded: 4, linesRemoved: 0, diffString: '--- a/math.js\n+++ b/math.js\n@@ +4 @@\n+export function sub(a, b) {\n+  return a - b;\n+}\n', beforeFullFileContent: 'export function add(a, b) {\n  return a + b;\n}\n', afterFullFileContent: 'export function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}\n', message: `The file ${ACME}/math.js has been updated.` } },
+        isError: false,
+      }),
+      step('Step 5 succeeded. Running step 6.\n', toolCall(t('66042876'), 'Shell', { command: 'node -e "import(\'./math.js\').then(m=>console.log(m.sub(5,2)))"', description: 'Test sub function via dynamic import', working_directory: ACME })),
+      toolResult(t('66042876'), 'Shell', shellProse(0, '3\n', 273), t('66042876'), {
+        output: { success: { command: 'node -e "import(\'./math.js\').then(m=>console.log(m.sub(5,2)))"', workingDirectory: ACME, stdout: '3\n', executionTime: 634, interleavedOutput: '3\n', localExecutionTimeMs: 273 }, sandboxPolicy: { type: 'TYPE_INSECURE_NONE' }, isBackground: false },
+        isError: false,
+      }),
+      { role: 'assistant', content: [redacted(MODEL), { type: 'text', text: 'Steps 1, 4, 5, and 6 succeeded; step 2 failed (missing.js not found) and step 3 failed as expected (exit code 3).' }], id: '1' },
+    ];
+    await writeChat(ACME, A, msgs, { createdAtMs: Date.parse('2026-08-01T17:25:43.353Z'), updatedAtMs: Date.parse('2026-08-01T17:26:05.969Z'), isRunEverything: true });
+
+    // ---- CLI in-flight: the same conversation, root truncated after the first tool-call ----
+    await writeChat(ACME, 'f11ef11e-0000-4000-8000-000000000004', msgs, {
+      createdAtMs: Date.parse('2026-08-01T17:30:00.000Z'), updatedAtMs: Date.parse('2026-08-01T17:30:02.400Z'), truncateAfter: 4, isRunEverything: true,
+    });
+  }
+
+  // ---- CLI refused batch: three calls of three families refused from ONE assistant message → one denial ----
+  {
+    const A = 'ba7cba7c-0000-4000-8000-000000000006';
+    const MODEL = 'composer-2.5-fast';
+    const t = (n) => `tool_${n}-0000-4000-8000-00000000000`;
+    const rej = (id, name, out) => toolResult(id, name, 'Rejected: ', id, { output: { rejected: out }, isError: true });
+    const msgs = [
+      SYSTEM,
+      injected(ACME),
+      query('Saturday, Aug 1, 2026, 4:00 PM (UTC-4)', 'Read secrets.env, run rm -rf dist, and edit .gitignore.', 'b1'),
+      {
+        role: 'assistant',
+        content: [
+          redacted(MODEL),
+          { type: 'text', text: 'Doing all three.' },
+          toolCall(t('b0000001'), 'Read', { path: `${ACME}/secrets.env` }),
+          toolCall(t('b0000002'), 'Shell', { command: 'rm -rf dist', description: 'Remove dist' }),
+          toolCall(t('b0000003'), 'StrReplace', { path: `${ACME}/.gitignore`, old_string: 'x', new_string: 'y' }),
+        ],
+        id: '1',
+      },
+      rej(t('b0000001'), 'Read', { path: `${ACME}/secrets.env` }),
+      rej(t('b0000002'), 'Shell', { command: 'rm -rf dist', workingDirectory: ACME }),
+      rej(t('b0000003'), 'StrReplace', { path: `${ACME}/.gitignore` }),
+      { role: 'assistant', content: [redacted(MODEL), { type: 'text', text: 'All three calls were declined.' }], id: '1' },
+    ];
+    await writeChat(ACME, A, msgs, { createdAtMs: Date.parse('2026-08-01T20:00:00.000Z'), updatedAtMs: Date.parse('2026-08-01T20:00:09.000Z') });
+  }
+
+  // ---- CLI sibling batch: one call refused, its SIBLING fails and is never fixed → the sibling must NOT be excused ----
+  {
+    const A = '51b11b51-0000-4000-8000-000000000007';
+    const MODEL = 'composer-2.5-fast';
+    const t = (n) => `tool_${n}-0000-4000-8000-00000000000`;
+    const msgs = [
+      SYSTEM,
+      injected(ACME),
+      query('Saturday, Aug 1, 2026, 4:30 PM (UTC-4)', 'Read secrets.env and run the build.', 's1'),
+      {
+        role: 'assistant',
+        content: [
+          redacted(MODEL),
+          { type: 'text', text: 'Reading and building in parallel.' },
+          toolCall(t('50000001'), 'Read', { path: `${ACME}/secrets.env` }),
+          toolCall(t('50000002'), 'Shell', { command: 'npm run build', description: 'Run the build' }),
+        ],
+        id: '1',
+      },
+      toolResult(t('50000001'), 'Read', 'Rejected: ', t('50000001'), { output: { rejected: { path: `${ACME}/secrets.env` } }, isError: true }),
+      toolResult(t('50000002'), 'Shell', shellProse(2, 'error TS2304\n', 900), t('50000002'), {
+        output: { failure: { command: 'npm run build', workingDirectory: ACME, exitCode: 2, executionTime: 1200, interleavedOutput: 'error TS2304\n', localExecutionTimeMs: 900 } },
+        isError: false,
+      }),
+      { role: 'assistant', content: [redacted(MODEL), { type: 'text', text: 'The read was declined and the build failed; stopping here.' }], id: '1' },
+    ];
+    await writeChat(ACME, A, msgs, { createdAtMs: Date.parse('2026-08-01T20:30:00.000Z'), updatedAtMs: Date.parse('2026-08-01T20:30:08.000Z') });
+  }
+
+  // ---- CLI unreadable root: meta['0'] names a root blob that does not exist ----
+  await writeChat(ACME, 'badf00d0-0000-4000-8000-000000000005', [SYSTEM, injected(ACME), query('Saturday, Aug 1, 2026, 3:00 PM (UTC-4)', 'hello?', 'r')], {
+    createdAtMs: Date.parse('2026-08-01T19:00:00.000Z'), updatedAtMs: Date.parse('2026-08-01T19:00:01.000Z'), noRoot: true, name: 'Broken root',
+  });
+  // ---- CLI skipped shapes: meta.json without a store; hasConversation:false ----
+  await writeChat(ACME, '00000000-0000-4000-8000-0000000n0570'.replace('n', '0'), [], { createdAtMs: 1, updatedAtMs: 1, noStore: true });
+  await writeChat(NOTES, '00000000-0000-4000-8000-0000000000c0', [SYSTEM], { createdAtMs: 2, updatedAtMs: 2, hasConversation: false });
+  // A stray non-chat file where a workspace dir would be.
+  await writeFile(join(CU_ROOT, 'cli', 'chats', 'README.txt'), 'not a workspace\n');
 }

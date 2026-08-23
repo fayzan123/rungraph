@@ -24,12 +24,12 @@ npx rungraph
 ```
 
 That's the whole quickstart. It scans `~/.claude/projects`, `~/.codex/sessions`,
-`~/.hermes` and `~/.local/share/opencode` — Claude Code, Codex, Hermes Agent and
-opencode runs — starts a local server, and opens your browser. Pick a run —
-including one that's **running right now**: the graph grows live as the agent
-works (file watching only). (Hermes and opencode runs need Node ≥ 22.13 for the
-built-in SQLite reader; on older Nodes they're skipped with a warning and
-everything else works.)
+`~/.hermes`, `~/.local/share/opencode` and Cursor's two stores — Claude Code,
+Codex, Hermes Agent, opencode and Cursor runs — starts a local server, and opens
+your browser. Pick a run — including one that's **running right now**: the
+graph grows live as the agent works (file watching only). (Hermes, opencode and
+Cursor runs need Node ≥ 22.13 for the built-in SQLite reader; on older Nodes
+they're skipped with a warning and everything else works.)
 
 What you get is an interactive **directed agentic graph** — orchestrator,
 subagents, and tools as nodes; spawn/return relationships as edges; the
@@ -127,27 +127,35 @@ npx rungraph mcp --install     # one time, then restart your agent
 npx rungraph mcp --check       # is it working? prints exactly what to fix
 ```
 
-**rungraph ships four adapters, so it installs into four agents.** Bare
+**rungraph ships five adapters, so it installs into five agents.** Bare
 `--install` registers with every agent whose runs are already on this machine —
-Claude Code, Codex, Hermes and opencode — and tells you what it did:
+Claude Code, Codex, Hermes, opencode and Cursor — and tells you what it did:
 
 ```
 claude    registered (scope: user)
 codex     registered
 hermes    already registered
 opencode  registered
+cursor    paste required — block below
 ```
 
 Nothing is guessed and nothing is prompted. Detection is what rungraph can
 *prove*: a provider counts as present because rungraph has read its
 transcripts, not because a binary is on your PATH. `--client <name>` targets
-one; `--client all` installs into all four regardless.
+one; `--client all` installs into all five regardless.
 
 Each install is **delegated to the vendor's own CLI**, because each vendor owns
 its config format and will keep owning it — `claude mcp add`, `codex mcp add`,
 `hermes mcp add`, `opencode mcp add`. rungraph never edits an agent's config
 file itself. Where a delegation fails, rungraph prints the exact block to paste
 instead, so the command never dead-ends in "it didn't work".
+
+**Cursor is one paste, or one click** — because `cursor-agent mcp` has no
+`add` (a vendor fact, not a rungraph limitation). `--install --client cursor`
+prints the `mcpServers` block for `~/.cursor/mcp.json` (which both the IDE and
+`cursor-agent` read — one paste covers both) and a
+`cursor://anysphere.cursor-deeplink/mcp/install?…` link that opens Cursor's own
+install confirmation. rungraph prints the link and never opens it.
 
 The server is plain MCP over stdio, and the command it registers is always
 `rungraph mcp` on stdio — so any other MCP-capable agent can be pointed at the
@@ -175,8 +183,8 @@ Then start a new session and ask the same questions. The tool names
 `get_current_view`, `open_visualization`) are identical on every agent, and
 so is the loop: the agent answers in your terminal, then calls `focus_nodes`
 and the open graph lights up the nodes it's talking about. (If your agent's
-Hermes/opencode runs are missing, your default Node is older than 22.13 — point
-the registered command at a Node ≥ 22.13 and they appear.)
+Hermes/opencode/Cursor runs are missing, your default Node is older than 22.13 —
+point the registered command at a Node ≥ 22.13 and they appear.)
 
 Then ask, in your agent, the kinds of questions a transcript can actually
 answer:
@@ -294,17 +302,17 @@ stream in.
 
 The **runs pane** groups sessions by project; when runs from more than one
 agent are on the machine, a chip rail above the list filters by agent
-(`all · claude · codex · hermes · opencode`), and runs with no real project to stand in —
-deleted worktrees, home-directory chats, Hermes tasks started from nowhere —
-gather under a single `✦ loose runs` group.
+(`all · claude · codex · hermes · opencode · cursor`), and runs with no real project to stand in —
+deleted worktrees, home-directory chats, Hermes tasks started from nowhere,
+Cursor chats with no repo open — gather under a single `✦ loose runs` group.
 
 **Resume from the dashboard.** The graph is where you *find* a session — the
 run where auth broke, the conversation from Tuesday you half-remember — and
 every local session carries the edge back to the terminal: **resume** in the
 run header, or hover a run in the list (workflow rows resume via their parent
 session's row). Copy the exact `claude --resume` / `codex resume` /
-`hermes --resume` / `opencode --session` command (shown in full, so it also
-teaches the incantation),
+`hermes --resume` / `opencode --session` / `cursor-agent --resume` command
+(shown in full, so it also teaches the incantation),
 or on macOS open a new Terminal window with the session already loading
 (`RUNGRAPH_TERMINAL=iTerm` targets iTerm2 instead). A live Claude run
 pre-checks **fork** — resume a copy rather than interleaving with the running
@@ -346,15 +354,31 @@ The same surface is available as MCP tools — see "Ask your agent about a run"
 above, or `rungraph mcp --install`.
 
 The IR is versioned and documented in [SCHEMA.md](SCHEMA.md). It is
-vendor-neutral, with four adapters: Claude Code (sessions, subagents, and
+vendor-neutral, with five adapters: Claude Code (sessions, subagents, and
 Workflow runs, under `~/.claude/projects`), Codex CLI (rollout threads and
 their spawned subagent threads, under `~/.codex/sessions`), Hermes Agent
 (sessions and their delegation lanes, from the SQLite database at
-`~/.hermes/state.db`; `RUNGRAPH_HERMES_HOME` points the scan elsewhere), and
+`~/.hermes/state.db`; `RUNGRAPH_HERMES_HOME` points the scan elsewhere),
 opencode (sessions and their subagent lanes, from the one global SQLite
 database at `~/.local/share/opencode/opencode.db` — `XDG_DATA_HOME` is
-honoured, and `RUNGRAPH_OPENCODE_HOME` points the scan elsewhere).
+honoured, and `RUNGRAPH_OPENCODE_HOME` points the scan elsewhere), and Cursor
+— both of it: the IDE's agent conversations, from the one shared database at
+`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` on macOS
+(`RUNGRAPH_CURSOR_GLOBAL_STORAGE` points the scan elsewhere), and `cursor-agent`
+chats from `~/.cursor/chats` (`CURSOR_DATA_DIR` is honoured, and
+`RUNGRAPH_CURSOR_CLI_HOME` points the scan elsewhere). The two stores share no
+history, so a run is one or the other; both show up as `cursor` in the rail.
 Everything downstream — including `.rungraph` bundles — carries only the IR.
+
+**What the Cursor adapter does not do**, stated rather than omitted: it skips
+cloud/background agents (their transcripts are not local); it lists but does
+not parse conversations written before Cursor's `_v:9` composer format (they
+appear with a "0% read" badge rather than vanish); it offers no resume for IDE
+conversations (Cursor exposes no external route into the local agent window —
+`cursor-agent` chats do resume); and it reports **no token totals**, because
+Cursor records `0` tokens on every message and its context-window gauge is not
+spend. The Linux and Windows IDE paths follow Electron's convention and are
+unverified; macOS is verified.
 
 ## Privacy
 
@@ -383,7 +407,15 @@ Codex writes rollout JSONL under `~/.codex/sessions`. Hermes Agent keeps
 everything in one SQLite database (`~/.hermes/state.db`), and opencode keeps
 every session on the machine in one more
 (`~/.local/share/opencode/opencode.db`) — both read with Node's built-in
-`node:sqlite`: readonly, live (WAL), zero dependencies added. opencode records
+`node:sqlite`: readonly, live (WAL), zero dependencies added. Cursor is read
+the same way, from two stores: the IDE keeps every project's conversations as
+JSON records in one key-value table inside `state.vscdb`, and `cursor-agent`
+keeps one content-addressed `store.db` per chat, where the conversation order
+lives in a small protobuf snapshot the adapter walks with a thirty-line reader
+(no `.proto`, no dependency). Neither Cursor store has a single field that says
+whether a tool call succeeded — a refused command is recorded as `completed` —
+so the adapter carries a calibrated classifier instead, built from real
+sessions rather than field names. opencode records
 several things the other adapters have to infer — the exact parent/child
 session id for every subagent, the agent that ran each session, and the
 absolute file list behind every patch — so those are read rather than guessed. `rungraph` reconstructs the run graph from those sources post-hoc:
@@ -420,7 +452,7 @@ rungraph mcp --check           verify the agent side end to end
   --project <path>             only runs for this project directory
   --port <n>                   preferred port (auto-increments if taken)
   --last <n>                   export: the n most recent runs of this project
-  --client <c>                 mcp --install: claude | codex | hermes | opencode | all
+  --client <c>                 mcp --install: claude | codex | hermes | opencode | cursor | all
                                (default: every agent detected on this machine)
   --scope <s>                  mcp --install --client claude: user (default) | project | local
 ```

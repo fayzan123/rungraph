@@ -865,9 +865,9 @@ const INSTALL_TIMEOUT_MS = 90_000;
  * `rungraph mcp --install` — the one-time registration that is otherwise a
  * real dent in the zero-setup promise.
  *
- * rungraph ships four adapters, so it installs into four clients. Bare
+ * rungraph ships five adapters, so it installs into five clients. Bare
  * `--install` registers with every provider whose runs are actually on this
- * machine; `--client <name>` targets one; `--client all` targets all four
+ * machine; `--client <name>` targets one; `--client all` targets all five
  * regardless of what was detected. Detection is the whole reason the client
  * table is keyed to adapters (see `src/clients.js`): a provider is "here"
  * because rungraph has read its transcripts, which is a stronger claim than
@@ -875,9 +875,11 @@ const INSTALL_TIMEOUT_MS = 90_000;
  *
  * Delegation, not config writing: each vendor owns its config format and will
  * keep owning it, so rungraph drives the vendor's own CLI rather than writing
- * four config formats itself. All four turned out to be drivable
- * non-interactively — opencode last, via an undocumented `--` passthrough (see
- * its entry in clients.js). **rungraph never edits an agent's config file.**
+ * five config formats itself. Four of the five are drivable non-interactively
+ * — opencode via an undocumented `--` passthrough (see its entry in
+ * clients.js); Cursor has no `mcp add` at all and is the one genuine paste-tier
+ * client, with the IDE's own install deeplink printed beside the block.
+ * **rungraph never edits an agent's config file.**
  *
  * The paste tier survives as the tier that never dead-ends: a delegation that
  * fails for any reason — vendor CLI missing, vendor prompt changed, vendor
@@ -934,7 +936,7 @@ async function installMcpInner(opts) {
         ? [clientByName(wanted)]
         : CLIENTS.filter((c) => detected.includes(c.name));
 
-  // Nothing detected and nothing asked for: print all four blocks and say so.
+  // Nothing detected and nothing asked for: print every client's block and say so.
   // Exit 0 — there is nothing broken here, there is just nothing to delegate
   // to, and an error would be a lie about the machine's state.
   const nothingDetected = targets.length === 0;
@@ -1056,6 +1058,10 @@ async function installOne(client, { launch, scope, pasteOnly, detected }) {
     ...(client.instructionsFile
       ? { instructions: AGENTS_SNIPPET, instructionsFile: client.instructionsFile }
       : {}),
+    // A vendor's own one-click install URL, where one exists (Cursor's
+    // `cursor://…/mcp/install`). Printed, never invoked: it opens the
+    // vendor's confirmation dialog, and that decision is the user's.
+    ...(typeof client.deeplink === 'function' ? { deeplink: client.deeplink(launch) } : {}),
   };
 
   if (client.tier === 'paste' || pasteOnly) {
@@ -1191,6 +1197,9 @@ function printPasteBlock(c) {
     process.stdout.write(
       `\n${c.client} also reads ${c.candidates.slice(1).join(' and ')} — any one of them works.\n`,
     );
+  }
+  if (c.deeplink) {
+    process.stdout.write(`\nOr open this link to let ${c.client} install it itself (it asks you to confirm):\n\n${c.deeplink}\n`);
   }
   if (c.instructionsFile) {
     process.stdout.write(
