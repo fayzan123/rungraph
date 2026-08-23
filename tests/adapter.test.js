@@ -35,6 +35,16 @@ describe('detect', () => {
   });
 });
 
+describe('toolNodeLabel', () => {
+  it('names MCP tools by tool and server, never by the raw mcp__ id', () => {
+    expect(toolNodeLabel('mcp__claude-in-chrome__computer', {})).toBe('computer · claude-in-chrome');
+    expect(toolNodeLabel('mcp__rungraph__focus_nodes', { runId: 'x' })).toBe('focus_nodes · rungraph');
+    // Plain tools are untouched, and a name that merely starts with mcp is not an MCP id.
+    expect(toolNodeLabel('Bash', { command: 'ls' })).toBe('Bash · ls');
+    expect(toolNodeLabel('mcpish', {})).toBe('mcpish');
+  });
+});
+
 describe('parse: session', () => {
   it('produces the expected IR', async () => {
     const { ir } = await parse(ref(SESSION_RUN_ID));
@@ -54,23 +64,34 @@ describe('parse: session', () => {
 
   it('counts unknown line types instead of failing', async () => {
     const { ir } = await parse(ref(SESSION_RUN_ID));
-    expect(ir.meta.unrecognizedLineCount).toBe(2); // "holo-recap" + a populated "atis-latch"
+    expect(ir.meta.unrecognizedLineCount).toBe(2); // "holo-recap" + an "atis-latch" of an unseen SHAPE
     // …and names them, because a count alone cannot tell one benign metadata
     // type from four hundred missing assistant turns.
     expect(ir.meta.ext.claudeCode.unknownTypes).toEqual({ 'holo-recap': 1, 'atis-latch': 1 });
   });
 
   it('recognizes a shape-gated line type only in the shape it was observed in', async () => {
-    // `atis-latch` with an empty `atis` is contentless and recognized; the same
-    // type carrying a payload is NOT, because swallowing it silently would
-    // report 100% coverage over content nobody read.
+    // `atis-latch` is `{type, atis, sessionId}` and nothing else — `atis`
+    // empty or an opaque token, both observed. The same type carrying an
+    // extra key is NOT recognized, because swallowing it silently would
+    // report 100% coverage over content nobody read. `bridge-session` is the
+    // remote-control bridge's record, six known keys and no content.
     const clean = (await parse(ref(CLEAN_RUN_ID))).ir;
     expect(clean.meta.unrecognizedLineCount).toBe(0);
-    expect(clean.nodes.some((n) => /atis/i.test(n.label))).toBe(false);
-    expect(isKnownMainLine({ type: 'atis-latch', atis: '' })).toBe(true);
-    expect(isKnownMainLine({ type: 'atis-latch' })).toBe(true);
-    expect(isKnownMainLine({ type: 'atis-latch', atis: 'content' })).toBe(false);
+    expect(clean.nodes.some((n) => /atis|bridge/i.test(n.label))).toBe(false);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: '', sessionId: 's' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch', sessionId: 's' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: 'c3220c7ab05b70ed', sessionId: 's' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: 'v1.c3220c7ab05b70ed.QNL.token', sessionId: 's' })).toBe(true);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: 'x', sessionId: 's', content: 'words' })).toBe(false);
+    expect(isKnownMainLine({ type: 'atis-latch', atis: 42, sessionId: 's' })).toBe(false);
+    expect(isKnownMainLine({ type: 'atis-latch' })).toBe(false); // no sessionId: not the observed shape
+    const bridge = { type: 'bridge-session', sessionId: 's', bridgeSessionId: 'cse_x', lastSequenceNum: 0, ownerAccountUuid: 'a', ownerOrganizationUuid: 'o' };
+    expect(isKnownMainLine(bridge)).toBe(true);
+    expect(isKnownMainLine({ ...bridge, message: { role: 'user', content: 'hi' } })).toBe(false);
+    expect(isKnownMainLine({ ...bridge, bridgeSessionId: 7 })).toBe(false);
     expect(isKnownMainLine({ type: 'not-a-thing' })).toBe(false);
+    expect(isKnownMainLine({ type: 'constructor' })).toBe(false);
     expect(isKnownMainLine(null)).toBe(false);
   });
 

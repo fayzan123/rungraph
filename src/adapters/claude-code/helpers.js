@@ -24,14 +24,26 @@ export const KNOWN_MAIN_TYPES = new Set([
  * Types tolerated only in the SHAPE we actually observed, never by name alone.
  *
  * `atis-latch` appeared in Claude Code output in August 2026 and pushed the
- * skip rate from 0% to ~5% on every new session. All 220 samples in the corpus
- * were `{ type, atis, sessionId }` with `atis === ''` — contentless.
+ * skip rate from 0% to ~5% on every new session. The first 220 samples were
+ * `{ type, atis, sessionId }` with `atis === ''`; by 2026-08-23 the corpus
+ * held 857, of which 140 carried a POPULATED `atis` — an opaque token
+ * (`v1.<hex>.…`, or a bare 16-hex id), never prose — and the key set had not
+ * changed. `bridge-session` arrived with Claude Code's remote-control bridge
+ * (393 lines over 12 sessions here): `{ type, sessionId, bridgeSessionId,
+ * lastSequenceNum, ownerAccountUuid, ownerOrganizationUuid }`, ids and a
+ * counter, no content.
  *
- * The general policy, not a one-off: RECOGNIZE THE SHAPE YOU OBSERVED. Adding
- * the bare name would mean that the day Claude Code starts populating the
- * field, rungraph silently swallows real content *and reports 100% coverage* —
- * manufacturing precisely the blind spot the coverage layer exists to remove.
- * A populated `atis` falls through to unrecognized, where it is visible.
+ * The general policy, not a one-off: RECOGNIZE THE SHAPE YOU OBSERVED. The
+ * shape is the KEY SET, checked exactly — a line of a known type that grows a
+ * key (a `message`, a `content`) is a shape nobody has seen and falls through
+ * to unrecognized, where it is visible. The value of `atis` is deliberately
+ * NOT inspected: it is a token rungraph never carries anywhere, and gating on
+ * its emptiness is what made every populated latch read as drift for three
+ * weeks (148 "unrecognized" records on an ordinary session, found by
+ * dogfooding). Adding the bare NAME would be the opposite mistake: the day a
+ * latch line carries content, rungraph would swallow it *and report 100%
+ * coverage* — manufacturing precisely the blind spot the coverage layer
+ * exists to remove.
  *
  * A MAP, not an object literal, and that is load-bearing: `obj.type` is
  * transcript-controlled, so a plain-object lookup would walk the prototype
@@ -40,8 +52,35 @@ export const KNOWN_MAIN_TYPES = new Set([
  * belongs to. The same reason `KNOWN_MAIN_TYPES` is a Set.
  */
 export const SHAPE_GATED_MAIN_TYPES = new Map([
-  ['atis-latch', (obj) => obj.atis === undefined || obj.atis === ''],
+  ['atis-latch', exactKeys(['type', 'sessionId'], ['atis'], { atis: 'string' })],
+  [
+    'bridge-session',
+    exactKeys(
+      ['type', 'sessionId', 'bridgeSessionId', 'lastSequenceNum', 'ownerAccountUuid', 'ownerOrganizationUuid'],
+      [],
+      { bridgeSessionId: 'string', lastSequenceNum: 'number' },
+    ),
+  ],
 ]);
+
+/**
+ * A shape gate: the object's own keys must be exactly `required` plus any
+ * subset of `optional`, and each listed value must have the listed type.
+ * Own keys only (`Object.keys`), so nothing inherited can satisfy it.
+ */
+function exactKeys(required, optional, types) {
+  const allowed = new Set([...required, ...optional]);
+  return (obj) => {
+    const keys = Object.keys(obj);
+    if (keys.length < required.length || keys.length > allowed.size) return false;
+    for (const k of keys) if (!allowed.has(k)) return false;
+    for (const k of required) if (!Object.hasOwn(obj, k)) return false;
+    for (const [k, t] of Object.entries(types)) {
+      if (Object.hasOwn(obj, k) && typeof obj[k] !== t) return false;
+    }
+    return true;
+  };
+}
 
 /** True if a main-session line is one this adapter understands. */
 export function isKnownMainLine(obj) {
@@ -139,6 +178,13 @@ export function parseTaskNotification(text) {
  */
 export function toolNodeLabel(name, input, max = 40) {
   try {
+    // An MCP tool is named `mcp__<server>__<tool>` in the transcript. The raw
+    // id ran past the node's width and said nothing a person reads
+    // (`mcp__claude-in-chrome__computer ×6`); `computer · claude-in-chrome`
+    // keeps the family in the head segment where `toolFamily()` reads it and
+    // puts the server where a hint goes. Found by dogfooding a browser session.
+    const mcp = /^mcp__([^_].*?)__(.+)$/.exec(name);
+    if (mcp) return snippet(`${mcp[2]} · ${mcp[1]}`, max);
     let hint;
     if (name === 'Bash') hint = input.description || input.command;
     else if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'NotebookEdit')
