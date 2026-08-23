@@ -85,7 +85,8 @@ real sessions, never reasoned into place.
   scan), and neither writes to disk.
 - **Zero runtime dependencies.** `package.json` has devDependencies only, and that is
   load-bearing for `npx rungraph`. `src/mcp.js` hand-rolls JSON-RPC over stdio for this reason.
-- **Still out of scope:** run comparison, filtering, cost estimates, cross-run querying.
+- **Still out of scope:** run comparison, filtering the *graph* (the picker narrows the run
+  list by agent chip and by title), cost estimates, cross-run querying.
 
 ## Shared code, one implementation
 

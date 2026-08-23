@@ -135,6 +135,27 @@ describe('groupRuns', () => {
     expect(groupRuns(runs, { filter: 'hermes' }).map((g) => g.key)).toEqual(['/dev/a', '/dev/b']);
   });
 
+  it('query: a case-insensitive title substring narrows exactly like the filter, and combines with it', () => {
+    const runs = [
+      entry({ runId: 'a', project: '/dev/a', title: 'Fix the login test', adapter: 'claude-code', modifiedAt: '2026-08-03T00:00:00Z' }),
+      entry({ runId: 'b', project: '/dev/a', title: 'Refactor auth', adapter: 'hermes', modifiedAt: '2026-08-02T00:00:00Z' }),
+      entry({ runId: 'c', project: '/dev/b', title: 'LOGIN redirect race', adapter: 'claude-code', modifiedAt: '2026-08-01T00:00:00Z' }),
+    ];
+    const groups = groupRuns(runs, { query: 'login' });
+    expect(groups.map((g) => [g.key, g.runs.map((r) => r.runId), g.total])).toEqual([
+      ['/dev/a', ['a'], 2],
+      ['/dev/b', ['c'], 1],
+    ]);
+    // Whitespace is not a query; an unmatched query leaves nothing.
+    expect(groupRuns(runs, { query: '   ' }).map((g) => g.runs.length)).toEqual([2, 1]);
+    expect(groupRuns(runs, { query: 'nothing here' })).toEqual([]);
+    // Combined with the adapter filter, both must match.
+    expect(groupRuns(runs, { query: 'login', filter: 'hermes' })).toEqual([]);
+    expect(groupRuns(runs, { query: 'auth', filter: 'hermes' }).map((g) => g.runs.map((r) => r.runId))).toEqual([['b']]);
+    // A run with no title cannot match, and must not throw.
+    expect(groupRuns([entry({ runId: 'x', project: '/dev/x', title: undefined })], { query: 'x' })).toEqual([]);
+  });
+
   it('the live count on a filtered group counts matching live runs only', () => {
     const runs = [
       entry({ adapter: 'claude-code', project: '/dev/a', active: true, modifiedAt: at(30) }),

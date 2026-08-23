@@ -303,9 +303,11 @@ stream in.
 
 The **runs pane** groups sessions by project; when runs from more than one
 agent are on the machine, a chip rail above the list filters by agent
-(`all · claude · codex · hermes · opencode · cursor`), and runs with no real project to stand in —
-deleted worktrees, home-directory chats, Hermes tasks started from nowhere,
-Cursor chats with no repo open — gather under a single `✦ loose runs` group.
+(`all · claude · codex · hermes · opencode · cursor`), a *find a run…* box
+narrows it by title (the two combine; `Esc` clears), and runs with no real
+project to stand in — deleted worktrees, home-directory chats, Hermes tasks
+started from nowhere, Cursor chats with no repo open — gather under a single
+`✦ loose runs` group.
 
 **Resume from the dashboard.** The graph is where you *find* a session — the
 run where auth broke, the conversation from Tuesday you half-remember — and

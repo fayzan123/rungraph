@@ -1013,6 +1013,24 @@ button.ghost[data-on="true"] {
   border-bottom: 1px solid var(--hairline-soft);
   margin-bottom: 8px;
 }
+.picker-tools .run-search {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 3px 9px;
+}
+.picker-tools .run-search::placeholder { color: var(--ink-faint); }
+.picker-tools .run-search:focus {
+  outline: none;
+  border-color: color-mix(in oklch, var(--amber) 55%, transparent);
+}
+.picker-tools .run-search::-webkit-search-cancel-button { filter: invert(0.6); }
 .picker-tools .primary {
   color: var(--amber);
   border-color: color-mix(in oklch, var(--amber) 45%, transparent);

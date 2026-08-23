@@ -50,9 +50,12 @@ function byRecency(a, b) {
  * Group index entries for the sidebar.
  *
  * @param {Array<object>} runs  index entries (any order; re-sorted by recency)
- * @param {{ filter?: string }} [opts]  `filter` narrows to one adapter:
- *   groups with zero matching runs disappear, mixed groups keep only matching
- *   rows, `total` keeps the unfiltered count so headers can say "k of n".
+ * @param {{ filter?: string, query?: string }} [opts]  `filter` narrows to one
+ *   adapter and `query` to titles containing the text (case-insensitive, a
+ *   plain substring — the same matcher find uses on nodes); both narrow the
+ *   same way: groups with zero matching runs disappear, mixed groups keep only
+ *   matching rows, `total` keeps the unnarrowed count so headers can say
+ *   "k of n". Whitespace-only `query` is no query.
  * @returns {Array<{ key: string, label: string,
  *   kind: 'project'|'bucket'|'bundle', runs: Array<object>,
  *   total: number, live: number }>}
@@ -60,7 +63,9 @@ function byRecency(a, b) {
  *   not — no reordering jitter when the filter toggles). `live` counts the
  *   *matching* runs that are active.
  */
-export function groupRuns(runs, { filter } = {}) {
+export function groupRuns(runs, { filter, query } = {}) {
+  const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const narrowed = Boolean(filter) || needle.length > 0;
   const ordered = [...(runs ?? [])].sort(byRecency);
   const groups = new Map();
   for (const r of ordered) {
@@ -84,12 +89,13 @@ export function groupRuns(runs, { filter } = {}) {
       g.casings.set(r.project, (g.casings.get(r.project) ?? 0) + 1);
     }
     if (filter && r.adapter !== filter) continue;
+    if (needle && !String(r.title ?? '').toLowerCase().includes(needle)) continue;
     g.runs.push(r);
     if (r.active) g.live += 1;
   }
   const out = [];
   for (const { casings, ...g } of groups.values()) {
-    if (filter && g.runs.length === 0) continue;
+    if (narrowed && g.runs.length === 0) continue;
     let label = g.key;
     if (g.kind === 'project') {
       let bestN = 0;

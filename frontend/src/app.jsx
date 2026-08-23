@@ -744,6 +744,11 @@ function Picker({ index, runId, onSelect, onResume }) {
   // filter is a "where did my runs go" footgun days later, so a reload
   // starts unfiltered. Group open/closed prefs stay persisted as before.
   const [filter, setFilter] = useState(null);
+  // Title search — the other way to narrow the list. Same lifetime and same
+  // narrowing rules as the chip filter (picker-groups.js); with 79 runs in one
+  // project, scrolling for "the run from Tuesday" by memory of its title was
+  // the one thing the picker could not do.
+  const [query, setQuery] = useState('');
   // Share mode: check off runs, hit export. Backed by GET /api/export — the
   // same export module the CLI uses, so the consent surface cannot fork.
   const [selectMode, setSelectMode] = useState(false);
@@ -797,10 +802,16 @@ function Picker({ index, runId, onSelect, onResume }) {
   // exactly the case the sentence above promises to leave alone. (Found by
   // dogfooding with a live session open.)
   const selectedAdapter = index?.runs?.find((r) => r.runId === runId)?.adapter;
+  const selectedTitle = index?.runs?.find((r) => r.runId === runId)?.title;
   useEffect(() => {
     if (!runId || !selectedAdapter) return;
     setFilter((cur) => (cur && selectedAdapter !== cur ? null : cur));
-  }, [runId, selectedAdapter]);
+    // The search narrows the same list, so it clears on the same rule.
+    setQuery((cur) => {
+      const needle = cur.trim().toLowerCase();
+      return needle && !String(selectedTitle ?? '').toLowerCase().includes(needle) ? '' : cur;
+    });
+  }, [runId, selectedAdapter, selectedTitle]);
 
   // The selected row is brought into view when the selection arrives from
   // OUTSIDE the list — a deep link, an inspector jump, a focus_nodes arrival
@@ -847,8 +858,9 @@ function Picker({ index, runId, onSelect, onResume }) {
   // The grouping opinion lives in picker-groups.js (bundle keying, the loose
   // bucket, case merging, recency order, the filter, the counts); this
   // component only renders its output.
-  const groups = groupRuns(index.runs, { filter });
+  const groups = groupRuns(index.runs, { filter, query });
   const chips = adapterChips(index.runs);
+  const searching = query.trim().length > 0;
 
   // The first group is the project worked in most recently. It and the
   // selected run's group open by default; the rest start collapsed, which
@@ -857,7 +869,7 @@ function Picker({ index, runId, onSelect, onResume }) {
   // explicit open/closed prefs still win either way.
   const openFor = (g) => {
     if (prefs[g.key]) return prefs[g.key] === 'open';
-    if (filter) return true;
+    if (filter || searching) return true;
     return g.key === groups[0]?.key || g.key === selectedGroupKey;
   };
 
@@ -897,6 +909,24 @@ function Picker({ index, runId, onSelect, onResume }) {
       )}
       {!bundleMode && (
         <div class="picker-tools">
+          {!selectMode && (
+            <input
+              class="run-search"
+              type="search"
+              value={query}
+              placeholder="find a run…"
+              aria-label="find runs by title"
+              spellcheck="false"
+              autocomplete="off"
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return;
+                e.preventDefault();
+                setQuery('');
+                e.currentTarget.blur();
+              }}
+            />
+          )}
           {selectMode ? (
             <>
               <button
@@ -922,6 +952,9 @@ function Picker({ index, runId, onSelect, onResume }) {
             </button>
           )}
         </div>
+      )}
+      {searching && groups.length === 0 && (
+        <div class="empty microlabel">no runs match “{query.trim()}”</div>
       )}
       {groups.map((g) => {
         const open = openFor(g);
