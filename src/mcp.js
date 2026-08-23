@@ -1113,7 +1113,7 @@ async function installOne(client, { launch, scope, pasteOnly, detected }) {
   // `["a b", "c"]` and `["a", "b c"]` the same command.
   const replaced =
     Boolean(previous) && JSON.stringify(previous) !== JSON.stringify([launch.command, ...launch.args]);
-  // Three of the four vendors REPLACE the entry on a re-add rather than
+  // Three of the four DELEGATE vendors REPLACE the entry on a re-add rather than
   // refusing it, so `already` there still means the config was rewritten with
   // the current launch command. Only codex lets us see whether that changed
   // anything; for the other two, saying "it was rewritten" is the most honest

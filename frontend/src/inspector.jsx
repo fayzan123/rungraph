@@ -257,7 +257,7 @@ function FailedCallJumps({ calls }) {
  * to ask. So the questions are generated from the run on screen: copy one,
  * paste it into your agent, and the graph lights up with the answer.
  *
- * The copy is provider-NEUTRAL on purpose. rungraph installs into four agents
+ * The copy is provider-NEUTRAL on purpose. rungraph installs into five agents
  * and `npx rungraph mcp --install` is correct for all of them, so no client
  * list has to reach the frontend — which is what keeps src/clients.js out of
  * this bundle. Naming Claude Code here would be a false negative for the

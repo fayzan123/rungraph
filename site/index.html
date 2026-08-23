@@ -236,8 +236,8 @@ npx rungraph serve --no-open
 <span class="c"># {"url":"http://127.0.0.1:4321"} — same data over HTTP + SSE live tail</span></code></pre>
     <p class="fineprint">
       The same surface is available as MCP tools — <code>rungraph mcp --install</code>.
-      The IR is versioned and vendor-neutral, with four adapters today: Claude Code,
-      Codex CLI, Hermes Agent and opencode. Schema in
+      The IR is versioned and vendor-neutral, with five adapters today: Claude Code,
+      Codex CLI, Hermes Agent, opencode and Cursor. Schema in
       <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">SCHEMA.md</a>.
     </p>
   </div>
@@ -290,13 +290,16 @@ npx rungraph serve --no-open
             <summary>Which agents does it read?</summary>
             <div class="a">
               <p>
-                Four, each from wherever it already writes: <b>Claude Code</b>
+                Five, each from wherever it already writes: <b>Claude Code</b>
                 (<code>~/.claude/projects</code>), <b>Codex CLI</b>
                 (<code>~/.codex/sessions</code>), <b>Hermes Agent</b> (the SQLite
-                database at <code>~/.hermes/state.db</code>) and <b>opencode</b> (one
-                global SQLite database under <code>~/.local/share/opencode</code>).
-                One scan picks up all four. When more than one of them has runs on the
-                machine, a chip rail above the run list filters by agent. The two
+                database at <code>~/.hermes/state.db</code>), <b>opencode</b> (one
+                global SQLite database under <code>~/.local/share/opencode</code>) and
+                <b>Cursor</b> — both the IDE's agent conversations (its global
+                <code>state.vscdb</code>) and <code>cursor-agent</code> chats
+                (<code>~/.cursor/chats</code>). One scan picks up all five. When more
+                than one of them has runs on the machine, a chip rail above the run
+                list filters by agent. The three
                 SQLite readers need Node ≥ 22.13; on older versions they self-disable
                 with a warning and everything else still works.
               </p>
@@ -310,16 +313,16 @@ npx rungraph serve --no-open
                 No. Each adapter implements the same interface and emits the same
                 vendor-neutral IR, and every feature downstream — signals,
                 coverage, find, focus, file attribution, export, resume, all seven
-                MCP tools — consumes only that IR. A Codex run and a Hermes run
-                behave exactly like a Claude Code one, and no Claude-specific name
+                MCP tools — consumes only that IR. A Codex run, a Hermes run and a
+                Cursor run behave exactly like a Claude Code one, and no Claude-specific name
                 or field exists outside its own adapter directory.
               </p>
               <p>Three differences are real and worth knowing:</p>
               <ul>
                 <li>
-                  Hermes runs need <b>Node ≥ 22.13</b>, because they use Node's
-                  built-in SQLite reader. On older versions they are skipped with a
-                  warning and everything else still works.
+                  Hermes, opencode and Cursor runs need <b>Node ≥ 22.13</b>, because
+                  they use Node's built-in SQLite reader. On older versions they are
+                  skipped with a warning and everything else still works.
                 </li>
                 <li>
                   <code>mcp --install</code> registers with every agent it can see. The
@@ -328,9 +331,9 @@ npx rungraph serve --no-open
                 </li>
                 <li>
                   Each agent's own structure keeps its own name — Claude Code
-                  Workflow runs, Codex subagent rollouts, Hermes delegation lanes —
-                  because those are genuinely different things, not one thing
-                  wearing three labels.
+                  Workflow runs, Codex subagent rollouts, Hermes delegation lanes,
+                  Cursor's IDE and CLI surfaces — because those are genuinely
+                  different things, not one thing wearing five labels.
                 </li>
               </ul>
             </div>
@@ -341,8 +344,8 @@ npx rungraph serve --no-open
             <div class="a">
               <p>
                 Neither, exactly: it is computed <b>on demand, from files your agent
-                already wrote</b>. All four agents write a full transcript as they
-                work — Claude Code and Codex as JSONL, Hermes and opencode into SQLite. rungraph parses that transcript when you open
+                already wrote</b>. All five agents write a full transcript as they
+                work — Claude Code and Codex as JSONL; Hermes, opencode and Cursor into SQLite. rungraph parses that transcript when you open
                 the run, and the server keeps an mtime-keyed cache, so a run that has
                 not changed is never parsed twice.
               </p>
@@ -429,7 +432,7 @@ npx rungraph serve --no-open
             <summary>What do I need installed?</summary>
             <div class="a">
               <p>
-                Node ≥ 20. That's it — Hermes runs want ≥ 22.13, as above. The
+                Node ≥ 20. That's it — Hermes, opencode and Cursor runs want ≥ 22.13, as above. The
                 frontend ships prebuilt inside the package, so there is no build
                 step on your machine and nothing to resolve at install time.
               </p>
@@ -517,8 +520,8 @@ npx rungraph serve --no-open
             <div class="a">
               <p>
                 It never writes to your transcripts. Adapters read the run's own
-                files and nothing else; the Hermes database is opened strictly
-                readonly.
+                files and nothing else; the Hermes, opencode and Cursor databases are
+                opened strictly readonly.
               </p>
               <p>rungraph writes exactly three things, each one something you asked for:</p>
               <ul>
@@ -699,14 +702,16 @@ npx rungraph serve --no-open
               </p>
               <p>
                 <code>npx rungraph mcp --install</code> registers with <b>every agent
-                whose runs are already on this machine</b> — Claude Code, Codex, Hermes
-                and opencode — by driving each vendor's own CLI, because each of them
-                owns its config format and will keep owning it. rungraph never edits an
-                agent's config file itself.
+                whose runs are already on this machine</b> — Claude Code, Codex, Hermes,
+                opencode and Cursor — by driving each vendor's own CLI, because each of
+                them owns its config format and will keep owning it. rungraph never edits
+                an agent's config file itself. (Cursor's CLI has no <code>mcp add</code>,
+                so for Cursor it prints the one block to paste, plus the IDE's own
+                one-click install link.)
               </p>
               <pre class="qa-code"><code>npx rungraph mcp --install --client all</code></pre>
               <p>
-                — installs into all four regardless of what was detected, and anything
+                — installs into all five regardless of what was detected, and anything
                 that cannot be delegated to prints the exact block to paste instead, so
                 the command never dead-ends. Either way,
                 <code>npx rungraph mcp --check</code> verifies the whole path end to

@@ -39,7 +39,8 @@ let tmp;
  * - RUNGRAPH_STATE_DIR keeps the §4 breadcrumb out of the developer's own
  *   ~/.rungraph, where a stray write would silence their real `serve` nudge.
  * - RUNGRAPH_PORT_DIR keeps the dashboard check from finding their servers.
- * - The four adapter roots pin detection to the fixture corpus, so "detected"
+ * - The five adapters' roots (six env vars — Cursor has two) pin detection to
+ *   the fixture corpus, so "detected"
  *   is exactly {claude, codex} no matter what the machine actually runs.
  * - **Every vendor config home is redirected into the sandbox by DEFAULT**,
  *   not only in the integration tests that mean to write. That is fail-safe
@@ -114,10 +115,11 @@ const POSIX = process.platform !== 'win32';
 // ---------------------------------------------------------------------------
 
 describe('the client table', () => {
-  // THE test that matters. rungraph ships four adapters and should ship four
+  // THE test that matters. rungraph ships five adapters and should ship five
   // clients; nothing structural enforced that before, which is why the gap
-  // opened silently as adapters three and four landed. Whoever lands a fifth
-  // adapter cannot land it without deciding how that provider installs.
+  // opened silently as adapters three and four landed. The fifth (Cursor)
+  // landed under this guard. Whoever lands a sixth adapter cannot land it
+  // without deciding how that provider installs.
   it('every adapter in ADAPTERS has a CLIENTS entry', () => {
     const clients = new Set(CLIENTS.map((c) => c.adapter));
     for (const adapter of ADAPTERS) {
@@ -192,12 +194,13 @@ describe('the client table', () => {
   });
 
   // Precision, on the other axis: a DIFFERENT server whose name merely starts
-  // with ours must not be read as ours, on any of the four.
+  // with ours must not be read as ours, on any of the five.
   it('no client mistakes a "rungraph-dev" server for rungraph', () => {
     expect(clientByName('claude').isRegistered('rungraph-dev: /x/node mcp - ✔ Connected\n').ok).toBe(false);
     expect(clientByName('codex').isRegistered('[{"name":"rungraph-dev","enabled":true}]').ok).toBe(false);
     expect(clientByName('hermes').isRegistered('  rungraph-dev     /x...   all   ✓ enabled\n').ok).toBe(false);
     expect(clientByName('opencode').isRegistered('●  ✓ rungraph-dev connected\n').ok).toBe(false);
+    expect(clientByName('cursor').isRegistered('rungraph-dev: npx -y rungraph-dev mcp\n').ok).toBe(false);
   });
 
   it('codex reads its JSON array, and an empty one is not an error', () => {
@@ -475,8 +478,9 @@ describe('the breadcrumb, and serve’s nudge', () => {
   // THE regression guard: the check must not manufacture the evidence it is
   // supposed to be reading. Two ways it could, and both are closed —
   // selfHandshake self-excludes by clientInfo.name, and every vendor CLI
-  // rungraph spawns carries RUNGRAPH_NO_BREADCRUMB (three of the four boot
-  // rungraph's own server to health-check it).
+  // rungraph spawns carries RUNGRAPH_NO_BREADCRUMB (three of the five boot
+  // rungraph's own server to health-check it; whether cursor-agent's does is
+  // unverified, and the flag covers it either way).
   it('mcp --check does NOT create the breadcrumb', async () => {
     const fresh = await mkdtemp(join(tmp, 'crumb4-'));
     await exec('node', [BIN, 'mcp', '--check', '--json'], {
@@ -779,7 +783,7 @@ describe('mcp --install usage', () => {
 
   it('--json wraps the per-client reports in an array, and carries the launch', async () => {
     // Nothing detected, so nothing is delegated to — which is what keeps this
-    // case runnable on CI, where none of the four vendor CLIs exist. Naming a
+    // case runnable on CI, where none of the five vendor CLIs exist. Naming a
     // client explicitly here would delegate for real and exit 1 on a machine
     // without that binary.
     const env = { ...baseEnv(), RUNGRAPH_CLAUDE_PROJECTS: '', RUNGRAPH_CODEX_SESSIONS: '' };

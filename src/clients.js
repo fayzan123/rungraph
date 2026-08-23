@@ -189,7 +189,7 @@ export function runVendor(bin, args, { stdin = null, timeoutMs = 60_000 } = {}) 
       child = spawn(bin, args, {
         stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         // Inherited by whatever the vendor spawns, which is the point. THREE
-        // of the four vendor commands rungraph runs boot rungraph's own MCP
+        // of the five vendor commands rungraph runs boot rungraph's own MCP
         // server as a child: `claude mcp list` and `opencode mcp list`
         // health-check by handshaking with every registered server, and
         // `hermes mcp add` connects to enumerate tools before it writes

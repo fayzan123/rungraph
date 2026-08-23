@@ -159,8 +159,9 @@ install confirmation. rungraph prints the link and never opens it.
 
 The server is plain MCP over stdio, and the command it registers is always
 `rungraph mcp` on stdio — so any other MCP-capable agent can be pointed at the
-same server by hand. For the four above, `--install --client <name>` does the
-registration for you and only falls back to printing a block if it cannot.
+same server by hand. For the five above, `--install --client <name>` does the
+registration for you and only falls back to printing a block if it cannot
+(for Cursor, the block is the registration).
 
 > **Breaking, at 0.5.0.** Three things changed for anyone scripting this:
 >

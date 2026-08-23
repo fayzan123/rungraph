@@ -24,8 +24,8 @@ Node ≥ 20. The backend runs straight from `src/` — only the frontend builds
 |---|---|
 | `src/cli.js` | every subcommand; `bin/rungraph.js` is a shim over it |
 | `src/scanner.js` | finds runs on disk, dispatches to adapters |
-| `src/adapters/claude-code/`, `src/adapters/codex/`, `src/adapters/hermes/`, `src/adapters/opencode/` | ALL format knowledge, one dir per vendor |
-| `src/sqlite.js` | the ONE `node:sqlite` touchpoint, shared by both SQLite adapters |
+| `src/adapters/claude-code/`, `src/adapters/codex/`, `src/adapters/hermes/`, `src/adapters/opencode/`, `src/adapters/cursor/` | ALL format knowledge, one dir per vendor |
+| `src/sqlite.js` | the ONE `node:sqlite` touchpoint, shared by the three SQLite adapters |
 | `src/server.js` | localhost HTTP + SSE; serves the dashboard and bundles |
 | `src/watcher.js` | live tail — file watching, graph diffing |
 | `src/signals.js` | derived signals (retry storms, dead ends…) — server-side only |
@@ -114,13 +114,14 @@ Things that will bite you:
   (`tests/fixtures/hermes/*.db`) with the same lifecycle: written only by the
   generator, never hand-edited — and regenerating them needs Node ≥ 22.13
   (`node:sqlite`), which the generator turns into a named skip elsewhere.
-- **Scan-root env vars.** `RUNGRAPH_CLAUDE_PROJECTS`, `RUNGRAPH_CODEX_SESSIONS`
-  and `RUNGRAPH_HERMES_HOME` override the scan roots, and the **empty string
-  disables that adapter's scan**. Any test that scans must set *all three*, or
+- **Scan-root env vars.** `RUNGRAPH_CLAUDE_PROJECTS`, `RUNGRAPH_CODEX_SESSIONS`,
+  `RUNGRAPH_HERMES_HOME`, `RUNGRAPH_OPENCODE_HOME`, `RUNGRAPH_CURSOR_GLOBAL_STORAGE`
+  and `RUNGRAPH_CURSOR_CLI_HOME` override the scan roots, and the **empty string
+  disables that adapter's scan**. Any test that scans must set *all six*, or
   it wanders into the developer's real transcript corpus. (The cross-cutting
-  suites set `RUNGRAPH_HERMES_HOME=''` — Hermes coverage lives in
-  `tests/hermes.test.js` behind a `node:sqlite` gate, so the Node 20 CI leg
-  stays green.)
+  suites set the three SQLite adapters' roots to `''` — their coverage lives in
+  `tests/hermes.test.js`, `tests/opencode.test.js` and `tests/cursor.test.js`
+  behind a `node:sqlite` gate, so the Node 20 CI leg stays green.)
 - **Fake secrets in fixtures must be visibly fake and must not match real
   providers' detectors.** GitHub push protection scans pushes: a Slack-shaped
   fake with a numeric workspace id will block the entire push (the generator
@@ -146,6 +147,11 @@ Ground rules, learned the hard way:
   real.
 - Fixtures go through `generate.mjs` like everyone else's, including a clean
   run for the zero-signals gate.
+- **The adapter count is written down in more places than the code.** Before
+  you open the PR, walk [`docs/ADAPTER-COUNT.md`](docs/ADAPTER-COUNT.md) — it
+  lists every file that states how many adapters or clients rungraph ships,
+  so the README, the guide, the landing page and the CLI help do not say
+  "five" the day there are six.
 
 ## Pull requests
 

@@ -592,7 +592,7 @@ describe('rungraph mcp --check', () => {
   // starts, speaks JSON-RPC over real stdio, and lists its tools.
   //
   // The per-provider rows themselves — including "two detected, one
-  // registered" against PATH shims, and the four vendor integration cases —
+  // registered" against PATH shims, and the four delegate-vendor integration cases —
   // live in tests/clients.test.js, where they can be driven deterministically.
   it('reports every check, and proves the server answers over stdio', async () => {
     const r = await exec('node', [BIN, 'mcp', '--check', '--json'], { env }).catch((e) => e);
@@ -635,7 +635,7 @@ describe('rungraph mcp --check', () => {
 describe('rungraph mcp --install', () => {
   // Usage guards only. The install paths themselves are exercised against
   // throwaway config homes in tests/clients.test.js — every one of the four
-  // vendors turned out to be integration-testable, which is what retired the
+  // delegate vendors turned out to be integration-testable, which is what retired the
   // old "this would edit the developer's real config" excuse.
   it('rejects an invalid scope without touching anything', async () => {
     // Still a PRE-FLIGHT check, and it has to stay one: a bare `--install` now

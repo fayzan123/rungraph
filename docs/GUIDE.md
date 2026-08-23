@@ -197,7 +197,7 @@ dialog. rungraph never opens the link or edits the file.
 Detection is what rungraph can *prove*: a provider counts as present because
 rungraph has read its transcripts, not because a binary is on your PATH — so a
 freshly installed agent with no runs yet is not named. `--client <name>` targets
-one; `--client all` installs into all four regardless. Nothing is prompted, and
+one; `--client all` installs into all five regardless. Nothing is prompted, and
 nothing is sniffed.
 
 Each install is delegated to the vendor's own CLI, because the vendor owns its
@@ -246,7 +246,7 @@ writes them for you, from **that run's own data**, with a copy button:
 > *what did the "audit auth module" agent find?*
 
 Paste one into your agent — the dashboard's own copy button says the same, and
-means any of the four. What happens:
+means any of the five. What happens:
 
 1. Your agent calls `find_nodes` / `get_graph` / `get_detail` — which now carry
    the signals and the file attribution, so it reasons over facts rather than
