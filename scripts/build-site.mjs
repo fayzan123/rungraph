@@ -185,6 +185,7 @@ async function buildSite() {
   await cp(join(SITE, 'index.html'), join(DIST, 'index.html'));
   await cp(DATA, join(DIST, 'data'), { recursive: true });
   await cp(join(SITE, 'fonts'), join(DIST, 'fonts'), { recursive: true });
+  // og.png is committed; scripts/build-og.mjs re-renders it from og.html.
   for (const extra of ['og.png']) {
     await cp(join(SITE, extra), join(DIST, extra)).catch(() => {});
   }

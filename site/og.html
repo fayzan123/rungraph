@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- The social card, 1200×630. Rendered to site/og.png by scripts/build-og.mjs,
+     which fills the double-brace placeholders from site/index.html (headline, lede) and
+     site/data/graph.json (strip, chips). Do not edit the words here: edit the
+     hero, then re-render. Tokens are copied from frontend/src/styles.css and
+     site/src/page.css so the card is the dashboard's material, same as the page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  @font-face {
+    font-family: 'Newsreader';
+    src: url('{{FONTS}}/newsreader-var.woff2') format('woff2');
+    font-weight: 200 800; font-style: normal;
+  }
+  @font-face {
+    font-family: 'Newsreader';
+    src: url('{{FONTS}}/newsreader-italic-var.woff2') format('woff2');
+    font-weight: 200 800; font-style: italic;
+  }
+  :root {
+    --bg-canvas: oklch(0.155 0.011 58);
+    --bg-panel: oklch(0.20 0.014 60);
+    --bg-raised: oklch(0.24 0.016 62);
+    --hairline: oklch(0.31 0.016 62);
+    --ink: oklch(0.91 0.018 78);
+    --ink-dim: oklch(0.64 0.02 72);
+    --faint: oklch(0.58 0.018 68);
+    --amber: oklch(0.79 0.13 78);
+    --sage: oklch(0.70 0.075 148);
+    --sage-dim: oklch(0.45 0.05 148);
+    --clay: oklch(0.64 0.15 32);
+    --display: 'Newsreader', Georgia, serif;
+    --ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: var(--bg-canvas);
+    color: var(--ink);
+    font-family: var(--ui);
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-columns: 600px 1fr;
+    column-gap: 48px;
+    padding: 56px 56px 56px 64px;
+    box-sizing: border-box;
+  }
+  /* the dashboard's dotted ground, faint */
+  body::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(oklch(0.24 0.014 62) 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.45;
+  }
+  .left { position: relative; display: flex; flex-direction: column; }
+  .wordmark { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: 0.02em; }
+  .wordmark b { color: var(--amber); font-weight: 600; }
+  .wordmark svg { width: 42px; height: 42px; }
+  h1 {
+    font-family: var(--display);
+    font-optical-sizing: auto;
+    font-weight: 480;
+    font-size: 58px;
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 40px 0 0;
+  }
+  h1 em { font-style: italic; color: var(--sage); font-weight: 440; }
+  .lede { font-size: 21px; line-height: 1.45; color: var(--ink-dim); margin: 24px 0 28px; max-width: 560px; }
+  .chip-npx {
+    align-self: flex-start;
+    display: inline-flex; align-items: center; gap: 12px;
+    margin-top: auto;
+    font-family: var(--mono); font-size: 21px; color: var(--sage);
+    background: var(--bg-panel);
+    border: 1px solid color-mix(in oklch, var(--sage) 38%, transparent);
+    border-radius: 11px; padding: 14px 24px;
+  }
+  .chip-npx .prompt { color: var(--faint); }
+
+  .right { position: relative; padding-top: 36px; }
+  .microlabel { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.14em; color: var(--faint); text-transform: uppercase; }
+  .cells { display: grid; grid-template-columns: repeat(9, 40px); gap: 9px 6px; margin: 22px 0 26px; }
+  .cells i {
+    display: block; height: 26px; border-radius: 5px;
+    background: var(--bg-raised);
+    border-left: 3px solid var(--sage-dim);
+    box-sizing: border-box;
+  }
+  .cells i.tool { border-left-color: var(--sage); }
+  .cells i.error { border-left-color: var(--clay); }
+  .cells i.human { background: color-mix(in oklch, var(--amber) 22%, var(--bg-raised)); border-left-color: var(--amber); }
+  .cells i.agent { background: color-mix(in oklch, var(--sage) 22%, var(--bg-raised)); border-left-color: var(--sage); }
+  .cells i.turn { border-left-color: var(--hairline); }
+  .cells i.flagged { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 14%, transparent); }
+  .chips { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--mono); font-size: 15px; color: var(--clay);
+    border: 1px solid color-mix(in oklch, var(--clay) 48%, transparent);
+    border-radius: 999px; padding: 6px 14px 6px 12px;
+    background: color-mix(in oklch, var(--clay) 5%, transparent);
+  }
+  .chip b { font-weight: 400; font-size: 13px; }
+  .chip.intervention b { font-family: var(--ui); }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="wordmark">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="oklch(0.24 0.016 62)"/><circle cx="16" cy="7" r="3.4" fill="oklch(0.79 0.13 78)"/><circle cx="8" cy="24" r="3.4" fill="oklch(0.70 0.075 148)"/><circle cx="24" cy="24" r="3.4" fill="oklch(0.70 0.075 148)"/><path d="M16 10.5 L9.5 20.5 M16 10.5 L22.5 20.5" stroke="oklch(0.31 0.016 62)" stroke-width="2.2" fill="none"/></svg>
+      <span><b>run</b>graph</span>
+    </div>
+    <h1>{{HEADLINE}}</h1>
+    <p class="lede">{{LEDE}}</p>
+    <div class="chip-npx"><span class="prompt">$</span> npx rungraph</div>
+  </div>
+  <div class="right">
+    <div class="microlabel">a real run · {{NODES}} nodes · {{SIGNALS}} signals</div>
+    <div class="cells">{{CELLS}}</div>
+    <div class="chips">{{CHIPS}}</div>
+  </div>
+</body>
+</html>
