@@ -44,34 +44,34 @@
     <a href="#signals">Signals</a>
     <a href="#agents">For agents</a>
     <a class="nav-keep" href="#faq">FAQ</a>
-    <a class="nav-out nav-out-start" href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
-    <a class="nav-out" href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
+    <a class="nav-out nav-out-start" href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md" target="_blank" rel="noopener">Guide</a>
+    <a class="nav-out" href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md" target="_blank" rel="noopener">Schema</a>
   </div>
-  <a class="btn-ink" href="https://github.com/fayzan123/rungraph">GitHub</a>
+  <a class="btn-ink" href="https://github.com/fayzan123/rungraph" target="_blank" rel="noopener">GitHub</a>
 </nav>
 
 <main id="main">
 <header class="hero" id="top">
   <h1 class="display">Ask your agent what happened.<br /><em class="accent">Watch the graph answer.</em></h1>
   <p class="lede">
-    rungraph reads the transcripts your coding agent already wrote — and hands
-    your agent the tools to read them too. You ask in your terminal. The answer
-    arrives there, and the open graph lights up the exact nodes it means. Pick
-    the runs behind a PR and export them as one file: the reviewer opens it on
-    their own machine, sees the same graph, and their agent can question your
-    work.
+    One command turns every coding-agent session already on your disk into a
+    graph: subagents, tool calls, retries and the moments you said&nbsp;no, laid
+    out as nodes you can open, with the errors that never got fixed already
+    flagged. Ask your agent what happened and the answer lands in your terminal
+    while the graph lights up the exact nodes it means. Send the run to a
+    reviewer and they see how the code came to be, not just the diff.
   </p>
   <div class="cta-row">
     <button class="npx-chip" data-copy="npx rungraph" aria-label="copy the command npx rungraph">
       <span class="prompt" aria-hidden="true">$</span> npx rungraph <span class="copy-glyph" aria-hidden="true">⧉</span>
     </button>
-    <a class="btn-ink" href="https://github.com/fayzan123/rungraph">Star on GitHub</a>
+    <a class="btn-ink" href="https://github.com/fayzan123/rungraph" target="_blank" rel="noopener">Star on GitHub</a>
   </div>
   <ul class="benefits" role="list">
     <li>works on the sessions you already have</li>
     <li>live while the agent works</li>
-    <li>export runs to a file anyone can open and query — secrets scanned on the way out</li>
-    <li>free, MIT — no account, no paid tier</li>
+    <li>secrets scanned before a run leaves your machine</li>
+    <li>free and MIT: no account, no paid tier</li>
   </ul>
 </header>
 
@@ -156,7 +156,7 @@
 
 <section class="stage" aria-label="a live embedded rungraph dashboard showing a real run">
   <div class="stage-caption microlabel">
-    a real run, staged on a <a href="https://github.com/fayzan123/rungraph-demo">demo repo</a> — the agent was fixing a token-refresh race when its edits started failing. the graph knows why
+    a real run, staged on a <a href="https://github.com/fayzan123/rungraph-demo" target="_blank" rel="noopener">demo repo</a> — the agent was fixing a token-refresh race when its edits started failing. the graph knows why
     <span class="keys">j/k walk · f fit · / find · esc clear</span>
   </div>
   <div id="app"></div>
@@ -318,7 +318,7 @@ npx rungraph serve --no-open
       The same surface is available as MCP tools — <code>rungraph mcp --install</code>.
       The IR is versioned and vendor-neutral, with five adapters today: Claude Code,
       Codex CLI, Hermes Agent, opencode and Cursor. Schema in
-      <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">SCHEMA.md</a>.
+      <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md" target="_blank" rel="noopener">SCHEMA.md</a>.
     </p>
   </div>
 </section>
@@ -329,7 +329,7 @@ npx rungraph serve --no-open
     <p class="body-lg">
       The honest version rather than the flattering one — including the parts
       that are deliberately missing. Longer walkthroughs live in the
-      <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">guide</a>.
+      <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md" target="_blank" rel="noopener">guide</a>.
     </p>
 
     <div class="faq">
@@ -1037,10 +1037,10 @@ npx rungraph serve --no-open
                 IR: signals, coverage, focus, find, export, MCP, the lot.
               </p>
               <p>
-                <a href="https://github.com/fayzan123/rungraph/blob/master/CONTRIBUTING.md">CONTRIBUTING.md</a>
+                <a href="https://github.com/fayzan123/rungraph/blob/master/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a>
                 has the repo map, the non-negotiables worth reading <i>before</i> you
                 build, and the fixture workflow;
-                <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">SCHEMA.md</a>
+                <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md" target="_blank" rel="noopener">SCHEMA.md</a>
                 documents the IR.
               </p>
             </div>
@@ -1051,7 +1051,7 @@ npx rungraph serve --no-open
             <div class="a">
               <p>
                 The guide has a
-                <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md#7-when-something-looks-broken">symptom-to-fix table</a>
+                <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md#7-when-something-looks-broken" target="_blank" rel="noopener">symptom-to-fix table</a>
                 for the usual suspects — the port was busy (it auto-increments; the
                 printed URL is authoritative), a banner about unrecognized records
                 (your agent is newer than your rungraph — <code>npx rungraph@latest</code>),
@@ -1087,11 +1087,11 @@ npx rungraph serve --no-open
     no analytics, no CDNs, no cookies — nothing to consent to.
   </p>
   <nav class="foot-links" aria-label="footer">
-    <a href="https://github.com/fayzan123/rungraph">GitHub</a>
+    <a href="https://github.com/fayzan123/rungraph" target="_blank" rel="noopener">GitHub</a>
     <a href="#faq">FAQ</a>
-    <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md">Guide</a>
-    <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md">Schema</a>
-    <a href="https://www.npmjs.com/package/rungraph">npm</a>
+    <a href="https://github.com/fayzan123/rungraph/blob/master/docs/GUIDE.md" target="_blank" rel="noopener">Guide</a>
+    <a href="https://github.com/fayzan123/rungraph/blob/master/SCHEMA.md" target="_blank" rel="noopener">Schema</a>
+    <a href="https://www.npmjs.com/package/rungraph" target="_blank" rel="noopener">npm</a>
     <span>MIT</span>
   </nav>
 </footer>

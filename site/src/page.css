@@ -849,3 +849,17 @@ button:focus-visible,
   html { scroll-behavior: auto; }
   .stage-boot svg, .term-body .caret { animation: none; }
 }
+
+/* ---------- new-tab links ---------- */
+/* Every external link opens in a new tab. Sighted visitors see the tab open;
+   screen readers get told, via generated content, which the major readers
+   announce. Visually clipped, never display:none, so it stays in the a11y tree. */
+a[target="_blank"]::after {
+  content: " (opens in a new tab)";
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

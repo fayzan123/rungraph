@@ -121,3 +121,31 @@ describe('the baked demo run', () => {
     }
   });
 });
+
+// The page itself, not its data. Two rules the copy has to keep obeying:
+// every link that leaves the page opens a new tab (the visitor is mid-decision
+// and the embedded run is state they would lose), and the hero carries no em
+// dash. Both are one-line regressions to introduce and invisible in a diff
+// review, so they are pinned here.
+describe('the page', () => {
+  const SITE = join(dirname(fileURLToPath(import.meta.url)), '..', 'site');
+  const html = () => readFile(join(SITE, 'index.html'), 'utf8');
+
+  it('opens every external link in a new tab, without an opener', async () => {
+    const page = await html();
+    const anchors = page.match(/<a\b[^>]*>/g) ?? [];
+    const external = anchors.filter((a) => /href="https?:\/\//.test(a));
+    expect(external.length).toBeGreaterThan(0);
+    for (const a of external) {
+      expect(a, a).toMatch(/target="_blank"/);
+      expect(a, a).toMatch(/rel="[^"]*\bnoopener\b[^"]*"/);
+    }
+  });
+
+  it('keeps the hero free of em dashes', async () => {
+    const page = await html();
+    const hero = page.match(/<header class="hero"[\s\S]*?<\/header>/)?.[0];
+    expect(hero).toBeTruthy();
+    expect(hero).not.toMatch(/—|&mdash;/);
+  });
+});
