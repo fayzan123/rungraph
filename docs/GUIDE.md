@@ -1,7 +1,7 @@
 # Using rungraph
 
 Everything from a standing start: opening a run, reading what it tells you, and
-wiring your own coding agent to it.
+wiring your own agent to it.
 
 - [1. Start it](#1-start-it)
 - [2. Read the graph](#2-read-the-graph)

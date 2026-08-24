@@ -40,7 +40,7 @@ const OUT = join(SITE, 'og.png');
 // The card lede: the hero's first sentence, cut at the clause the card has no
 // room for. Edit the hero first; this line must stay a cut of it.
 const CARD_LEDE =
-  'One command turns every coding-agent session already on your disk into a graph: subagents, tool calls, retries and the moments you said no.';
+  'One command turns every agent session already on your disk into a graph: subagents, tool calls, retries and the moments you said no.';
 
 const CHROME_CANDIDATES = [
   process.env.CHROME,

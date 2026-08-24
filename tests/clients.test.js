@@ -733,7 +733,7 @@ describe.skipIf(!POSIX)('mcp --check with two detected providers', () => {
     expect(report.ok).toBe(false);
     expect(r.code).toBe(1);
     const row = report.checks.find((c) => c.name === 'registered');
-    expect(row.fix).toContain('Run a coding-agent session');
+    expect(row.fix).toContain('Run an agent session');
   }, 120000);
 });
 

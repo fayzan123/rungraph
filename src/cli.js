@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 
 const HELP = `rungraph — see your agent runs as a graph
 
-Reconstructs AI coding-agent sessions and workflow runs from the transcripts
+Reconstructs AI agent sessions and workflow runs from the transcripts
 already on disk (no hooks, no setup) and renders them as an interactive
 directed graph. Everything is local; the server binds 127.0.0.1 only.
 

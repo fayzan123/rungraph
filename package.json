@@ -1,7 +1,7 @@
 {
   "name": "rungraph",
   "version": "0.7.1",
-  "description": "A visual run explorer for AI coding agents that lets you review, share, and question the session behind a PR, using the transcripts Claude Code, Codex, Hermes, opencode, and Cursor already write. Zero setup, MCP built in.",
+  "description": "A visual run explorer for AI agents that lets you review, share, and question the session behind a PR, using the transcripts Claude Code, Codex, Hermes, opencode, and Cursor already write. Zero setup, MCP built in.",
   "keywords": [
     "claude-code",
     "cursor",

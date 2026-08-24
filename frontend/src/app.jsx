@@ -846,7 +846,7 @@ function Picker({ index, runId, onSelect, onResume }) {
         <div class="empty">
           <p>No runs found.</p>
           <p>
-            rungraph reads the transcripts your coding agent already writes to disk.
+            rungraph reads the transcripts your agent already writes to disk.
             Run an agent session, then refresh — no setup needed, past sessions appear
             retroactively.
           </p>

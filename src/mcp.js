@@ -55,7 +55,7 @@ const DATE_VERSION = /^\d{4}-\d{2}-\d{2}$/;
 // decides whether to use it. The initialize-result instructions field is
 // surfaced up front even by those hosts — this is the one copy of the
 // proactive-loop contract that is guaranteed to be in context.
-const INSTRUCTIONS = `The user may have a rungraph dashboard open — a live graph view of the AI coding-agent runs on this machine. You and that dashboard are two ends of one loop: answer in the conversation first, then call focus_nodes so the graph lights up the nodes your answer is about. Do this proactively after answering any question about work done in a project — including code questions like "where was X built", where the right nodes live in the run that wrote the code (list_runs, then find_nodes, then focus_nodes). The highlight is a bonus, never the answer: with no dashboard watching, focus_nodes still succeeds with focused:false and you simply mention the highlight was skipped. The read tools return a \`coverage\` field, and a \`note\` whenever part of a run could not be parsed — state what it says before calling a run clean or complete, because a run rungraph could only partly read looks exactly like one where nothing went wrong.`;
+const INSTRUCTIONS = `The user may have a rungraph dashboard open — a live graph view of the AI agent runs on this machine. You and that dashboard are two ends of one loop: answer in the conversation first, then call focus_nodes so the graph lights up the nodes your answer is about. Do this proactively after answering any question about work done in a project — including code questions like "where was X built", where the right nodes live in the run that wrote the code (list_runs, then find_nodes, then focus_nodes). The highlight is a bonus, never the answer: with no dashboard watching, focus_nodes still succeeds with focused:false and you simply mention the highlight was skipped. The read tools return a \`coverage\` field, and a \`note\` whenever part of a run could not be parsed — state what it says before calling a run clean or complete, because a run rungraph could only partly read looks exactly like one where nothing went wrong.`;
 const DEFAULT_FIND_LIMIT = 100;
 const SERVER_BOOT_MS = 8000;
 const SERVER_CALL_MS = 3000;
@@ -287,7 +287,7 @@ const TOOLS = [
     name: 'list_runs',
     title: 'List agent runs',
     description:
-      'List the AI coding-agent runs on this machine, newest first, with runId, title, project, kind (session or workflow) and whether the run is still live. Start here whenever you need a runId and the user has not given you one; runIds are stable, so quote them back verbatim.',
+      'List the AI agent runs on this machine, newest first, with runId, title, project, kind (session or workflow) and whether the run is still live. Start here whenever you need a runId and the user has not given you one; runIds are stable, so quote them back verbatim.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -999,7 +999,7 @@ async function installMcpInner(opts) {
 
   if (nothingDetected) {
     process.stderr.write(
-      'rungraph: no coding-agent runs found on this machine, so nothing was detected to install into — ' +
+      'rungraph: no agent runs found on this machine, so nothing was detected to install into — ' +
         (opts.json ? "every client's block is in `clients[].configText`" : "every client's block is printed above") +
         '. `--client <name>` or `--client all` installs anyway.\n',
     );
@@ -1256,7 +1256,7 @@ async function checkMcpInner(opts) {
     name: 'runs on disk',
     ok: runCount > 0,
     detail: runCount > 0 ? `${runCount} run${runCount === 1 ? '' : 's'} found` : 'no runs found',
-    fix: 'Run a coding-agent session, then try again — rungraph reads transcripts already on disk.',
+    fix: 'Run an agent session, then try again — rungraph reads transcripts already on disk.',
   });
 
   // 2. Does the MCP server itself start and speak the protocol?
@@ -1287,8 +1287,8 @@ async function checkMcpInner(opts) {
       ok: false,
       state: 'absent',
       advisory: true,
-      detail: 'no coding-agent runs on this machine, so there is no provider to register with',
-      fix: 'Run a coding-agent session first, then `npx rungraph mcp --install`.',
+      detail: 'no agent runs on this machine, so there is no provider to register with',
+      fix: 'Run an agent session first, then `npx rungraph mcp --install`.',
     });
   } else {
     const rows = await Promise.all(

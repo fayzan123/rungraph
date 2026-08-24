@@ -9,7 +9,7 @@ embeds a real run you can click around, right in the page.
 *That's rungraph watching the live session that built this feature — the strip
 says what went wrong, and one click lights up the nodes it means.*
 
-Your coding agent already wrote down everything it did. `rungraph` reads those
+Your agent already wrote down everything it did. `rungraph` reads those
 transcripts — and hands your agent the tools to read them too. You ask in your
 terminal: *"why did the Edit on `token.js` keep failing?"* The answer arrives
 there, in your own session, from your own model, fully inspectable. Then the
@@ -328,7 +328,7 @@ runs are other machines' transcripts, so they offer no resume at all.
 
 ## For agents
 
-Everything the UI can do, a coding agent can do over the CLI — no browser, no
+Everything the UI can do, an agent can do over the CLI — no browser, no
 prompts, JSON on stdout, logs on stderr, exit codes `0` ok / `1` error / `2` no
 runs found. Paste this section into a prompt and an agent can self-serve:
 

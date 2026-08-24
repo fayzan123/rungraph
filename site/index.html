@@ -4,18 +4,18 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>rungraph — ask your agent what happened, watch the graph answer</title>
-<meta name="description" content="One command turns every coding-agent session already on your disk into a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the nodes it means. npx rungraph: no hooks, no setup, all local." />
+<meta name="description" content="One command turns every agent session already on your disk into a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the nodes it means. npx rungraph: no hooks, no setup, all local." />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23191512'/%3E%3Ccircle cx='16' cy='7' r='3.4' fill='%23e8b04b'/%3E%3Ccircle cx='8' cy='24' r='3.4' fill='%237fa07a'/%3E%3Ccircle cx='24' cy='24' r='3.4' fill='%237fa07a'/%3E%3Cpath d='M16 10.5 L9.5 20.5 M16 10.5 L22.5 20.5' stroke='%23a4907c' stroke-width='2.2' fill='none'/%3E%3C/svg%3E" />
 
 <meta property="og:type" content="website" />
 <meta property="og:title" content="rungraph — ask your agent what happened, watch the graph answer" />
-<meta property="og:description" content="Every coding-agent session already on your disk, as a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the exact nodes it means. Send a run to a reviewer and they see how the code came to be, not just the diff." />
+<meta property="og:description" content="Every agent session already on your disk, as a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the exact nodes it means. Send a run to a reviewer and they see how the code came to be, not just the diff." />
 <meta property="og:url" content="https://fayzan123.github.io/rungraph/" />
-<meta property="og:image" content="https://fayzan123.github.io/rungraph/og.png?v=2" />
+<meta property="og:image" content="https://fayzan123.github.io/rungraph/og.png?v=3" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="rungraph — ask your agent what happened, watch the graph answer" />
-<meta name="twitter:description" content="Every coding-agent session already on your disk, as a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the exact nodes it means. Send a run to a reviewer and they see how the code came to be, not just the diff." />
-<meta name="twitter:image" content="https://fayzan123.github.io/rungraph/og.png?v=2" />
+<meta name="twitter:description" content="Every agent session already on your disk, as a graph: subagents, tool calls, retries, the moments you said no. Ask your agent what happened and the graph lights up the exact nodes it means. Send a run to a reviewer and they see how the code came to be, not just the diff." />
+<meta name="twitter:image" content="https://fayzan123.github.io/rungraph/og.png?v=3" />
 
 <link rel="preload" href="fonts/newsreader-var.woff2" as="font" type="font/woff2" crossorigin />
 <style>
@@ -54,9 +54,9 @@
 <header class="hero" id="top">
   <h1 class="display">Ask your agent what happened.<br /><em class="accent">Watch the graph answer.</em></h1>
   <p class="lede">
-    One command turns every coding-agent session already on your disk into a
-    graph: subagents, tool calls, retries and the moments you said&nbsp;no, laid
-    out as nodes you can open, with the errors that never got fixed already
+    One command turns every agent session already on your disk into a graph:
+    subagents, tool calls, retries and the moments you said&nbsp;no, laid out
+    as nodes you can open, with the errors that never got fixed already
     flagged. Ask your agent what happened and the answer lands in your terminal
     while the graph lights up the exact nodes it means. Send the run to a
     reviewer and they see how the code came to be, not just the diff.
@@ -298,7 +298,7 @@
     <div class="microlabel section-tag">6 · AGENTS</div>
     <h2 class="display-2">Everything the UI does,<br />a prompt can do.</h2>
     <p class="body-lg">
-      Everything the UI can do, a coding agent can do over the CLI — JSON on
+      Everything the UI can do, an agent can do over the CLI — JSON on
       stdout, logs on stderr, exit codes <code>0/1/2</code>, no prompts anywhere.
       Paste this into a prompt and the agent can self-serve.
     </p>
@@ -342,7 +342,7 @@ npx rungraph serve --no-open
             <summary>What does rungraph actually do?</summary>
             <div class="a">
               <p>
-                It reads the transcripts your coding agent already writes and
+                It reads the transcripts your agent already writes and
                 reconstructs the run as a <b>directed agentic graph</b>: the
                 orchestrator, the subagents it spawned and the tools they called
                 become nodes; spawn and return relationships become edges; the
