@@ -1,6 +1,6 @@
 {
   "name": "rungraph",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Zero-setup run graphs for Claude Code, Codex, Hermes, opencode and Cursor sessions, with MCP built in.",
   "keywords": [
     "claude-code",
