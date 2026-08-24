@@ -355,6 +355,14 @@ button:focus-visible,
   display: flex;
   gap: 8px;
 }
+/* The replay bar stacks below the canvas inside .center (never overlays), so
+   the chips — pinned to the STAGE's bottom — would sit on top of its
+   controls the moment "watch it happen" opens it. Lift them by the bar's own
+   height (app.css defines --replay-bar-h on :root; the fallback matches it)
+   while the bar exists. The scroll hint is pinned the same way and moves with
+   them. The caption lives at the top and never meets the bar. */
+.stage:has(.replay-bar) .stage-chips { bottom: calc(14px + var(--replay-bar-h, 44px)); }
+.stage:has(.replay-bar) .scroll-hint { bottom: calc(62px + var(--replay-bar-h, 44px)); }
 
 /* Wheel-intent affordances: the hint pill when a scroll passes through, and a
    whisper of the accent on the stage edge while the graph holds the controls. */
@@ -426,10 +434,19 @@ button:focus-visible,
     z-index: 6;
     box-shadow: -12px 0 40px oklch(0.05 0.01 60 / 0.5);
   }
+  /* The replay bar stacks at the bottom of the same stage; a pane pinned to
+     the stage's bottom would sit on top of its readout and its `live`
+     button. Lift the pane by the bar's own height (same token the chips
+     use) while the bar exists, so a tapped-open pane never covers the
+     scrubber. */
+  .stage:has(.replay-bar) .inspector[data-open="true"] { bottom: var(--replay-bar-h, 44px); }
   /* The honesty caption is content, not chrome — only the key hints go. */
   .stage-caption { right: 10px; left: 10px; justify-content: center; }
   .stage-caption .keys { display: none; }
-  .stage-chips .try-chip:not(.warn) { display: none; }
+  /* Two chips survive on a phone: the signal (the page's question) and
+     replay — the follow-camera does the panning a visitor cannot easily do
+     by touch, so "watch it happen" is worth MORE here, not less. */
+  .stage-chips .try-chip:not(.warn):not(.replay) { display: none; }
 }
 
 /* ---------- bands ---------- */

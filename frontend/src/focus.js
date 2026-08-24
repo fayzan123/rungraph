@@ -191,15 +191,27 @@ export function signalsForNode(ir, nodeId) {
  *   non-member + reverted   → dimmed *because unfocused*, struck + ↩
  *   non-member + not        → dimmed
  *
+ * `future` is a THIRD channel, and it outranks both: replay's playhead
+ * decides what has materialized, and a node that has not happened yet is a
+ * ghost — an outline with no label, no status, no mark. Future beats focus
+ * because a node that has not happened cannot be lit, whatever set it
+ * belongs to; it beats revert because a ghost has no label to strike. So the
+ * four-way matrix becomes eight: the four rows above unchanged while the node
+ * is present, and every one of them a plain ghost while it is not. Only an
+ * EXPLICIT `false` makes a ghost — the default is present, so every caller
+ * that never heard of replay renders exactly as it did before.
+ *
  * Pure, so `tests/opencode.test.js` can pin the matrix and a future change
- * cannot quietly route revert through opacity.
+ * cannot quietly route revert through opacity, or focus through a ghost.
  */
-export function nodeMarks(node, focusIds) {
+export function nodeMarks(node, focusIds, present = true) {
+  if (present === false) return { focused: false, dim: false, reverted: false, future: true };
   const focused = focusIds ? focusIds.has(node?.id) : false;
   return {
     focused,
     dim: Boolean(focusIds) && !focused,
     reverted: node?.reverted === true,
+    future: false,
   };
 }
 

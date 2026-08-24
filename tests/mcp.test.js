@@ -251,6 +251,25 @@ describe('MCP tools (no server running)', () => {
     );
   });
 
+  // The replay timings (callOffsets, tool endedAt) are timing fields, and
+  // timing is exactly what compact drops — COMPACT_NODE_KEYS is a whitelist
+  // that never carried startedAt either. `full` carries both, the same way it
+  // carries every other timing. Pinned on the session fixture's one multi-call
+  // group so "compact drops it" is asserted against a node that HAS it.
+  it('replay timings ride detail:"full" and never the compact projection', async () => {
+    const compact = (await mcp.call('get_graph', { runId: SESSION_RUN_ID })).payload;
+    const full = (await mcp.call('get_graph', { runId: SESSION_RUN_ID, detail: 'full' })).payload;
+    const group = full.nodes.find((n) => n.id === 'g:toolu_fx0001');
+    expect(group.callCount).toBe(2);
+    expect(group.callOffsets).toEqual([0, 3000]);
+    expect(group.endedAt).toBe('2026-08-01T12:00:10.500Z');
+    expect(full.nodes.filter((n) => n.kind === 'tool' && n.endedAt).length).toBeGreaterThan(1);
+    for (const n of compact.nodes) {
+      expect(n.callOffsets, n.id).toBeUndefined();
+      expect(n.endedAt, n.id).toBeUndefined();
+    }
+  });
+
   it('find_nodes narrows to matches, including by file path', async () => {
     const { payload } = await mcp.call('find_nodes', { runId: TROUBLE_RUN_ID, query: 'token.js' });
     expect(payload.matched).toBeGreaterThan(0);

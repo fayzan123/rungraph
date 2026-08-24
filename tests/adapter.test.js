@@ -1,4 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { cp, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { detect, parse } from '../src/adapters/claude-code/index.js';
 import { toolNodeLabel } from '../src/adapters/claude-code/helpers.js';
 import { filePathsFromToolInput, mergeFiles } from '../src/adapters/claude-code/files.js';
@@ -315,5 +318,137 @@ describe('parse: workflow run', () => {
     const root = ir.nodes.find((n) => n.kind === 'workflow');
     expect(root.status).toBe('completed');
     expect(details.get(root.id).returnValue).toContain('patched');
+  });
+});
+
+describe('parse: tool-group timing (callOffsets + endedAt)', () => {
+  // The replay layer's per-call granularity rests on two additive tool-node
+  // fields. Both are computed from the builder's own state, so they must be
+  // on the IR whether or not details are collected — `rungraph graph --json`
+  // is the IR path and collects none.
+  const toolNodes = (ir) => ir.nodes.filter((n) => n.kind === 'tool');
+
+  it('a collapsed group carries callOffsets that agree with the detail payload (session 1111…, Bash ×2)', async () => {
+    const { ir, details } = await parse(ref(SESSION_RUN_ID), { collectDetails: true });
+    const bash = ir.nodes.find((n) => n.label === 'Bash · Run the login test ×2');
+    // The two tool_use records sit at 12:00:06.000 and 12:00:09.000.
+    expect(bash.callOffsets).toEqual([0, 3000]);
+    const calls = details.get(bash.id).calls;
+    expect(bash.callOffsets).toHaveLength(bash.callCount);
+    expect(bash.callOffsets[0]).toBe(0);
+    for (let i = 0; i < calls.length; i++) {
+      expect(bash.callOffsets[i]).toBe(Date.parse(calls[i].startedAt) - Date.parse(bash.startedAt));
+      if (i) expect(bash.callOffsets[i]).toBeGreaterThanOrEqual(bash.callOffsets[i - 1]);
+    }
+  });
+
+  it('an all-error group still carries offsets and its end (trouble run 4444…, Edit ×3)', async () => {
+    const { ir, details } = await parse(ref(TROUBLE_RUN_ID), { collectDetails: true });
+    const edit = ir.nodes.find((n) => n.label.startsWith('Edit'));
+    expect(edit.status).toBe('error');
+    expect(edit.callOffsets).toEqual([0, 3000, 6000]);
+    const calls = details.get(edit.id).calls;
+    calls.forEach((c, i) => {
+      expect(edit.callOffsets[i]).toBe(Date.parse(c.startedAt) - Date.parse(edit.startedAt));
+    });
+    // An error IS a resolution: the group ended when its last error came back.
+    expect(edit.endedAt).toBe('2026-08-01T12:01:46.500Z');
+  });
+
+  it('single-call nodes carry no callOffsets at all (sessions 1111…, 3333…, 4444…)', async () => {
+    // Absent, not [0] — call 0 IS the node's start, so the array would be
+    // information-free bytes on the majority of tool nodes (same rule as `files`).
+    for (const id of [SESSION_RUN_ID, CLEAN_RUN_ID, TROUBLE_RUN_ID]) {
+      const { ir } = await parse(ref(id));
+      for (const n of toolNodes(ir)) {
+        if (n.callCount === 1) expect('callOffsets' in n, n.id).toBe(false);
+        else expect(n.callOffsets, n.id).toBeDefined();
+      }
+    }
+  });
+
+  it('a resolved group ends at its last result (session 1111…)', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const bash = ir.nodes.find((n) => n.label === 'Bash · Run the login test ×2');
+    // toolu_fx0002's tool_result record is the group's last resolution.
+    expect(bash.endedAt).toBe('2026-08-01T12:00:10.500Z');
+    // Every group in this dead session resolved, so every one has an end that
+    // does not precede its start — and NONE has a durationMs: the outlier
+    // signal reads durationMs, and tool groups must stay out of its population.
+    for (const n of toolNodes(ir)) {
+      expect(n.endedAt, n.id).toBeDefined();
+      expect(Date.parse(n.endedAt)).toBeGreaterThanOrEqual(Date.parse(n.startedAt));
+      expect('durationMs' in n, n.id).toBe(false);
+    }
+  });
+
+  it('a human denial resolves the group it refused (session 1111…, Edit · session.ts)', async () => {
+    const { ir } = await parse(ref(SESSION_RUN_ID));
+    const edit = ir.nodes.find((n) => n.label === 'Edit · session.ts');
+    const denial = ir.nodes.find((n) => n.interventionKind === 'denial');
+    expect(edit.errorCount).toBe(1);
+    // The denial record (toolDenialKind: user-rejected) is the resolution, so
+    // the group ends at the very instant the human node starts.
+    expect(edit.endedAt).toBe('2026-08-01T12:00:40.500Z');
+    expect(edit.endedAt).toBe(denial.startedAt);
+  });
+
+  it('is identical whether or not detail payloads were collected (session 1111…)', async () => {
+    const pick = (ir) => toolNodes(ir).map((n) => [n.id, n.callOffsets, n.endedAt]);
+    const plain = (await parse(ref(SESSION_RUN_ID))).ir;
+    const rich = (await parse(ref(SESSION_RUN_ID), { collectDetails: true })).ir;
+    expect(pick(plain)).toEqual(pick(rich));
+  });
+
+  describe('a group with a call still out', () => {
+    // The corpus has no unresolved group, so one is made here: session 1111…
+    // cut off right after a tool_use, before its tool_result. Never written to
+    // the fixture tree.
+    const FIXTURE_FILE = '11111111-1111-4111-8111-111111111111.jsonl';
+    let root;
+    async function truncatedRun(lineCount, { dead }) {
+      root ??= await mkdtemp(join(tmpdir(), 'rg-timing-'));
+      const dir = join(root, dead ? 'dead' : 'live');
+      await cp(FIXTURE_ROOT, dir, { recursive: true });
+      const file = join(dir, '-home-dev-acme', FIXTURE_FILE);
+      const lines = (await readFile(file, 'utf8')).split('\n').slice(0, lineCount);
+      await writeFile(file, lines.join('\n') + '\n');
+      if (dead) {
+        // Pin every mtime into the past so the run reads as over, exactly as
+        // pinFixtureMtimes does for the real corpus.
+        const when = new Date('2026-08-01T13:00:00Z');
+        const walk = async (d) => {
+          for (const ent of await readdir(d, { withFileTypes: true })) {
+            const p = join(d, ent.name);
+            if (ent.isDirectory()) await walk(p);
+            await utimes(p, when, when);
+          }
+        };
+        await walk(dir);
+      }
+      const runRefs = await detect([dir]);
+      return parse(runRefs.find((r) => r.runId === SESSION_RUN_ID), { collectDetails: true });
+    }
+
+    it('carries no endedAt even when a dead session marks it completed', async () => {
+      // Through line 10: both Bash tool_use records, only the first's result.
+      const { ir, details } = await truncatedRun(10, { dead: true });
+      const bash = ir.nodes.find((n) => n.label === 'Bash · Run the login test ×2');
+      expect(bash.status).toBe('completed'); // finish() closes trailing groups of a dead run…
+      expect('endedAt' in bash).toBe(false); // …but an end is about a RESULT existing, not a status
+      // Offsets need only the starts, and both calls started.
+      expect(bash.callOffsets).toEqual([0, 3000]);
+      expect(details.get(bash.id).calls[1].output).toBeNull();
+    });
+
+    it('carries no endedAt while live, and a single unresolved call carries neither field', async () => {
+      // Through line 8: one Bash tool_use, no result, and the file was just written.
+      const { ir } = await truncatedRun(8, { dead: false });
+      const bash = ir.nodes.find((n) => n.label === 'Bash · Run the login test');
+      expect(bash.status).toBe('running');
+      expect('endedAt' in bash).toBe(false);
+      expect('callOffsets' in bash).toBe(false);
+      await rm(root, { recursive: true, force: true });
+    });
   });
 });

@@ -194,6 +194,13 @@ export function structureOnly(ir) {
     // subtractive; this one would invent a false flag, which is the direction
     // the precision rule cares about most.
     'reverted',
+    // `callOffsets` is mechanical by the same test `endedAt` (already above)
+    // passes: integers about WHEN the group's calls were issued, derived from
+    // record timestamps, no authored text in them. Dropping it would not
+    // protect anything and would silently demote a recipient's replay to
+    // node granularity — a `Bash ×24` group appearing whole instead of
+    // counting up — with no banner saying why.
+    'callOffsets',
   ];
   const HUMAN_LABELS = { denial: 'denial', interrupt: 'interrupt', answer: 'answered a question' };
   for (const n of ir.nodes ?? []) {

@@ -5,6 +5,10 @@
  * exchange. No invented content anywhere in this file.
  */
 
+// The run strip orders nodes by the same rule the dashboard and the signal
+// ranking use — one import, so the three views cannot drift on "earlier".
+import { runOrder } from '../../src/timeline.js';
+
 const reducedMq = matchMedia('(prefers-reduced-motion: reduce)');
 const REDUCED = () => reducedMq.matches;
 
@@ -114,7 +118,13 @@ for (const chip of document.querySelectorAll('[data-try]')) {
     const kind = chip.dataset.try;
     let done = false;
     if (kind === 'signal') done = embed.app?.focusSignalKind('unresolved-error') ?? false;
-    else if (kind === 'find') {
+    else if (kind === 'replay') {
+      // Opens the bar and plays the run from the start through the SAME
+      // producers the header button uses — never a synthetic keypress or a
+      // click on a control the embed may have hidden. False when the app is
+      // not up yet, or the run has no timeline (the bridge says so).
+      done = embed.app?.replay?.play() ?? false;
+    } else if (kind === 'find') {
       embed.app?.openFind();
       done = Boolean(embed.app);
     } else if (kind === 'fit') {
@@ -287,15 +297,7 @@ function pruneEmptyVignettes() {
 function runStrip(graph, mount) {
   // Run order, with the same carry-forward-on-missing-timestamp rule as the
   // canvas's own orderedNodes — the two views must agree on "earlier".
-  let lastT = 0;
-  const ordered = graph.nodes
-    .map((n, i) => {
-      const t = Date.parse(n.startedAt);
-      if (Number.isFinite(t)) lastT = t;
-      return { n, i, t: Number.isFinite(t) ? t : lastT };
-    })
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((k) => k.n);
+  const ordered = runOrder(graph.nodes);
   const COLS = 14;
   const CELL = 30;
   const GAP = 8;

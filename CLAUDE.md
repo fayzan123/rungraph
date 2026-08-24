@@ -19,6 +19,18 @@ Zero-setup, agent-first visualizer for AI agent runs: `npx rungraph` reconstruct
     genuine paste-tier client. Read its **Implementation amendments** and the §14
     calibration record: the build deviated from the spec's letter in fifteen recorded places —
     four from the build, eleven from the 53-agent adversarial review after it.
+  - `docs/superpowers/specs/2026-08-23-session-replay-design.md` — session replay: the
+    additive call-level timing contract (`callOffsets`, tool `endedAt`), `src/timeline.js`,
+    the replay bar, the moment-aware canvas/inspector/strip/minimap, playback as a
+    fixed-speed time-lapse, the follow-camera, live detach, the `t=` deep link, the agent hook
+    and the landing-page chip. Read its **Implementation amendments**: the playhead's stored
+    identity gained a tie ordinal (`k`) because real runs put many events on one millisecond,
+    and a leading untimed node materializes with its successor rather than at epoch zero.
+- **Session replay is implemented** (2026-08-24): every adapter with a per-call clock emits
+  `callOffsets` and tool `endedAt` (Cursor CLI has none and emits neither — asserted), the
+  signals snapshot was byte-identical before and after (tool groups still carry no
+  `durationMs`, so the outlier population did not move), and the dashboard's `r` key opens
+  the bar. `deriveSignals` is untouched; replay only *reveals* signals at their completion.
 - **v1 and the signal & focus layer are implemented.** Scanner, adapter, IR, CLI, server,
   live-tail watcher, the Preact frontend, `deriveSignals`, file attribution, the FocusSet
   spine, and `rungraph mcp` all ship.
@@ -90,7 +102,18 @@ real sessions, never reasoned into place.
 
 ## Shared code, one implementation
 
-Seven things exist exactly once because a second copy could disagree with the first:
+Eight things exist exactly once because a second copy could disagree with the first:
+
+- `src/timeline.js` — the run as a sequence of events, and the graph at event *n*. **No
+  imports at all**, same contract and same reason as `find.js`: the frontend bundle imports
+  it for local scrubbing (the playhead never issues a request per tick), and it is what
+  `server.js`/`cli.js`/`mcp.js` will import the day an agent needs a timeline. It also
+  absorbed the run-ordering rule (`runOrder`) that used to exist three times — `signals.js`,
+  `canvas.jsx` and the landing page's run strip — each with a comment saying they must agree;
+  the extraction test pins the new order against a verbatim paste of the old one over every
+  corpus. Replay reveals, never re-derives: a signal appears at the moment its evidence is
+  complete (`revealIndexOf`), and the invariant `stateAt(ir, events, events.length)` ===
+  the graph as it renders today is the first test in `tests/timeline.test.js`.
 
 - `src/signals.js` — the run's opinion. Server-side only.
 - `src/find.js` — the matcher. **No imports at all**, so the frontend bundle imports it directly

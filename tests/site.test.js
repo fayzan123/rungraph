@@ -90,6 +90,33 @@ describe('the baked demo run', () => {
     }
   });
 
+  // Replay is a pure function of the IR, and the IR is whatever the bake
+  // wrote: a graph.json regenerated through an adapter that predates
+  // `callOffsets` still opens, but "watch it happen" would show every
+  // `Bash ×N` group landing whole and the clip would be a lie about pace.
+  // Nothing else in the site would notice — so the bake's freshness is
+  // pinned here, on the two fields the timeline reads.
+  it('graph.json was baked through an adapter that emits the timeline fields', async () => {
+    const g = await load('graph.json');
+    const tools = g.nodes.filter((n) => n.kind === 'tool');
+    const multi = tools.filter((n) => n.callCount >= 2);
+    expect(multi.length).toBeGreaterThan(0);
+    const withOffsets = multi.filter((n) => Array.isArray(n.callOffsets));
+    expect(withOffsets.length, 'no multi-call tool node carries callOffsets — re-bake the demo run').toBeGreaterThan(0);
+    for (const n of withOffsets) {
+      // The same invariants SCHEMA.md states and the timeline validates; a
+      // list the timeline would silently drop is as stale as a missing one.
+      expect(n.callOffsets).toHaveLength(n.callCount);
+      expect(n.callOffsets[0]).toBe(0);
+      for (let i = 1; i < n.callOffsets.length; i++) {
+        expect(n.callOffsets[i]).toBeGreaterThanOrEqual(n.callOffsets[i - 1]);
+      }
+    }
+    const ended = tools.filter((n) => Number.isFinite(Date.parse(n.endedAt)));
+    expect(ended.length, 'no tool node carries endedAt — re-bake the demo run').toBeGreaterThan(0);
+    for (const n of ended) expect(Date.parse(n.endedAt)).toBeGreaterThanOrEqual(Date.parse(n.startedAt));
+  });
+
   it('index.json names the one baked run', async () => {
     const g = await load('graph.json');
     const index = await load('index.json');
@@ -140,6 +167,17 @@ describe('the page', () => {
       expect(a, a).toMatch(/target="_blank"/);
       expect(a, a).toMatch(/rel="[^"]*\bnoopener\b[^"]*"/);
     }
+  });
+
+  // The clip's home (spec §8): the chip is what a visitor — and the
+  // 15-second recording — presses. It has to reach the embed bridge by the
+  // data-try key page.js dispatches on, not by class.
+  it('carries the "watch it happen" chip, wired to the replay bridge', async () => {
+    const page = await html();
+    const chip = page.match(/<button\b[^>]*data-try="replay"[^>]*>/)?.[0];
+    expect(chip).toBeTruthy();
+    expect(chip).toMatch(/class="[^"]*\btry-chip\b[^"]*"/);
+    expect(chip).toMatch(/class="[^"]*\breplay\b[^"]*"/);
   });
 
   it('keeps the hero free of em dashes', async () => {

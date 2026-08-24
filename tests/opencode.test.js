@@ -45,6 +45,7 @@ import {
   OC_REVERT_LANE_RUN_ID,
   OC_LANE_CHILD_ID,
   OC_DENY_TASK_RUN_ID,
+  CU_TROUBLE_RUN_ID,
 } from './helpers.js';
 
 // The whole file rides on node:sqlite: the Node 20 CI leg skips it (the
@@ -434,6 +435,138 @@ describe.skipIf(!hasNodeSqlite)('opencode interrupts', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Replay timing — `callOffsets` and tool-group `endedAt`
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!hasNodeSqlite)('opencode replay timing', () => {
+  /** The instant a detail call resolved, from the same fields the offsets use. */
+  const callEnds = (d) => d.calls.map((c) => Date.parse(c.startedAt) + (c.durationMs ?? 0));
+
+  // The batch fixture: 14 consecutive `read` calls, each a `state.time.start`
+  // 300 ms after the last, collapsed into one node.
+  it('the 14-call batch carries one offset per call, and each equals calls[i].startedAt − startedAt', async () => {
+    const { ir, details } = await irFor(OC_BATCH_RUN_ID, { collectDetails: true });
+    const node = ir.nodes.find((n) => n.kind === 'tool');
+    expect(node.callCount).toBe(14);
+    expect(node.callOffsets).toHaveLength(14);
+    expect(node.callOffsets[0]).toBe(0);
+    for (const [i, o] of node.callOffsets.entries()) {
+      expect(Number.isInteger(o) && o >= 0).toBe(true);
+      if (i > 0) expect(o).toBeGreaterThanOrEqual(node.callOffsets[i - 1]);
+    }
+    const base = Date.parse(node.startedAt);
+    const fromDetail = details.get(node.id).calls.map((c) => Date.parse(c.startedAt) - base);
+    expect(node.callOffsets).toEqual(fromDetail);
+  });
+
+  // `rungraph graph --json` is the IR path and collects no details: the
+  // fields must come out identical either way, or the terminal and the
+  // canvas could disagree about when a call happened.
+  it('callOffsets and endedAt are the same with and without detail collection', async () => {
+    const plain = (await irFor(OC_BATCH_RUN_ID)).ir;
+    const withDetails = (await irFor(OC_BATCH_RUN_ID, { collectDetails: true })).ir;
+    const timing = (ir) =>
+      ir.nodes.filter((n) => n.kind === 'tool').map((n) => [n.id, n.callOffsets, n.endedAt]);
+    expect(timing(plain)).toEqual(timing(withDetails));
+    expect(timing(plain).some(([, offsets]) => offsets)).toBe(true);
+  });
+
+  // The clean and trouble fixtures: every single-call node carries no list —
+  // `[0]` would be information-free bytes on the majority of tool nodes.
+  it('a single-call node carries NO callOffsets, not [0]', async () => {
+    for (const runId of [OC_CLEAN_RUN_ID, OC_TROUBLE_RUN_ID]) {
+      const { ir } = await irFor(runId);
+      const tools = ir.nodes.filter((n) => n.kind === 'tool');
+      expect(tools.length).toBeGreaterThan(0);
+      for (const n of tools) {
+        if (n.callCount < 2) expect(n).not.toHaveProperty('callOffsets');
+        else expect(n.callOffsets).toHaveLength(n.callCount);
+      }
+    }
+  });
+
+  // The batch fixture again: every call resolved, so the group ended when
+  // its LAST call did — and it is `endedAt`, never `durationMs`, because the
+  // outlier signal reads `durationMs` and its threshold is calibrated.
+  it('a resolved group ends at its last result, and carries no durationMs', async () => {
+    const { ir, details } = await irFor(OC_BATCH_RUN_ID, { collectDetails: true });
+    const node = ir.nodes.find((n) => n.kind === 'tool');
+    expect(Date.parse(node.endedAt)).toBeGreaterThanOrEqual(Date.parse(node.startedAt));
+    expect(Date.parse(node.endedAt)).toBe(Math.max(...callEnds(details.get(node.id))));
+    expect(node).not.toHaveProperty('durationMs');
+  });
+
+  // The deny-task fixture's refused glob batch: the first denied `glob` is a
+  // single-call node (the denial node lands after it on the chain), and the
+  // second and third collapse into one two-call `error` group, both refused.
+  // A denial is a resolution — the person said no — so each group ends at
+  // its last refusal, and the two-call group keeps its offsets.
+  it('denials resolve their group: endedAt is the last denial, offsets only on the ×2 group', async () => {
+    const { ir, details } = await irFor(OC_DENY_TASK_RUN_ID, { collectDetails: true });
+    const globs = ir.nodes.filter((n) => n.kind === 'tool' && n.label.startsWith('glob ·'));
+    expect(globs.map((n) => n.callCount)).toEqual([1, 2]);
+    const denial = ir.nodes.find((n) => n.interventionKind === 'denial' && n.label.startsWith('denied glob'));
+    for (const glob of globs) {
+      expect(glob.status).toBe('error');
+      expect(glob.errorCount).toBe(glob.callCount);
+      expect(Date.parse(glob.endedAt)).toBe(Math.max(...callEnds(details.get(glob.id))));
+      expect(Date.parse(glob.endedAt)).toBeGreaterThanOrEqual(Date.parse(glob.startedAt));
+      expect(ir.edges.some((e) => e.from === glob.id && e.to === denial.id)).toBe(true);
+    }
+    const [lone, pair] = globs;
+    expect(lone).not.toHaveProperty('callOffsets');
+    expect(pair.callOffsets).toEqual([0, 300]);
+  });
+
+  // No fixture run holds a tool part without `time.end` (the corpus's one
+  // `running` part is a `task`, which becomes a lane), so the live shape is
+  // built here: a two-call `bash` group whose second call is still in flight,
+  // plus a lone `completed` part whose `time.end` never got written.
+  it('a group with a call still in flight carries offsets but NO endedAt', async () => {
+    const { dir, db } = await buildDb(`
+      CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL);
+      CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, directory TEXT, title TEXT, version TEXT, revert TEXT, time_created INTEGER NOT NULL, time_updated INTEGER, time_archived INTEGER, agent TEXT, model TEXT);
+      CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER, data TEXT NOT NULL);
+      CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER, data TEXT NOT NULL);
+    `);
+    try {
+      db.prepare('INSERT INTO project VALUES (?,?)').run('p1', '/home/dev/acme');
+      db.prepare(
+        'INSERT INTO session (id, project_id, directory, title, version, time_created, time_updated, agent) VALUES (?,?,?,?,?,?,?,?)',
+      ).run('ses_live0001', 'p1', '/home/dev/acme', 'Still running', '1.18.19', 1000, 5000, 'build');
+      const msg = db.prepare('INSERT INTO message VALUES (?,?,?,?,?)');
+      const part = db.prepare('INSERT INTO part VALUES (?,?,?,?,?,?)');
+      msg.run('msg_1', 'ses_live0001', 1100, 1100, JSON.stringify({ role: 'user', time: { created: 1100 }, agent: 'build' }));
+      part.run('prt_1', 'msg_1', 'ses_live0001', 1105, 1105, JSON.stringify({ type: 'text', text: 'run the suite twice' }));
+      msg.run('msg_2', 'ses_live0001', 1200, 1200, JSON.stringify({ role: 'assistant', parentID: 'msg_1', agent: 'build', tokens: { input: 500, output: 20, cache: { read: 0, write: 0 } } }));
+      const tool = (status, time) => ({ type: 'tool', tool: 'bash', callID: `c${time.start}`, state: { status, input: { command: 'npm test' }, output: '', metadata: {}, time } });
+      part.run('prt_2', 'msg_2', 'ses_live0001', 1205, 1205, JSON.stringify(tool('completed', { start: 1205, end: 1900 })));
+      part.run('prt_3', 'msg_2', 'ses_live0001', 2000, 2000, JSON.stringify(tool('running', { start: 2000 })));
+      msg.run('msg_3', 'ses_live0001', 3000, 3000, JSON.stringify({ role: 'user', time: { created: 3000 }, agent: 'build' }));
+      part.run('prt_4', 'msg_3', 'ses_live0001', 3005, 3005, JSON.stringify({ type: 'text', text: 'and once more' }));
+      msg.run('msg_4', 'ses_live0001', 3100, 3100, JSON.stringify({ role: 'assistant', parentID: 'msg_3', agent: 'build', tokens: { input: 500, output: 20, cache: { read: 0, write: 0 } }, finish: 'stop' }));
+      part.run('prt_5', 'msg_4', 'ses_live0001', 3105, 3105, JSON.stringify(tool('completed', { start: 3105 })));
+      db.close();
+
+      const refs = await detect([dir]);
+      const { ir } = await parse(refs[0], { collectDetails: true });
+      const [inFlight, unended] = ir.nodes.filter((n) => n.kind === 'tool');
+      expect(inFlight.callCount).toBe(2);
+      expect(inFlight.status).toBe('running');
+      expect(inFlight.callOffsets).toEqual([0, 795]); // both starts are known …
+      expect(inFlight).not.toHaveProperty('endedAt'); // … but the group has not ended
+      // A `completed` call with no recorded end is an end the adapter does
+      // not know, never one it guesses from the part's row time.
+      expect(unended.status).toBe('completed');
+      expect(unended).not.toHaveProperty('endedAt');
+      expect(unended).not.toHaveProperty('callOffsets');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Revert
 // ---------------------------------------------------------------------------
 
@@ -511,20 +644,36 @@ describe.skipIf(!hasNodeSqlite)('opencode revert', () => {
   });
 
   // AC 27. Pinned on the pure helper so a future change cannot quietly route
-  // revert through opacity — the FocusSet's exclusive channel.
-  it('focus and revert are independent channels, in all four combinations', () => {
+  // revert through opacity — the FocusSet's exclusive channel. Replay made
+  // the matrix eight-way: the same four rows while the node is PRESENT, and
+  // every one of them a ghost while it is not (future beats focus — a node
+  // that has not happened cannot be lit — and beats revert, because a ghost
+  // has no label to strike).
+  it('focus and revert are independent channels, in all four combinations — and future beats both', () => {
     const plain = { id: 'n1' };
     const rolled = { id: 'n2', reverted: true };
     const focus = new Set(['n1', 'n2']);
     const elsewhere = new Set(['n9']);
 
-    expect(nodeMarks(plain, null)).toEqual({ focused: false, dim: false, reverted: false });
-    expect(nodeMarks(rolled, null)).toEqual({ focused: false, dim: false, reverted: true });
+    // The four rows, present (the default — a caller that never heard of
+    // replay renders exactly as before).
+    expect(nodeMarks(plain, null)).toEqual({ focused: false, dim: false, reverted: false, future: false });
+    expect(nodeMarks(rolled, null)).toEqual({ focused: false, dim: false, reverted: true, future: false });
     // A focus MEMBER that was reverted renders LIT, with its mark.
-    expect(nodeMarks(rolled, focus)).toEqual({ focused: true, dim: false, reverted: true });
+    expect(nodeMarks(rolled, focus)).toEqual({ focused: true, dim: false, reverted: true, future: false });
     // A non-member renders dimmed BECAUSE it is unfocused, mark unchanged.
-    expect(nodeMarks(rolled, elsewhere)).toEqual({ focused: false, dim: true, reverted: true });
-    expect(nodeMarks(plain, elsewhere)).toEqual({ focused: false, dim: true, reverted: false });
+    expect(nodeMarks(rolled, elsewhere)).toEqual({ focused: false, dim: true, reverted: true, future: false });
+    expect(nodeMarks(plain, elsewhere)).toEqual({ focused: false, dim: true, reverted: false, future: false });
+    // An explicit `true` is the same as the default.
+    expect(nodeMarks(rolled, focus, true)).toEqual(nodeMarks(rolled, focus));
+
+    // The same four rows, absent: one ghost, whatever the focus or the revert.
+    const ghost = { focused: false, dim: false, reverted: false, future: true };
+    expect(nodeMarks(plain, null, false)).toEqual(ghost);
+    expect(nodeMarks(rolled, null, false)).toEqual(ghost);
+    expect(nodeMarks(rolled, focus, false)).toEqual(ghost); // a member that has not happened is NOT lit
+    expect(nodeMarks(rolled, elsewhere, false)).toEqual(ghost); // …and not dimmed either: one opacity channel at a time
+    expect(nodeMarks(plain, elsewhere, false)).toEqual(ghost);
   });
 
   it('the stylesheet never routes revert through opacity', async () => {
@@ -1043,6 +1192,119 @@ describe.skipIf(!hasNodeSqlite)('cross-adapter compaction seam', () => {
     // compactions each carry a seam fixture, and each must have produced the
     // marker. A fourth format that grows a compaction concept joins this list.
     expect([...hits.keys()].sort()).toEqual(['claude-code', 'codex', 'opencode']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The third cross-adapter invariant: the replay timings (session-replay spec
+// §1, §10). Five adapters each derive `callOffsets` and tool `endedAt` from
+// their own clocks, and `src/timeline.js` consumes them without knowing which
+// adapter wrote them — so the contract has to hold identically everywhere,
+// and the one place that can say so is a test that walks every corpus with
+// details collected and checks the node field against the detail payload it
+// must agree with. Each adapter's own test file pins its shapes; this is the
+// guard that the shapes are the SAME shape.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!hasNodeSqlite)('cross-adapter replay timing invariant', () => {
+  it('callOffsets and tool endedAt obey one contract in all five adapters', async () => {
+    const [claude, codex, hermes, opencode, cursor] = await Promise.all([
+      import('../src/adapters/claude-code/index.js'),
+      import('../src/adapters/codex/index.js'),
+      import('../src/adapters/hermes/index.js'),
+      import('../src/adapters/opencode/index.js'),
+      import('../src/adapters/cursor/index.js'),
+    ]);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const corpora = [
+      ['claude-code', claude, [join(here, 'fixtures', 'projects')]],
+      ['codex', codex, [join(here, 'fixtures', 'codex')]],
+      ['hermes', hermes, [join(here, 'fixtures', 'hermes')]],
+      ['opencode', opencode, [join(here, 'fixtures', 'opencode')]],
+      ['cursor', cursor, [join(here, 'fixtures', 'cursor', 'ide'), join(here, 'fixtures', 'cursor', 'cli')]],
+    ];
+    const carriers = new Map(); // contributor (adapter, or adapter:surface) → tool nodes carrying callOffsets
+    let sawBatch = false; // a Hermes-style [0, 0, …] group — issued together, never smoothed
+    let cursorIdeTroubleGroups = 0;
+    for (const [name, adapter, roots] of corpora) {
+      for (const ref of await adapter.detect(roots)) {
+        // Cursor is two stores under one adapter, and only one of them has
+        // per-call clocks — the contributor key keeps the surfaces apart so the
+        // "who contributed" assertion below can name the CLI as the one that
+        // must not.
+        const who = ref.surface ? `${name}:${ref.surface}` : name;
+        const { ir, details } = await adapter.parse(ref, { collectDetails: true });
+        for (const n of ir.nodes) {
+          if (n.kind !== 'tool') continue;
+          const tag = `${ref.runId} ${n.id} "${n.label}"`;
+          // Never durationMs on a tool group: the outlier signal reads it, and
+          // a calibrated threshold must not move as a side effect (spec §1).
+          expect(n.durationMs, tag).toBeUndefined();
+          if (who === 'cursor:cli') {
+            // The CLI's message blobs carry no timestamps. A future
+            // "improvement" that fakes them fails here (spec §3).
+            expect(n.callOffsets, tag).toBeUndefined();
+            expect(n.endedAt, tag).toBeUndefined();
+            continue;
+          }
+          if (n.callOffsets !== undefined) {
+            const offs = n.callOffsets;
+            expect(n.callCount, tag).toBeGreaterThanOrEqual(2);
+            expect(Array.isArray(offs) && offs.length === n.callCount, tag).toBe(true);
+            expect(offs[0], tag).toBe(0);
+            for (const [i, o] of offs.entries()) {
+              expect(Number.isInteger(o) && o >= 0, `${tag} offset ${i} = ${o}`).toBe(true);
+              if (i > 0) expect(o, `${tag} offset ${i}`).toBeGreaterThanOrEqual(offs[i - 1]);
+            }
+            // The node field and the detail payload derive from ONE instant
+            // per call, so the guard equation SCHEMA.md states holds exactly.
+            const calls = details.get(n.id)?.calls ?? [];
+            expect(calls, tag).toHaveLength(n.callCount);
+            const start = Date.parse(n.startedAt);
+            expect(Number.isFinite(start), tag).toBe(true);
+            for (const [i, c] of calls.entries()) {
+              expect(typeof c.startedAt, `${tag} call ${i}`).toBe('string');
+              expect(Date.parse(c.startedAt) - start, `${tag} call ${i}`).toBe(offs[i]);
+            }
+            if (offs.every((o) => o === 0)) sawBatch = true;
+            carriers.set(who, (carriers.get(who) ?? 0) + 1);
+            if (who === 'cursor:ide' && ref.runId === CU_TROUBLE_RUN_ID) {
+              // Pins the 2026-08-24 probe: IDE bubbles carry their own
+              // createdAt, so back-to-back calls are real, DISTINCT offsets —
+              // strictly increasing, not the Hermes batch shape.
+              cursorIdeTroubleGroups++;
+              for (let i = 1; i < offs.length; i++) {
+                expect(offs[i], `${tag} offset ${i}`).toBeGreaterThan(offs[i - 1]);
+              }
+            }
+          } else {
+            // Absent is the only other state: no partial list, no `[0]`.
+            expect('callOffsets' in n, tag).toBe(false);
+          }
+          if ((n.callCount ?? 1) < 2) expect(n.callOffsets, tag).toBeUndefined();
+          if (n.endedAt !== undefined) {
+            expect(typeof n.endedAt, tag).toBe('string');
+            expect(n.status, tag).not.toBe('running');
+            expect(Date.parse(n.endedAt), tag).toBeGreaterThanOrEqual(Date.parse(n.startedAt));
+          }
+        }
+        if (who === 'cursor:ide' && ref.runId === CU_TROUBLE_RUN_ID) {
+          // Every multi-call group in that run is timed — the IDE store has
+          // no untimed bubble to excuse a missing list.
+          for (const n of ir.nodes) {
+            if (n.kind === 'tool' && (n.callCount ?? 1) >= 2) expect(n.callOffsets, n.id).toBeDefined();
+          }
+        }
+      }
+    }
+    // Meaningful only if exercised. Every adapter with a per-call clock
+    // contributed at least one multi-call group, the Cursor CLI contributed
+    // none, and the corpora hold enough carriers that a regression in any one
+    // adapter's list cannot hide behind the others.
+    expect([...carriers.keys()].sort()).toEqual(['claude-code', 'codex', 'cursor:ide', 'hermes', 'opencode']);
+    expect([...carriers.values()].reduce((a, b) => a + b, 0)).toBeGreaterThan(10);
+    expect(sawBatch, 'a batch issued in one row must read [0, 0, …], not be smoothed').toBe(true);
+    expect(cursorIdeTroubleGroups).toBeGreaterThan(0);
   });
 });
 

@@ -252,9 +252,14 @@ class RolloutBuilder {
     this.turnIndex = 0;
     this.metaSeen = new Set(); // session_meta dedupe (resume re-emission)
     this.cwd = undefined;
-    this.pendingCalls = new Map(); // call_id → { kind, family, nodeId, ts, name }
+    this.pendingCalls = new Map(); // call_id → { kind, family, nodeId, ts, timing }
     this.toolNames = new Map(); // tool node id → family (labels are descriptive)
     this.toolFiles = new Map(); // tool node id → union of touched paths
+    // tool node id → [{ startTs, endTs }] in call order. Tracked in the
+    // builder's own state (like toolFiles), NOT read back from details.calls:
+    // `rungraph graph --json` collects no details and must still carry
+    // callOffsets / endedAt, and the two must come from the same instants.
+    this.toolTimes = new Map();
     this.spawns = new Map(); // call_id → spawn record
     this.threadBySpawn = new Map(); // spawn call_id → child thread id
     this.seenThreads = new Set(); // sub_agent_activity dedupe (fork copies re-emit)
@@ -651,7 +656,14 @@ class RolloutBuilder {
         startedAt: ts,
       });
     }
-    if (!instantOk) this.pendingCalls.set(callId, { kind: 'tool', family, nodeId, ts });
+    // Same `ts` as the detail call's startedAt, pushed in the same order, so
+    // callOffsets[i] and calls[i].startedAt can never disagree. An instant
+    // call (web_search_end is its own result) resolves at its own timestamp.
+    const timing = { startTs: ts, endTs: instantOk ? ts : undefined };
+    const times = this.toolTimes.get(nodeId);
+    if (times) times.push(timing);
+    else this.toolTimes.set(nodeId, [timing]);
+    if (!instantOk) this.pendingCalls.set(callId, { kind: 'tool', family, nodeId, ts, timing });
     this.narration = null;
   }
 
@@ -678,6 +690,11 @@ class RolloutBuilder {
       if (isError) group.errorCount = (group.errorCount ?? 0) + 1;
       if (group.status !== 'error') group.status = 'completed';
     }
+    // The output line IS the call's resolution — success, failure and a
+    // refused command all arrive as one function_call_output, so there is no
+    // separate denial path to time. A line without a timestamp resolves the
+    // call but leaves it untimed, which withholds the group's endedAt.
+    if (rec.timing) rec.timing.endTs = typeof obj.timestamp === 'string' ? obj.timestamp : undefined;
     if (this.collect) {
       const call = this.details.get(rec.nodeId)?.calls.find((c) => c.toolUseId === p.call_id);
       if (call) {
@@ -775,10 +792,58 @@ class RolloutBuilder {
       if (n.kind === 'tool' && (n.errorCount ?? 0) > 0 && n.errorCount >= n.callCount)
         n.status = 'error';
       if (n.kind === 'tool' && n.callCount > 1) n.label = `${n.label} ×${n.callCount}`;
+      if (n.kind === 'tool') groupTimings(n, this.toolTimes.get(n.id) ?? []);
       const files = this.toolFiles.get(n.id);
       if (files?.length) n.files = files;
     }
   }
+}
+
+/**
+ * `callOffsets` and `endedAt` for one collapsed group, from the per-call
+ * timings the builder tracked beside it. Both are withheld rather than
+ * approximated — precision over recall, and the consumer treats a malformed
+ * list as absent, which this must never lean on:
+ * - callOffsets only on groups of 2+ calls (call 0 IS the node's start, so a
+ *   `[0]` would be information-free bytes on most tool nodes), only when
+ *   EVERY call is timed, only when the list is `[0, …]` non-decreasing with
+ *   one entry per call. One untimed or out-of-order call → no list at all.
+ * - endedAt only once EVERY call has a timed resolution (a live group carries
+ *   none, exactly like a live turn), never earlier than startedAt. It is the
+ *   source's own string for the latest resolution, not a re-serialisation.
+ * - Deliberately NOT durationMs: the outlier signal reads durationMs, and
+ *   handing ~40% of a session's nodes a duration would move a calibrated
+ *   threshold as a side effect (spec §1; the signals snapshot pins this).
+ */
+function groupTimings(node, times) {
+  const start = Date.parse(node.startedAt);
+  if (!Number.isFinite(start) || times.length !== node.callCount) return;
+
+  if (times.length >= 2) {
+    const offsets = [];
+    for (const t of times) {
+      const ms = Date.parse(t.startTs) - start; // NaN for an untimed call
+      const prev = offsets.length ? offsets[offsets.length - 1] : 0;
+      if (!Number.isFinite(ms) || ms < prev) {
+        offsets.length = 0;
+        break;
+      }
+      offsets.push(ms);
+    }
+    if (offsets.length === times.length && offsets[0] === 0) node.callOffsets = offsets;
+  }
+
+  let lastMs = -Infinity;
+  let lastTs;
+  for (const t of times) {
+    const ms = Date.parse(t.endTs);
+    if (!Number.isFinite(ms)) return; // unresolved, or resolved untimed
+    if (ms >= lastMs) {
+      lastMs = ms;
+      lastTs = t.endTs;
+    }
+  }
+  if (lastMs >= start) node.endedAt = lastTs;
 }
 
 /** Materialize one spawned agent from its own rollout file. */

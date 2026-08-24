@@ -172,3 +172,44 @@ export function graphFullyVisible(view, box, layout) {
   const r = viewportRect(view, box);
   return r.x <= 0 && r.y <= 0 && r.x + r.w >= layout.width && r.y + r.h >= layout.height;
 }
+
+/**
+ * The replay follow-camera's one move: the MINIMUM translation that brings a
+ * node's screen rect inside the viewport's inner region (the box scaled by
+ * `inner` about its centre), or null when the node is already inside it.
+ *
+ * Null is the important case. Recentring on every tick is the nauseating
+ * version of a follow-camera; a node already in view never moves the view,
+ * and at ≥ 40 ms cadence the minimum edge-to-edge nudges read as smooth
+ * without a transition system. On an axis where the node is LARGER than the
+ * region there is no "inside", so that axis centres on the node — the only
+ * position that is symmetric about what the viewer is looking at. Scale never
+ * changes: zoom belongs to the user (wheel, fit, minimap), and a camera that
+ * also zoomed would fight them mid-play.
+ *
+ * @param {{tx:number,ty:number,scale:number}} view
+ * @param {{x:number,y:number,w:number,h:number}} rect  node rect in layout coords
+ * @param {{width:number,height:number}} box            viewport in screen px
+ * @param {number} [inner]                              region fraction, 0–1
+ * @returns {{tx:number,ty:number,scale:number}|null}
+ */
+export function panToReveal(view, rect, box, inner = 0.7) {
+  if (!view || !rect || !box) return null;
+  const frac = typeof inner === 'number' && inner > 0 && inner <= 1 ? inner : 0.7;
+  // One axis: screen span [lo, lo + size) against region [rLo, rLo + rSize).
+  const shift = (lo, size, boxSize) => {
+    const rSize = boxSize * frac;
+    const rLo = (boxSize - rSize) / 2;
+    if (size > rSize) return rLo + rSize / 2 - (lo + size / 2); // centre: no fit exists
+    if (lo < rLo) return rLo - lo; // just enough to clear the near edge
+    if (lo + size > rLo + rSize) return rLo + rSize - (lo + size); // …or the far one
+    return 0;
+  };
+  const dx = shift(rect.x * view.scale + view.tx, rect.w * view.scale, box.width);
+  const dy = shift(rect.y * view.scale + view.ty, rect.h * view.scale, box.height);
+  // Under half a pixel is not a move: it is invisible, and the float dust of
+  // `box × 0.7` would otherwise report a 1e-14 px nudge on a node sitting
+  // exactly on the region's edge — a setView per tick with nothing to show.
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return null;
+  return { scale: view.scale, tx: view.tx + dx, ty: view.ty + dy };
+}

@@ -75,16 +75,54 @@ describe('hash build and parse', () => {
       descriptor: { source: 'find', query: 'auth' },
     });
     expect(hash.startsWith('#run=')).toBe(true);
+    // `t: null` — the replay moment. A link without one parses exactly as it
+    // did before replay existed, plus this one null field, so the app's
+    // "restore a playhead" branch has one shape to test rather than a
+    // present-or-absent key.
     expect(parseFocusHash(hash)).toEqual({
       runId: 'claude-code:-home-dev-acme:1111',
       sel: 'g:toolu_01',
       descriptor: { source: 'find', query: 'auth' },
+      t: null,
     });
   });
 
   it('a run alone still links', () => {
     const hash = buildFocusHash({ runId: 'r1' });
-    expect(parseFocusHash(hash)).toEqual({ runId: 'r1', sel: null, descriptor: null });
+    expect(parseFocusHash(hash)).toEqual({ runId: 'r1', sel: null, descriptor: null, t: null });
+  });
+
+  it('a replay moment round-trips as the canonical ISO string', () => {
+    const t = '2026-08-01T12:00:31.250Z';
+    const hash = buildFocusHash({ runId: 'r1', sel: 'g:1', t });
+    expect(hash).toContain('t=2026-08-01T12%3A00%3A31.250Z');
+    expect(parseFocusHash(hash)).toEqual({ runId: 'r1', sel: 'g:1', descriptor: null, t });
+    // The moment is a timestamp, not a string: any parseable form is
+    // normalised, so a hand-edited link reads the same in every browser.
+    expect(parseFocusHash(buildFocusHash({ runId: 'r1', t: '2026-08-01T12:00:31Z' })).t).toBe(
+      '2026-08-01T12:00:31.000Z',
+    );
+    expect(Date.parse(parseFocusHash(hash).t)).toBe(Date.parse(t));
+  });
+
+  it('a hash without t parses as before, and a garbage t parses as null', () => {
+    expect(parseFocusHash('#run=r1&sel=g:1').t).toBeNull();
+    expect(parseFocusHash('#run=r1&t=').t).toBeNull();
+    expect(parseFocusHash('#run=r1&t=yesterday').t).toBeNull();
+    expect(parseFocusHash('#run=r1&t=NaN').t).toBeNull();
+    // …and a broken moment never costs the run or the focus.
+    const p = parseFocusHash('#run=r1&t=%%%');
+    expect(p.runId).toBe('r1');
+    expect(p.t).toBeNull();
+  });
+
+  it('buildFocusHash ignores a non-ISO t rather than writing a lie', () => {
+    expect(buildFocusHash({ runId: 'r1', t: 'yesterday' })).toBe('#run=r1');
+    expect(buildFocusHash({ runId: 'r1', t: '' })).toBe('#run=r1');
+    expect(buildFocusHash({ runId: 'r1', t: undefined })).toBe('#run=r1');
+    expect(buildFocusHash({ runId: 'r1', t: null })).toBe('#run=r1');
+    // A number is not a moment in a link — the app converts to ISO first.
+    expect(buildFocusHash({ runId: 'r1', t: 1754049631250 })).toBe('#run=r1');
   });
 
   it('an unrelated fragment is not mistaken for a broken deep link', () => {

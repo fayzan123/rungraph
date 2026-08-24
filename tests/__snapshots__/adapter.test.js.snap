@@ -229,6 +229,11 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 2,
+      "callOffsets": [
+        0,
+        3000,
+      ],
+      "endedAt": "2026-08-01T12:00:10.500Z",
       "errorCount": 1,
       "hasDetail": true,
       "id": "g:toolu_fx0001",
@@ -239,6 +244,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:13.500Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
@@ -252,6 +258,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:18.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "g:toolu_fx0011",
@@ -262,6 +269,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:21.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
@@ -275,6 +283,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:24.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "g:toolu_fx0013",
@@ -285,6 +294,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:27.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "g:toolu_fx0014",
@@ -318,6 +328,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:40.500Z",
       "errorCount": 1,
       "files": [
         "/home/dev/acme/src/auth/session.ts",
@@ -354,6 +365,7 @@ exports[`parse: session > produces the expected IR 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:57.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "g:toolu_fx0015",

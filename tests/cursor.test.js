@@ -91,6 +91,39 @@ const signalsFor = async (runId) => deriveSignals((await irFor(runId)).ir);
 const kindsOf = (signals) => signals.map((s) => `${s.kind}:${s.label}`);
 const nodesOf = (ir, kind) => ir.nodes.filter((n) => n.kind === kind);
 
+/**
+ * The replay-timing contract (SCHEMA.md / replay spec §1) on every tool node:
+ * `callOffsets` only on collapsed groups, `[0] === 0`, non-decreasing,
+ * `length === callCount`, each equal to `calls[i].startedAt − node.startedAt`
+ * in the detail payload; tool `endedAt` never before `startedAt` and never on
+ * a running group; never `durationMs` (the outlier signal reads it).
+ */
+function expectTimingInvariants(ir, details, runId) {
+  for (const n of ir.nodes) {
+    if (n.kind !== 'tool') continue;
+    const tag = `${runId} ${n.label}`;
+    expect(n.durationMs, tag).toBeUndefined();
+    if (n.callOffsets !== undefined) {
+      expect(n.callCount, tag).toBeGreaterThanOrEqual(2);
+      expect(n.callOffsets, tag).toHaveLength(n.callCount);
+      expect(n.callOffsets[0], tag).toBe(0);
+      for (const [i, o] of n.callOffsets.entries()) {
+        expect(Number.isInteger(o) && o >= 0, `${tag} offset ${i}`).toBe(true);
+        if (i > 0) expect(o, `${tag} offset ${i}`).toBeGreaterThanOrEqual(n.callOffsets[i - 1]);
+      }
+      const calls = details.get(n.id)?.calls ?? [];
+      expect(calls, tag).toHaveLength(n.callCount);
+      for (const [i, c] of calls.entries()) {
+        expect(Date.parse(c.startedAt) - Date.parse(n.startedAt), `${tag} call ${i}`).toBe(n.callOffsets[i]);
+      }
+    }
+    if (n.endedAt !== undefined) {
+      expect(n.status, tag).not.toBe('running');
+      expect(Date.parse(n.endedAt), tag).toBeGreaterThanOrEqual(Date.parse(n.startedAt));
+    }
+  }
+}
+
 /** Every string in an IR + its details, for the never-emit assertions. */
 function allStrings(ir, details) {
   const out = [];
@@ -499,6 +532,97 @@ describe.skipIf(!hasNodeSqlite)('cursor parse (IDE)', () => {
     expect(Date.parse(ref.modifiedAt)).toBeGreaterThan(Date.parse(lastHeaderAt));
   });
 
+  // ---- replay timings: callOffsets + tool endedAt (replay spec §1, §3 "cursor IDE") ----
+
+  it('callOffsets: every collapsed group in the trouble run carries DISTINCT per-call offsets that match the detail payload', async () => {
+    // Pins the 2026-08-24 probe of the real state.vscdb: every tool bubble
+    // header carries its own `createdAt` and back-to-back calls are never
+    // identical — real per-call offsets, not the Hermes `[0, 0, 0]` shape.
+    const { ir, details } = await irFor(CU_TROUBLE_RUN_ID, { collectDetails: true });
+    const groups = nodesOf(ir, 'tool').filter((n) => n.callCount >= 2);
+    expect(groups.length).toBeGreaterThanOrEqual(4);
+    expect(groups.some((n) => n.callCount >= 3)).toBe(true);
+    for (const n of groups) {
+      expect(n.callOffsets, n.label).toHaveLength(n.callCount);
+      expect(n.callOffsets[0], n.label).toBe(0);
+      for (let i = 1; i < n.callOffsets.length; i++) {
+        expect(n.callOffsets[i], `${n.label} offset ${i}`).toBeGreaterThan(n.callOffsets[i - 1]); // strictly — distinct
+      }
+      const calls = details.get(n.id).calls;
+      expect(calls.map((c) => Date.parse(c.startedAt) - Date.parse(n.startedAt))).toEqual(n.callOffsets);
+    }
+    const read = ir.nodes.find((n) => n.label === 'Read · SKILL.md ×3');
+    expect(read.callOffsets).toEqual([0, 1500, 3002]);
+  });
+
+  it('callOffsets: a single-call node carries NOTHING — not `[0]` — on every IDE run', async () => {
+    let singles = 0;
+    for (const ref of (await detect(CURSOR_FIXTURE_ROOTS)).filter((r) => r.surface === 'ide')) {
+      const { ir } = await parse(ref);
+      for (const n of nodesOf(ir, 'tool').filter((n) => n.callCount === 1)) {
+        singles++;
+        expect(n.callOffsets, `${ref.runId} ${n.label}`).toBeUndefined();
+      }
+    }
+    expect(singles).toBeGreaterThan(10);
+  });
+
+  it('endedAt: a resolved group ends at its LAST call instant (clean and trouble runs), and never carries durationMs', async () => {
+    const clean = await irFor(CU_CLEAN_RUN_ID, { collectDetails: true });
+    for (const n of nodesOf(clean.ir, 'tool')) {
+      // Cursor records no result time: the bubble's createdAt is the only
+      // instant the call has, so a single resolved call ends when it starts.
+      expect(n.endedAt, n.label).toBe(n.startedAt);
+      expect(n.durationMs, n.label).toBeUndefined();
+    }
+    const { ir, details } = await irFor(CU_TROUBLE_RUN_ID, { collectDetails: true });
+    const read = ir.nodes.find((n) => n.label === 'Read · SKILL.md ×3');
+    expect(Date.parse(read.endedAt)).toBeGreaterThanOrEqual(Date.parse(read.startedAt));
+    expect(read.endedAt).toBe(details.get(read.id).calls.at(-1).startedAt);
+    expect(read.endedAt).toBe(new Date(Date.parse(read.startedAt) + read.callOffsets.at(-1)).toISOString());
+    for (const n of nodesOf(ir, 'tool')) expect(n.endedAt, n.label).toBeDefined(); // the abort is composer-level; every call is terminal
+  });
+
+  it('endedAt: a group with a `loading` call (in-flight run) carries offsets but NO end', async () => {
+    const { ir } = await irFor(CU_INFLIGHT_RUN_ID);
+    const shell = ir.nodes.find((n) => n.label.startsWith('Shell'));
+    expect(shell.status).toBe('running');
+    expect(shell.callCount).toBe(2);
+    expect(shell.callOffsets).toEqual([0, 1500]); // both calls were ISSUED — that much is known
+    expect(shell.endedAt).toBeUndefined();
+    const read = ir.nodes.find((n) => n.label.startsWith('Read'));
+    expect(read.endedAt).toBe(read.startedAt); // its sibling resolved
+  });
+
+  it('endedAt: a refusal RESOLVES the group — the end is the refused bubble, the same instant as its denial node', async () => {
+    // Trouble run: `npm test` was skipped inside a Shell group, so the group
+    // ends on the rejected call; rejection run: a single refused Shell.
+    for (const runId of [CU_TROUBLE_RUN_ID, CU_REJECTION_RUN_ID]) {
+      const { ir } = await irFor(runId);
+      const denials = nodesOf(ir, 'human').filter((h) => h.interventionKind === 'denial');
+      expect(denials.length, runId).toBeGreaterThan(0);
+      for (const h of denials) {
+        const from = ir.edges.filter((e) => e.kind === 'sequence' && e.to === h.id && e.from.startsWith('g:'));
+        expect(from.length, `${runId} ${h.label}`).toBeGreaterThan(0);
+        for (const e of from) {
+          const tool = ir.nodes.find((n) => n.id === e.from);
+          expect(tool.endedAt, `${runId} ${tool.label}`).toBe(h.startedAt);
+        }
+      }
+    }
+  });
+
+  it('untimed calls (degraded `_v:9`, no createdAt anywhere) yield no callOffsets, no endedAt, no calls[].startedAt', async () => {
+    const { ir, details } = await irFor(CU_DEGRADED_RUN_ID, { collectDetails: true });
+    const tools = nodesOf(ir, 'tool');
+    expect(tools.length).toBeGreaterThan(0);
+    for (const n of tools) {
+      expect(n.callOffsets, n.label).toBeUndefined();
+      expect(n.endedAt, n.label).toBeUndefined();
+      for (const c of details.get(n.id).calls) expect(c.startedAt).toBeUndefined();
+    }
+  });
+
   it('unsupported `_v:3`: listed, fully unread, loud, no crash', async () => {
     const { ir } = await irFor(CU_UNSUPPORTED_RUN_ID);
     expect(ir.nodes).toEqual([]);
@@ -586,7 +710,7 @@ describe.skipIf(!hasNodeSqlite)('cursor parse (IDE)', () => {
 
   it('graph invariants hold for every run on both surfaces', async () => {
     for (const ref of await detect(CURSOR_FIXTURE_ROOTS)) {
-      const { ir } = await parse(ref);
+      const { ir, details } = await parse(ref, { collectDetails: true });
       const ids = new Set(ir.nodes.map((n) => n.id));
       expect(ids.size, ref.runId).toBe(ir.nodes.length);
       for (const e of ir.edges) {
@@ -599,6 +723,7 @@ describe.skipIf(!hasNodeSqlite)('cursor parse (IDE)', () => {
         }
         if (n.files) expect(n.files.length).toBeGreaterThan(0);
       }
+      expectTimingInvariants(ir, details, ref.runId);
       expect(ir.irVersion).toBe(1);
       expect(ir.meta.adapter).toBe('cursor');
       expect(ir.meta.kind).toBe('session');
@@ -791,6 +916,28 @@ describe.skipIf(!hasNodeSqlite)('cursor parse (CLI)', () => {
     expect(ir.meta.coverage).toEqual({ records: 0, unrecognized: 0, sourcesUnread: 1 });
     expect(ir.meta.ext.cursor.rootUnreadable).toBe('root-missing');
     expect(ir.meta.title).toBe('Broken root');
+  });
+
+  it('CLI tool nodes carry NO callOffsets, NO endedAt and NO calls[].startedAt — the blobs have no timestamps to give', async () => {
+    // Replay spec §3 "cursor CLI": message blobs carry no timestamps (only the
+    // injected <timestamp> on user queries). A future "improvement" that
+    // fakes them from the turn's time fails here. Covers every CLI fixture,
+    // including the collapsed groups (rev-2 Shell ×2, the batches).
+    let tools = 0;
+    let groups = 0;
+    for (const ref of (await detect(CURSOR_FIXTURE_ROOTS)).filter((r) => r.surface === 'cli')) {
+      const { ir, details } = await parse(ref, { collectDetails: true });
+      for (const n of nodesOf(ir, 'tool')) {
+        tools++;
+        if (n.callCount >= 2) groups++;
+        expect(n.callOffsets, `${ref.runId} ${n.label}`).toBeUndefined();
+        expect(n.endedAt, `${ref.runId} ${n.label}`).toBeUndefined();
+        expect(n.startedAt, `${ref.runId} ${n.label}`).toBeUndefined();
+        for (const c of details.get(n.id)?.calls ?? []) expect(c.startedAt, `${ref.runId} ${n.label}`).toBeUndefined();
+      }
+    }
+    expect(tools).toBeGreaterThan(5);
+    expect(groups).toBeGreaterThan(0);
   });
 
   it('<user_query> unwrapping and the prose timestamp', () => {

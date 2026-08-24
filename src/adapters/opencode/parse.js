@@ -371,6 +371,12 @@ class SessionWalker {
     this.narration = null; // text since the last tool call, in this message
     this.spawnSlots = []; // task parts, in dispatch order
     this.live = new Set(); // tool nodes with a call still in flight
+    // tool node id → { starts: (ms|null)[], ends: (ms|null)[] }, one entry per
+    // collapsed call, in call order. Tracked HERE rather than read back out of
+    // details.calls because `rungraph graph --json` is the IR path and
+    // collects no details — `callOffsets` and the group's `endedAt` have to
+    // come out identical whether or not anybody asked for payloads.
+    this.toolTimes = new Map();
     this.created = [];
     this.peakContext = 0; // for the agent node this lane hangs from
     this.totalOutput = 0;
@@ -737,6 +743,18 @@ class SessionWalker {
     this.narration = null;
     this.ctx.stats.toolCalls++;
 
+    // `state.time.end` is written when the call resolves — a result, an error
+    // or a denial alike (a denial IS an `error` part here, so it lands its
+    // own end). A part with no end is a call still in flight; a `running`
+    // part carrying one is a contradiction the adapter does not adjudicate,
+    // so it counts as unresolved. Recorded whether or not details are being
+    // collected — see `toolTimes`.
+    const endMs = Number.isFinite(state.time?.end) ? state.time.end : null;
+    const times = this.toolTimes.get(nodeId) ?? { starts: [], ends: [] };
+    times.starts.push(Number.isFinite(startMs) ? startMs : null);
+    times.ends.push(!running && endMs != null ? endMs : null);
+    this.toolTimes.set(nodeId, times);
+
     const group = this.g.nodes.find((n) => n.id === nodeId);
     if (group) {
       if (isError) group.errorCount += 1;
@@ -755,7 +773,6 @@ class SessionWalker {
     if (paths.length) this.attachFiles(nodeId, paths);
 
     if (this.collect) {
-      const endMs = Number.isFinite(state.time?.end) ? state.time.end : null;
       this.details.get(nodeId)?.calls.push({
         toolUseId: typeof d.callID === 'string' ? d.callID : p.id,
         input: cap(safeStringify(input), 3000),
@@ -913,8 +930,62 @@ class SessionWalker {
       if (n.callCount > 1) n.label = `${n.label} ×${n.callCount}`;
       const files = this.toolFiles.get(n.id);
       if (files?.length) n.files = files;
+      const offsets = callOffsetsOf(this.toolTimes.get(n.id), n.callCount);
+      if (offsets) n.callOffsets = offsets;
+      const endedAt = groupEndOf(this.toolTimes.get(n.id), n.callCount, this.live.has(n.id));
+      if (endedAt) n.endedAt = endedAt;
     }
   }
+}
+
+/**
+ * Replay's per-call timing on a collapsed group: each call's start in whole
+ * milliseconds after the node's `startedAt`, in call order. Absent — never
+ * partial, never `[0]` — unless the group has two or more calls and EVERY one
+ * of them was timed; a single-call node's start IS `startedAt`, and a half
+ * list would desynchronise the replay's `×k` count from the real one.
+ *
+ * Truncated to whole ms before subtracting, because `startedAt` was rendered
+ * through `Date#toISOString`, which clips its argument to an integer: the
+ * consumer's guard is `Date.parse(calls[i].startedAt) − Date.parse(startedAt)`,
+ * and a fractional `time.start` (not observed, but the blob is opencode's to
+ * write) would otherwise make the two arithmetics disagree by a millisecond.
+ *
+ * A list that comes out decreasing — a part recorded out of start order — or
+ * of the wrong length is dropped whole rather than repaired: the consumer
+ * ignores a malformed list, but the adapter must not lean on that.
+ */
+function callOffsetsOf(times, callCount) {
+  if (!times || callCount < 2 || times.starts.length !== callCount) return undefined;
+  if (times.starts.some((s) => s == null)) return undefined;
+  const base = Math.trunc(times.starts[0]);
+  const out = [];
+  for (const s of times.starts) {
+    const offset = Math.trunc(s) - base;
+    if (!Number.isFinite(offset) || offset < 0 || (out.length && offset < out[out.length - 1])) {
+      return undefined;
+    }
+    out.push(offset);
+  }
+  return out;
+}
+
+/**
+ * When the group's LAST call resolved — its last result, error or denial.
+ * Present only once every collapsed call has an end; a group with one call
+ * still in flight carries none, exactly as a live turn does. Deliberately
+ * `endedAt` and NOT `durationMs`: the outlier signal reads `durationMs`, and
+ * giving tool groups one would move a calibrated threshold as a side effect.
+ * The `< start` guard drops an end that would predate the node's own start
+ * rather than emit a negative interval.
+ */
+function groupEndOf(times, callCount, live) {
+  if (!times || live || times.ends.length !== callCount) return undefined;
+  if (times.ends.some((e) => e == null)) return undefined;
+  const last = Math.max(...times.ends);
+  const start = times.starts[0];
+  if (Number.isFinite(start) && last < start) return undefined;
+  return iso(last);
 }
 
 // ---- subagent lanes --------------------------------------------------------

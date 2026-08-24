@@ -123,6 +123,25 @@ describe('HTTP API', () => {
     expect(body.signals.length).toBeGreaterThan(0);
   });
 
+  // The dashboard builds its replay timeline from THIS response (never from
+  // detail payloads), and the inspector's per-call timestamps come from
+  // /api/detail — two responses, one instant per call, so the guard equation
+  // holds across the HTTP surface exactly as it does inside the adapter.
+  it('GET /api/graph carries the replay timings, and /api/detail agrees with them', async () => {
+    const g = (await get(`/api/graph/${encodeURIComponent(SESSION_RUN_ID)}`)).body;
+    const group = g.nodes.find((n) => n.id === 'g:toolu_fx0001');
+    expect(group.callOffsets).toEqual([0, 3000]);
+    expect(group.endedAt).toBe('2026-08-01T12:00:10.500Z');
+    expect(group.durationMs).toBeUndefined();
+    const { body } = await get(
+      `/api/detail/${encodeURIComponent(group.id)}?run=${encodeURIComponent(SESSION_RUN_ID)}`,
+    );
+    expect(body.calls).toHaveLength(group.callCount);
+    for (const [i, c] of body.calls.entries()) {
+      expect(Date.parse(c.startedAt) - Date.parse(group.startedAt), `call ${i}`).toBe(group.callOffsets[i]);
+    }
+  });
+
   it('GET /api/detail/:nodeId serves lazy payloads', async () => {
     const g = (await get(`/api/graph/${encodeURIComponent(SESSION_RUN_ID)}`)).body;
     const node = g.nodes.find((n) => n.hasDetail);

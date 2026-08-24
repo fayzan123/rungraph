@@ -148,10 +148,32 @@ agent's transcript.
 | `f` | fit the whole graph |
 | `/` | find |
 | `[` / `]` | collapse the left / right pane |
-| `Esc` | deselect and clear the focus |
+| `r` | open / close replay |
+| `←` / `→` | step one event (replay open) |
+| `space` | play / pause (replay open) |
+| `Esc` | deselect and clear the focus — pauses replay, never closes it |
 
 The minimap (bottom-right) shows the whole run with errors as red beacons —
 click one to jump straight to the failure.
+
+### Replay
+
+`r` (or the `replay` button in the header) opens a bar along the bottom of
+the canvas: a playhead over the run's events. Drag it and the canvas, the
+inspector and the strip all show what had happened by that moment — nodes
+that haven't happened yet are ghost outlines, a tool group counts up its
+`×N` call by call, and a signal's chip appears at the moment it became true.
+Markers on the bar are the moments worth jumping to: ✋ where you stepped in,
+and a signal's glyph where its evidence was complete. Play is a time-lapse at
+60× real time (the speed button cycles 30× · 60× · 120× · 240×): never faster
+than about three events a second, so bursts stay readable, and never slower
+than 1.5 s on an idle stretch — a five-minute run plays in seconds, an
+hour-long one in about a minute — and the camera follows the current node until you pan. On a live run,
+dragging back detaches the graph from the tail while new events keep landing
+at the bar's right end; `live` re-engages it. `copy link` carries the moment
+(`t=`) while you're detached. And when your agent answers with `focus_nodes`
+(§6) while the bar is open, the playhead moves to when its answer was
+complete — press `←` to watch the lead-up.
 
 **The run list groups by project.** With more than one agent's runs on the
 machine, a chip rail above the list filters by agent (click a chip; click it

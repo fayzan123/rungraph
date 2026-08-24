@@ -145,6 +145,11 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 2,
+      "callOffsets": [
+        0,
+        3000,
+      ],
+      "endedAt": "2026-08-01T12:00:10.500Z",
       "errorCount": 1,
       "id": "g:toolu_fx0001",
       "kind": "tool",
@@ -154,6 +159,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:13.500Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
@@ -166,6 +172,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:18.000Z",
       "errorCount": 0,
       "id": "g:toolu_fx0011",
       "kind": "tool",
@@ -175,6 +182,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:21.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/tests/login.spec.ts",
@@ -187,6 +195,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:24.000Z",
       "errorCount": 0,
       "id": "g:toolu_fx0013",
       "kind": "tool",
@@ -196,6 +205,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:27.000Z",
       "errorCount": 0,
       "id": "g:toolu_fx0014",
       "kind": "tool",
@@ -226,6 +236,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:40.500Z",
       "errorCount": 1,
       "files": [
         "/home/dev/acme/src/auth/session.ts",
@@ -259,6 +270,7 @@ exports[`structure-only > derived and mechanical survives; authored text dies 1`
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:57.000Z",
       "errorCount": 0,
       "id": "g:toolu_fx0015",
       "kind": "tool",

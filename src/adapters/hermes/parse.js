@@ -235,6 +235,11 @@ class SessionWalker {
     this.pending = new Map(); // call_id → { kind, name, nodeId, args, rowId, tsSec, fromNodeId, turnId }
     this.toolNames = new Map(); // tool node id → plain tool name
     this.toolFiles = new Map(); // tool node id → union of touched paths
+    // tool node id → [{ startSec, endSec? }] in CALL order — the same order the
+    // detail payload's calls[] takes, so callOffsets[i] and calls[i].startedAt
+    // describe the same call. Walker state, not detail state: `rungraph graph
+    // --json` collects no details and must still carry the timings.
+    this.toolTimes = new Map();
     this.narration = null; // assistant text since the last tool call
     this.lastHumanNodeId = null;
     this.lastCallRowId = null; // finality gate for unpaired running calls
@@ -468,6 +473,12 @@ class SessionWalker {
     }
     const paths = filePathsFromArgs(name, args);
     if (paths.length) this.attachFiles(nodeId, paths);
+    // The call's start is its ROW's timestamp — Hermes writes one row per
+    // assistant message, so every call of a parallel batch shares an instant
+    // and a batch's offsets come out `[0, 0, 0]`. That is the truth (they
+    // were issued together), never smoothed.
+    if (!this.toolTimes.has(nodeId)) this.toolTimes.set(nodeId, []);
+    this.toolTimes.get(nodeId).push({ startSec: row.timestamp });
     if (this.collect) {
       this.details.get(nodeId)?.calls.push({
         toolUseId: callId,
@@ -477,7 +488,27 @@ class SessionWalker {
         startedAt: iso(row.timestamp),
       });
     }
-    this.pending.set(callId, { kind: 'tool', name, nodeId, args, rowId: row.id, tsSec: row.timestamp });
+    this.pending.set(callId, {
+      kind: 'tool',
+      name,
+      nodeId,
+      args,
+      rowId: row.id,
+      tsSec: row.timestamp,
+      // Index into toolTimes[nodeId]: results pair by tool_call_id, never by
+      // position, so the call's timing slot rides the pending record.
+      slot: this.toolTimes.get(nodeId).length - 1,
+    });
+  }
+
+  /**
+   * A call resolved — result, error, or a human's denial — at `endSec`. The
+   * group's `endedAt` is derived from these in finish(), and only once every
+   * call in the group has one.
+   */
+  callResolved(rec, endSec) {
+    const slot = this.toolTimes.get(rec.nodeId)?.[rec.slot];
+    if (slot) slot.endSec = endSec;
   }
 
   attachFiles(nodeId, paths) {
@@ -521,6 +552,7 @@ class SessionWalker {
       if (isError) group.errorCount = (group.errorCount ?? 0) + 1;
       if (group.status !== 'error') group.status = 'completed';
     }
+    this.callResolved(rec, row.timestamp);
     if (this.collect) {
       const call = this.details.get(rec.nodeId)?.calls.find((c) => c.toolUseId === row.tool_call_id);
       if (call) {
@@ -580,6 +612,9 @@ class SessionWalker {
       group.errorCount = (group.errorCount ?? 0) + 1;
       if (group.status !== 'error') group.status = 'completed';
     }
+    // A "no" resolves the call as surely as a result does — the denial row
+    // is the moment the group stopped waiting.
+    this.callResolved(rec, row.timestamp);
     if (this.collect) {
       const call = this.details.get(rec.nodeId)?.calls.find((c) => c.toolUseId === row.tool_call_id);
       if (call) {
@@ -725,8 +760,71 @@ class SessionWalker {
       if (n.callCount > 1) n.label = `${n.label} ×${n.callCount}`;
       const files = this.toolFiles.get(n.id);
       if (files?.length) n.files = files;
+      const times = this.toolTimes.get(n.id) ?? [];
+      const offsets = callOffsetsOf(times, n.callCount);
+      if (offsets) n.callOffsets = offsets;
+      // Never durationMs: the outlier signal reads it, and giving tool groups
+      // one would move a calibrated threshold as a side effect (spec §1).
+      const ended = groupEndedAt(times);
+      if (ended) n.endedAt = ended;
     }
   }
+}
+
+// ---- tool-group timing (spec §1: callOffsets / endedAt) --------------------
+
+/**
+ * Epoch-seconds → epoch-milliseconds by the SAME conversion iso() makes, so
+ * `Date.parse(iso(sec)) === epochMs(sec)` exactly. The offsets are derived
+ * through this rather than by subtracting seconds and rounding, because the
+ * invariant the consumer checks is against the ISO strings, not the floats.
+ */
+function epochMs(sec) {
+  if (!Number.isFinite(sec)) return null;
+  const ms = new Date(sec * 1000).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The group's callOffsets, or null when the contract says to carry nothing:
+ * a single call (call 0 IS the node's start), any untimed call (no partial
+ * list), a length that disagrees with callCount, or a list that is not
+ * `[0, ≥0, …]` non-decreasing. A row order that goes backwards in time
+ * would be a format fact this grammar does not know, and the answer to that
+ * is silence, not a smoothed list.
+ */
+function callOffsetsOf(times, callCount) {
+  if (!(callCount >= 2) || times.length !== callCount) return null;
+  const t0 = epochMs(times[0].startSec);
+  if (t0 == null) return null;
+  const out = [];
+  for (const { startSec } of times) {
+    const ms = epochMs(startSec);
+    if (ms == null) return null;
+    const off = ms - t0;
+    if (off < 0 || (out.length && off < out[out.length - 1])) return null;
+    out.push(off);
+  }
+  return out;
+}
+
+/**
+ * The group's endedAt: the latest resolution among its calls, and only once
+ * EVERY call has one — a live group's pending call, or an ended session's
+ * unpaired call, leaves the field absent (never a fabricated instant). Also
+ * absent if it would land before the first call's start.
+ */
+function groupEndedAt(times) {
+  if (!times.length) return null;
+  let last = null;
+  for (const { endSec } of times) {
+    const ms = epochMs(endSec);
+    if (ms == null) return null;
+    if (last == null || ms > last) last = ms;
+  }
+  const start = epochMs(times[0].startSec);
+  if (start == null || last < start) return null;
+  return new Date(last).toISOString();
 }
 
 // ---- delegation lanes ------------------------------------------------------

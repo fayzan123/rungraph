@@ -22,6 +22,10 @@
  */
 
 import { snippet } from './ir.js';
+// Run order lives with the timeline now: one "earlier" for the signal ranking,
+// the canvas's j/k walk and the replay playhead, instead of three copies with
+// a comment in each saying they must agree. timeline.js imports nothing.
+import { runOrder } from './timeline.js';
 
 export const THRESHOLDS = {
   /** Failed calls on a single tool node that make it a storm by itself. */
@@ -343,24 +347,6 @@ function courseChanges(ordered, edges, pos, loud) {
 }
 
 // --------------------------------------------------------------- structure
-
-/**
- * Nodes in run order: by `startedAt`, carried forward when absent, tie-broken by
- * index in `ir.nodes`. Deliberately identical to `orderedNodes` in
- * frontend/src/canvas.jsx — signal ordering and the canvas's j/k walk have to
- * agree on what "earlier" means or the ranked list reads out of sequence.
- */
-function runOrder(nodes) {
-  let lastT = 0;
-  return nodes
-    .map((n, i) => {
-      const t = Date.parse(n.startedAt);
-      if (Number.isFinite(t)) lastT = t;
-      return { n, i, t: Number.isFinite(t) ? t : lastT };
-    })
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((k) => k.n);
-}
 
 /**
  * Lane = the connected component of the `sequence` edge graph a node sits in —

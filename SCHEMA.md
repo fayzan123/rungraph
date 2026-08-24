@@ -167,8 +167,8 @@ Common fields:
 | `kind` | `"turn"` \| `"agent"` \| `"tool"` \| `"workflow"` \| `"human"` | See below. |
 | `label` | string | Short display label (prompt snippet, tool name, …). |
 | `status` | `"completed"` \| `"error"` \| `"running"` | |
-| `startedAt` / `endedAt` | ISO 8601 (optional) | |
-| `durationMs` | number (optional) | |
+| `startedAt` / `endedAt` | ISO 8601 (optional) | On a `tool` node `endedAt` is the group's **last resolution** — see [Replay timings](#replay-timings-calloffsets-and-tool-endedat). |
+| `durationMs` | number (optional) | Never on `tool` nodes (see Replay timings). |
 | `tokens` | `{ input, output }` (optional) | |
 | `group` | string (optional) | Id of the `groups[]` entry (e.g. workflow phase) containing this node. |
 | `hasDetail` | boolean (optional) | `true` → `GET /api/detail/:nodeId?run=<runId>` returns a lazy detail payload. |
@@ -193,8 +193,9 @@ Kind-specific fields:
 - **`agent`** — a spawned agent (subagent or workflow agent). Extra fields:
   `agentId`, `model`.
 - **`tool`** — grouped tool activity: consecutive calls of the same tool
-  collapse into one node ("Bash ×7"). Extra fields: `callCount`, `errorCount`.
-  Individual calls live in the detail payload.
+  collapse into one node ("Bash ×7"). Extra fields: `callCount`, `errorCount`,
+  and the replay timings `callOffsets` (optional) and `endedAt` (optional) —
+  see below. Individual calls live in the detail payload.
 - **`workflow`** — a workflow run as a single node. Extra field: `runRef` — the
   `runId` of the workflow's own graph (fetch it to drill in).
 - **`human`** — a human intervention: `interventionKind` is `"answer"`
@@ -233,6 +234,55 @@ It is deliberately **not** a coverage input. Coverage answers "how much could I
 read", and a reverted run was read completely — an accuracy caveat and a
 readability one are different questions, and collapsing them would corrupt the
 one meaning coverage has.
+
+### Replay timings: `callOffsets` and tool `endedAt`
+
+Additive in `irVersion` 1, on `tool` nodes only, absent on every graph written
+before they existed. They are what makes a collapsed group replayable at
+call granularity — a `Bash ×24` node whose `×N` counts up instead of appearing
+whole. Every adapter with a per-call clock populates both; the Cursor CLI
+store has no per-call timestamps and populates neither, and its groups appear
+whole at their start.
+
+**`callOffsets: number[]`** — each collapsed call's start, in **whole
+milliseconds after the node's `startedAt`**, in the same order as the detail
+payload's `calls[]`.
+
+- Present only on groups of **two or more calls**. A single-call node carries
+  nothing: call 0 *is* the node's start, so `[0]` would be information-free
+  bytes on the majority of tool nodes — the same reasoning as `files` being
+  absent rather than `[]`.
+- Present only when the adapter timed **every** call in the group. One untimed
+  call → no array. There is no partial list.
+- Invariants: `callOffsets[0] === 0`, every entry an integer `≥ 0`,
+  non-decreasing, `length === callCount`. An adapter that would compute a list
+  violating any of these omits it whole, and `src/timeline.js` treats a
+  malformed list as absent — never partially used.
+- The guard equation, asserted across all five corpora:
+  `callOffsets[i] === Date.parse(calls[i].startedAt) − Date.parse(node.startedAt)`
+  where `calls[]` is the tool detail payload. The node field and the detail
+  timestamp derive from one instant, so they cannot disagree.
+- A batch issued in one row (Hermes issues several calls per assistant row)
+  reads `[0, 0, 0]`. That is the truth — they were issued together — and it is
+  documented, never smoothed.
+
+**`endedAt`** — the group's **last resolution**: the latest result, error, or
+human denial/refusal among its calls. Present only once **every** call has
+resolved; a live group whose last call has no result yet carries none, exactly
+as a live turn does. Never earlier than `startedAt` (an adapter that would
+write one omits it).
+
+**Deliberately not `durationMs`.** The `outlier` signal reads `durationMs`, and
+tool groups are roughly 40% of a session's nodes — giving them a duration would
+add a whole new population to the median the outlier is measured against, a
+calibrated threshold moved as a side effect of a feature that has nothing to
+do with it. `endedAt` alone leaves the signal layer byte-for-byte unchanged,
+and the cross-adapter test asserts no tool node carries `durationMs`.
+
+Downstream: both fields ride `rungraph graph --json` and the MCP `get_graph`
+`detail:"full"` projection (like every other timing), are dropped by the
+compact projection (a timing whitelist that never carried `startedAt` either),
+and survive the structure-only bundle census (mechanical, not authored).
 
 ## edges
 
@@ -310,7 +360,7 @@ calls are **detail payloads**, fetched lazily per node:
 ```jsonc
 { "kind": "turn",     "prompt": "…", "responseText": "…" }
 { "kind": "agent",    "prompt": "…", "result": "…", "transcript": [{ "role", "text", "toolName?" }] }
-{ "kind": "tool",     "name": "…", "context": "…?", "calls": [{ "input", "output", "isError", "durationMs?" }] }
+{ "kind": "tool",     "name": "…", "context": "…?", "calls": [{ "startedAt?", "input", "output", "isError", "durationMs?" }] }
 { "kind": "workflow", "returnValue": "…" }
 { "kind": "human",    "context": "…", "answer": "…" }
 ```
@@ -321,6 +371,35 @@ they are display artifacts, not a data-fidelity contract.
 `tool.context` (optional, additive in irVersion 1): the assistant's narration
 emitted immediately before the group's first call — the "why" behind the tool
 use. Absent when there was no narration; consumers must tolerate absence.
+
+`tool.calls[].startedAt` (optional ISO 8601): the instant the call was issued,
+from the same source the node's `callOffsets` are derived from — the
+inspector's per-call timestamp, and the guard on the node field:
+`callOffsets[i] === Date.parse(calls[i].startedAt) − Date.parse(node.startedAt)`.
+Absent where the format records no per-call clock (the Cursor CLI store).
+
+### Replay / timeline
+
+The run as a sequence of events is derived, never parsed, by one pure module
+(`src/timeline.js`, no imports — the frontend and the server share it, so "the
+graph at 14:02" cannot mean two things). Each node contributes a `start`
+(`startedAt`, or the carried-forward time of its predecessor in run order when
+absent), a `call` per `callOffsets` entry after the first, and an `end`
+(`endedAt`, or `startedAt + durationMs` when both are real; nothing is
+invented). A playhead is a position in that sorted list, and its stable
+identity across live re-parses is a **timestamp**, never an index.
+
+**The reveal rule.** A signal counts at the moment its evidence is **complete**:
+the maximum over its `nodeIds` of the node's end index, or its start index
+where there is no end. It is shown iff that index is below the playhead — the
+same comparison node presence uses. So a retry storm is never badged before
+it was one, an unresolved error appears when the failing call has failed and
+not when it was issued, and a clustered chip ("3 denials") appears at the
+third. Nothing is re-derived at replay time, only revealed: an agent reading
+timings and the strip on screen agree about when each signal became true.
+
+`callOffsets` and tool `endedAt` are graph fields, not detail payloads: the
+timeline is built from the IR alone, without fetching a single call.
 
 ## HTTP API (localhost only)
 
@@ -449,7 +528,7 @@ The governing rule: **derived and mechanical survives; authored text dies.**
 | survives | dies |
 |---|---|
 | node ids, kinds, status, error/call counts | every detail payload |
-| timings, token counts, models, `agentId`, `runRef` | turn labels (→ `"turn N"`), agent labels (→ `"agent N"`), human labels (→ generic) |
+| timings — including the replay fields `callOffsets` and tool `endedAt` — token counts, models, `agentId`, `runRef` | turn labels (→ `"turn N"`), agent labels (→ `"agent N"`), human labels (→ generic) |
 | `files[]`, workflow names, tool names + their PATH-LEVEL label hints (a basename the node's own `files[]` carries, e.g. `Edit · auth.js`) | tool label hints that are authored text — Bash commands/descriptions, Grep patterns, WebSearch queries — reduce to the bare tool name |
 | edges (id, kind, from, to), groups, run meta totals | run titles (→ `"session (structure only)"`) |
 | | `edge.label` (prompt/result snippets), `edge.reason` (can quote answered questions verbatim), every `ext` bag (free-form, unauditable) |

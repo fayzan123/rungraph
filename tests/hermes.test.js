@@ -671,28 +671,33 @@ describe.skipIf(!hasNodeSqlite)('hermes review regressions', () => {
       const refs = await detect([dir]);
       let emits = 0;
       const done = new Promise((resolve) => {
+        // Both timers are cleared on the way out: when the watcher satisfies
+        // the count early, a writer firing after the dir is gone would
+        // surface as an unhandled "unable to open database file" in whatever
+        // test runs next.
+        let writer, failSafe;
+        const finish = () => {
+          clearTimeout(writer);
+          clearTimeout(failSafe);
+          w.close();
+          resolve();
+        };
         const w = watchRun(refs[0], hermes, {
           onGraph() {
             emits++;
-            if (emits >= 2) {
-              w.close();
-              resolve();
-            }
+            if (emits >= 2) finish();
           },
           onError() {},
           debounceMs: 50,
         });
-        setTimeout(() => {
+        writer = setTimeout(() => {
           // A writer reappears: WAL commits only — the recreated -wal is the
           // only thing that changes, and the directory target must hear it.
           const db2 = new (createRequire(import.meta.url)('node:sqlite').DatabaseSync)(join(dir, 'state.db'));
           db2.prepare('INSERT INTO messages (session_id, role, content, timestamp) VALUES (?,?,?,?)').run(S, 'user', 'a live follow-up', T0 + 20);
           db2.close();
         }, 300);
-        setTimeout(() => {
-          w.close();
-          resolve();
-        }, 5000); // fail-safe: the assertion below reports the miss
+        failSafe = setTimeout(finish, 5000); // fail-safe: the assertion below reports the miss
       });
       await done;
       expect(emits).toBeGreaterThanOrEqual(2);
@@ -700,6 +705,169 @@ describe.skipIf(!hasNodeSqlite)('hermes review regressions', () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 10000);
+
+  // Replay timings (spec §1): the two shapes the fixture corpus cannot pose
+  // without a second call in the group — a merged call still pending on a
+  // LIVE session, and an unpaired call in an ENDED one. Neither call ever
+  // resolved, so the group carries no endedAt — the field is never a guess.
+  it('a live group with a merged pending call carries callOffsets but no endedAt', async () => {
+    const { dir, db } = await buildDb();
+    try {
+      const S = '20260801_150800_0ff5e7';
+      session(db, S); // ended_at NULL — live
+      msg(db, S, 'user', { content: 'run the tests', ts: T0 + 1 });
+      msg(db, S, 'assistant', { calls: callJson('c1', 'terminal', { command: 'ls' }), ts: T0 + 2 });
+      msg(db, S, 'tool', { callId: 'c1', toolName: 'terminal', content: '{"output":"ok","exit_code":0,"error":null}', ts: T0 + 3 });
+      msg(db, S, 'assistant', { calls: callJson('c2', 'terminal', { command: 'npm test' }), ts: T0 + 4.5 });
+      db.close();
+      const { ir } = await parseOne(dir);
+      const group = ir.nodes.find((n) => n.kind === 'tool');
+      expect(group.status).toBe('running');
+      // Both STARTS are known (fractional seconds land as whole ms) …
+      expect(group.callOffsets).toEqual([0, 2500]);
+      // … but the second call has no end, so the group has none.
+      expect(group).not.toHaveProperty('endedAt');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an unpaired call in an ENDED session leaves the group without endedAt', async () => {
+    const { dir, db } = await buildDb();
+    try {
+      const S = '20260801_150900_0ff5e8';
+      session(db, S, { ended: T0 + 100 });
+      msg(db, S, 'user', { content: 'deploy it', ts: T0 + 1 });
+      msg(db, S, 'assistant', { calls: callJson('c1', 'terminal', { command: 'sleep 600' }), ts: T0 + 2 });
+      // no result, session ENDED → the call is an error, but it never resolved
+      db.close();
+      const { ir } = await parseOne(dir);
+      const group = ir.nodes.find((n) => n.kind === 'tool');
+      expect(group.status).toBe('error');
+      expect(group).not.toHaveProperty('endedAt');
+      expect(group).not.toHaveProperty('callOffsets'); // single call
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Spec §1 / §3 (session replay): callOffsets and tool-group endedAt. Hermes
+// times a call by its ROW, so a parallel batch's offsets are all 0 — the
+// documented shape, asserted here so a future "improvement" that smooths
+// them fails CI. Every test names the fixture run it reads.
+describe.skipIf(!hasNodeSqlite)('hermes replay timings', () => {
+  const toolNodes = (ir) => ir.nodes.filter((n) => n.kind === 'tool');
+
+  it('trouble run: the three-call batch row yields callOffsets [0, 0, 0]', async () => {
+    const { ir, details } = await parse(await refFor(HERMES_TROUBLE_RUN_ID), { collectDetails: true });
+    const storm = ir.nodes.find((n) => n.id === 't12');
+    expect(storm.callCount).toBe(3);
+    expect(storm.callOffsets).toEqual([0, 0, 0]);
+    // Every call in the row shares the row's instant — the detail payload
+    // says the same thing, from the same source.
+    const starts = details.get('t12').calls.map((c) => c.startedAt);
+    expect(new Set(starts).size).toBe(1);
+    expect(starts[0]).toBe(storm.startedAt);
+  });
+
+  it('trouble run: a group grown across rows carries real, non-decreasing offsets', async () => {
+    const { ir, details } = await parse(await refFor(HERMES_TROUBLE_RUN_ID), { collectDetails: true });
+    // `cat .ci/config.yml` then `gh secret set CI_TOKEN` (the denied call):
+    // consecutive terminals, two rows, one node.
+    const group = ir.nodes.find((n) => n.id === 't18');
+    expect(group.callCount).toBe(2);
+    expect(group.callOffsets).toEqual([0, 4000]);
+    const calls = details.get('t18').calls;
+    for (let i = 0; i < calls.length; i++) {
+      expect(group.callOffsets[i]).toBe(Date.parse(calls[i].startedAt) - Date.parse(group.startedAt));
+    }
+  });
+
+  it('single-call nodes carry NO callOffsets (clean, delegation, repo, legacy runs)', async () => {
+    for (const runId of [HERMES_CLEAN_RUN_ID, HERMES_DELEG_RUN_ID, HERMES_REPO_RUN_ID, HERMES_LEGACY_RUN_ID]) {
+      const { ir } = await parse(await refFor(runId));
+      const tools = toolNodes(ir);
+      expect(tools.length, runId).toBeGreaterThan(0);
+      for (const n of tools) {
+        expect(n.callCount, `${runId} ${n.id}`).toBe(1);
+        expect(n, `${runId} ${n.id}`).not.toHaveProperty('callOffsets');
+      }
+    }
+  });
+
+  it('a resolved group ends at its LAST result row (trouble run storm, clean run)', async () => {
+    const { ir, details } = await parse(await refFor(HERMES_TROUBLE_RUN_ID), { collectDetails: true });
+    const storm = ir.nodes.find((n) => n.id === 't12');
+    // Three results in three rows, 2 s apart: the group ends with the third.
+    const resolvedAt = details.get('t12').calls.map((c) => Date.parse(c.startedAt) + c.durationMs);
+    expect(Date.parse(storm.endedAt)).toBe(Math.max(...resolvedAt));
+    expect(Date.parse(storm.endedAt)).toBeGreaterThan(Date.parse(storm.startedAt));
+    // And on the clean run every group resolved, so every group has an end.
+    const clean = await parse(await refFor(HERMES_CLEAN_RUN_ID), { collectDetails: true });
+    for (const n of toolNodes(clean.ir)) {
+      const [call] = clean.details.get(n.id).calls;
+      expect(Date.parse(n.endedAt), n.id).toBe(Date.parse(call.startedAt) + call.durationMs);
+    }
+  });
+
+  it('a still-running group carries no endedAt (delegation run, live tail)', async () => {
+    const { ir } = await parse(await refFor(HERMES_DELEG_RUN_ID));
+    const live = ir.nodes.find((n) => n.id === 't36');
+    expect(live.status).toBe('running');
+    expect(live).not.toHaveProperty('endedAt');
+    // Its resolved siblings in the child lanes do end.
+    for (const n of toolNodes(ir).filter((n) => n.id !== 't36')) expect(n.endedAt, n.id).toBeDefined();
+  });
+
+  it('a denial resolves the group: endedAt is the denial row (trouble run)', async () => {
+    const { ir } = await parse(await refFor(HERMES_TROUBLE_RUN_ID));
+    const denial = ir.nodes.find((n) => n.interventionKind === 'denial');
+    const before = ir.edges.find((e) => e.kind === 'sequence' && e.to === denial.id);
+    const group = ir.nodes.find((n) => n.id === before.from);
+    expect(group.id).toBe('t18');
+    // The human node is stamped with the same row the denial was written in.
+    expect(group.endedAt).toBe(denial.startedAt);
+  });
+
+  it('tool groups never gain durationMs — the outlier signal reads it', async () => {
+    for (const ref of await detect([HERMES_FIXTURE_ROOT])) {
+      const { ir } = await parse(ref);
+      for (const n of toolNodes(ir)) expect(n, `${ref.runId} ${n.id}`).not.toHaveProperty('durationMs');
+    }
+  });
+
+  it('holds the callOffsets / endedAt invariants across the whole fixture corpus', async () => {
+    let multi = 0;
+    for (const ref of await detect([HERMES_FIXTURE_ROOT])) {
+      const { ir, details } = await parse(ref, { collectDetails: true });
+      for (const n of toolNodes(ir)) {
+        const tag = `${ref.runId} ${n.id}`;
+        const calls = details.get(n.id).calls;
+        expect(calls.length, tag).toBe(n.callCount);
+        if (n.callOffsets) {
+          multi++;
+          expect(n.callCount, tag).toBeGreaterThanOrEqual(2);
+          expect(n.callOffsets.length, tag).toBe(n.callCount);
+          expect(n.callOffsets[0], tag).toBe(0);
+          for (let i = 0; i < n.callOffsets.length; i++) {
+            expect(Number.isInteger(n.callOffsets[i]), tag).toBe(true);
+            if (i > 0) expect(n.callOffsets[i], tag).toBeGreaterThanOrEqual(n.callOffsets[i - 1]);
+            expect(n.callOffsets[i], tag).toBe(Date.parse(calls[i].startedAt) - Date.parse(n.startedAt));
+          }
+        } else {
+          // Every fixture row is timestamped, so the only reason to carry no
+          // list is being a single call.
+          expect(n.callCount, tag).toBe(1);
+        }
+        if (n.endedAt) {
+          expect(Date.parse(n.endedAt), tag).toBeGreaterThanOrEqual(Date.parse(n.startedAt));
+          expect(n.status, tag).not.toBe('running');
+        }
+      }
+    }
+    expect(multi).toBeGreaterThanOrEqual(2); // the storm and the denied pair
+  });
 });
 
 // The self-disable path (spec decision 1 / acceptance criterion 4), on BOTH

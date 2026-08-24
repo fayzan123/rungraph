@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+// memo() for the two per-element views — MEASURED, not assumed (spec §5 /
+// open question 3): on a 560-node, 1,280-event run each replay step cost
+// 25 ms median / 46 ms max of main-thread render with the views as plain
+// functions, which is a dropped frame per tick at the 40 ms floor. The views'
+// props are primitives plus the stable `node`/`pos`/`edge`/`pts` references,
+// so a shallow compare skips every element the tick did not touch.
+// preact/compat is inside the preact package already — no new dependency.
+import { memo } from 'preact/compat';
 import { layoutGraph, edgePath } from './layout.js';
 import { badgedNodeIds, nodeMarks } from './focus.js';
+import { replayLabel } from './replay.js';
+import { runOrder } from '../../src/timeline.js';
 import {
   zoomAtPoint,
   normalizeWheel,
@@ -13,6 +23,7 @@ import {
   minimapToLayout,
   viewportRect,
   graphFullyVisible,
+  panToReveal,
 } from './viewmath.js';
 
 const KIND_TAGS = {
@@ -41,6 +52,24 @@ export function Canvas({
   onOpenFind,
   inspectorOpen,
   coverage,
+  // Replay — the canvas at a moment. `replayState` is `stateAt()` over the
+  // playhead (null == the bar is closed, and everything below renders exactly
+  // as it did before replay existed: that is the identity guard). The layout
+  // is of the FULL graph, once; the playhead only decides what has
+  // materialized. `signals` is the revealed subset, so a badge appears at its
+  // signal's reveal index rather than from frame one.
+  replayState,
+  replayOpen,
+  replayAvailable,
+  playing,
+  replayCursorNodeId,
+  replayCursorSeq,
+  signals,
+  onToggleReplay,
+  onStep,
+  onTogglePlay,
+  onPause,
+  onLayoutReady,
 }) {
   const [layout, setLayout] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
@@ -66,9 +95,16 @@ export function Canvas({
   const placedLive = useRef(false); // the `live` value the initial view used
   const placedWidth = useRef(0); // canvas width the initial view was framed for
   const userMoved = useRef(false); // any deliberate pan/zoom this run
+  const cameraSeq = useRef(0); // replayCursorSeq the follow-camera has already moved for
+  // Whether the replay follow-camera is still engaged for THIS play. Set when
+  // play starts, cleared by any manual pan/zoom — the same rule the live
+  // `follow` toggle uses: the user taking the view is the user saying "stop".
+  const replayFollowing = useRef(false);
+  const prevPlaying = useRef(false);
 
   const userTouched = () => {
     userMoved.current = true;
+    replayFollowing.current = false;
   };
 
   // Re-layout when the graph changes (stale results discarded; a layout
@@ -79,6 +115,12 @@ export function Canvas({
       setLayoutError(null);
       return;
     }
+    // Honest about staleness: from here until elk lands, the layout on
+    // screen belongs to the PREVIOUS graph, and the replay bar is disabled
+    // for exactly that window (spec §9). The `true` is reported by the
+    // effect on `layout` below, which only fires for a layout that passed
+    // the seq check — so it can never say "ready" for a stale one.
+    onLayoutReady?.(false);
     const seq = ++layoutSeq.current;
     layoutGraph(graph)
       .then((l) => {
@@ -91,6 +133,19 @@ export function Canvas({
         if (seq === layoutSeq.current) setLayoutError(String(err?.message ?? err));
       });
   }, [graph]);
+
+  useEffect(() => {
+    onLayoutReady?.(Boolean(layout));
+  }, [layout]);
+
+  // Play starting (false → true) re-engages the follow-camera for the new
+  // play, whatever the last one ended with. Declared BEFORE the camera effect
+  // so that, should a tick land in the same render as the flip, the flag is
+  // set by the time the camera reads it.
+  useEffect(() => {
+    if (playing && !prevPlaying.current) replayFollowing.current = true;
+    prevPlaying.current = Boolean(playing);
+  }, [playing]);
 
   // Track the canvas size (minimap viewport rect needs it reactively).
   useEffect(() => {
@@ -279,19 +334,11 @@ export function Canvas({
 
   // Chronological order for the keyboard walk: agents/workflows are appended
   // to the IR after the conversation walk, so sort by start time (stable on
-  // ties / missing timestamps via the original index).
-  const orderedNodes = useMemo(() => {
-    if (!graph) return [];
-    let lastT = 0;
-    return graph.nodes
-      .map((n, i) => {
-        const t = Date.parse(n.startedAt);
-        if (Number.isFinite(t)) lastT = t;
-        return { n, i, t: Number.isFinite(t) ? t : lastT };
-      })
-      .sort((a, b) => a.t - b.t || a.i - b.i)
-      .map((k) => k.n);
-  }, [graph]);
+  // ties / missing timestamps via the original index). The rule is the one
+  // signals.js ranks by — the j/k walk and the ranked signal list must agree
+  // on what "earlier" means or the list reads out of sequence — so it is an
+  // import from timeline.js, never a copy.
+  const orderedNodes = useMemo(() => (graph ? runOrder(graph.nodes) : []), [graph]);
 
   // Keyboard walk-through: j/k or ↓/↑ step chronologically (IR array order),
   // f fits, / opens find, Esc deselects and clears focus. No-ops without a
@@ -299,6 +346,7 @@ export function Canvas({
   //
   // "/" lives here rather than in App so there is exactly one keyboard map and
   // one activeElement guard — the strip's find input must swallow "/" as text.
+  // The replay keys (r, ←/→, space) live here for the same reason.
   useEffect(() => {
     const onKey = (e) => {
       if (!graph || !layout) return;
@@ -312,6 +360,9 @@ export function Canvas({
         return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Escape') {
+        // Esc PAUSES play and never closes the bar: closing snaps the canvas
+        // to the end, too large an effect for the key people press reflexively.
+        if (playing) onPause?.();
         // Esc also hands the wheel back to the page in embed mode.
         const embed = typeof window !== 'undefined' ? window.RUNGRAPH_EMBED : undefined;
         if (embed?.wheelCaptured) embed.setCaptured?.(false);
@@ -322,6 +373,30 @@ export function Canvas({
       if (e.key === '/') {
         e.preventDefault(); // Firefox quick-find would eat the keystroke
         return onOpenFind?.();
+      }
+      if (e.key === 'r') {
+        // Unavailable (buildTimeline threw for this run) → the key is inert,
+        // like the disabled header button it mirrors.
+        if (replayAvailable) onToggleReplay?.();
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // Bound only while the bar is open — unbound today, so a closed bar
+        // changes nothing about the keyboard.
+        if (!replayOpen) return;
+        e.preventDefault();
+        return onStep?.(e.key === 'ArrowLeft' ? -1 : 1);
+      }
+      if (e.key === ' ') {
+        if (!replayOpen) return;
+        // The BUTTON check is for SPACE ONLY: a focused bar button (or the
+        // fit button) gets its click and nothing else. It must NOT join the
+        // general guard above — in Chromium buttons take focus on click, so
+        // guarding every key on BUTTON would kill j/k right after a click on
+        // `fit`.
+        if (el && el.tagName === 'BUTTON') return;
+        e.preventDefault(); // the embed page must not scroll on space
+        return onTogglePlay?.();
       }
       const dir =
         e.key === 'ArrowDown' || e.key === 'j' ? 1 : e.key === 'ArrowUp' || e.key === 'k' ? -1 : 0;
@@ -340,14 +415,50 @@ export function Canvas({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [graph, layout, selection, orderedNodes]);
+  }, [graph, layout, selection, orderedNodes, replayOpen, replayAvailable, playing]);
 
   // Members light up, everything else dims — the set is built once per focus
   // rather than per node. `null` (not an empty Set) means "no focus at all", so
   // an agent focus that matched nothing still dims the graph and says so, while
   // a run with no focus renders exactly as it did before this feature existed.
   const focusIds = useMemo(() => (focus ? new Set(focus.nodeIds) : null), [focus]);
-  const badged = useMemo(() => badgedNodeIds(graph), [graph]);
+  // Badges read the `signals` PROP, not `graph.signals`: while replay is open
+  // App passes the revealed subset, so a storm's badge appears at the tick its
+  // last member ends, not from frame one. Closed, the prop IS `graph.signals`.
+  // The fallback keeps the identity path honest if the prop is ever unwired.
+  const badged = useMemo(() => badgedNodeIds({ signals: signals ?? graph?.signals }), [signals, graph]);
+  // A group box is present when any member is — built once per state, not
+  // per group, so a run of fifty lanes does not walk the node list fifty
+  // times a frame. Null means "no replay", the same reading `focusIds` uses.
+  const presentGroups = useMemo(() => {
+    if (!replayState || !graph) return null;
+    const out = new Set();
+    for (const n of graph.nodes) if (n.group && replayState.present.has(n.id)) out.add(n.group);
+    return out;
+  }, [graph, replayState]);
+
+  // Replay follow-camera. Every discrete replay move (step, seek, marker, ⏮,
+  // the agent hook) and every play tick bumps `replayCursorSeq`; this pans the
+  // MINIMUM distance that brings the current node inside the viewport's inner
+  // 70%, and never moves for a node already there — recentring on every tick
+  // is the nauseating version. During play the move is gated on
+  // `replayFollowing`, which any manual pan/zoom clears for the rest of that
+  // play; discrete steps and seeks always reveal. Keyed on the ref, like
+  // pannedSeq/revealedSeq, so a move that beat the layout lands when the
+  // layout does. The camera's own move is not a user touch: it calls neither
+  // userTouched() nor onUserPan().
+  useEffect(() => {
+    if (replayCursorSeq === undefined || replayCursorSeq === cameraSeq.current) return;
+    if (!layout || !wrapRef.current) return;
+    cameraSeq.current = replayCursorSeq;
+    if (playing && !replayFollowing.current) return;
+    const rect = replayCursorNodeId ? layout.nodes.get(replayCursorNodeId) : null;
+    if (!rect) return;
+    const b = wrapRef.current.getBoundingClientRect();
+    // Functional update: the tick loop can outrun a render, and the pan must
+    // start from wherever the view actually is, not the closure's copy.
+    setView((v) => panToReveal(v, rect, { width: b.width, height: b.height }) ?? v);
+  }, [replayCursorSeq, layout]);
 
   // Agent-sourced focus moves the viewport: the user asked the question in
   // their terminal and is looking at it, so the graph should already have moved
@@ -459,10 +570,13 @@ export function Canvas({
             graph.groups.map((g) => {
               const pos = layout.groups.get(g.id);
               if (!pos) return null;
+              const present = !presentGroups || presentGroups.has(g.id);
               return (
-                <g class="group-box" key={g.id}>
+                <g class="group-box" key={g.id} data-future={String(!present)}>
                   <rect x={pos.x} y={pos.y} width={pos.w} height={pos.h} rx="10" />
-                  <text x={pos.x + 12} y={pos.y + 20}>{g.label}</text>
+                  {/* A ghost is the shape of what is coming, never its content —
+                      the lane's name arrives with its first member. */}
+                  {present && <text x={pos.x + 12} y={pos.y + 20}>{g.label}</text>}
                 </g>
               );
             })}
@@ -470,14 +584,19 @@ export function Canvas({
             graph.edges.map((e) => {
               const pts = layout.edges.get(e.id);
               if (!pts) return null;
+              // An id-less edge is never in `edgePresent`, so it reads as present.
+              const present = !replayState || !e.id || replayState.edgePresent.has(e.id);
               return (
                 <EdgeView
                   key={e.id}
                   edge={e}
                   pts={pts}
+                  present={present}
                   selected={selection?.type === 'edge' && selection.id === e.id}
-                  // an edge stays bright only if it connects two focused nodes
-                  dim={Boolean(focusIds) && !(focusIds.has(e.from) && focusIds.has(e.to))}
+                  // an edge stays bright only if it connects two focused nodes —
+                  // and a future edge is a ghost, not a dimmed edge: one opacity
+                  // channel at a time (the same rule nodeMarks applies).
+                  dim={present && Boolean(focusIds) && !(focusIds.has(e.from) && focusIds.has(e.to))}
                 />
               );
             })}
@@ -485,7 +604,8 @@ export function Canvas({
             graph.nodes.map((n) => {
               const pos = layout.nodes.get(n.id);
               if (!pos) return null;
-              const marks = nodeMarks(n, focusIds);
+              const present = !replayState || replayState.present.has(n.id);
+              const marks = nodeMarks(n, focusIds, present);
               return (
                 <NodeView
                   key={n.id}
@@ -495,7 +615,12 @@ export function Canvas({
                   focused={marks.focused}
                   dim={marks.dim}
                   reverted={marks.reverted}
-                  badge={badged.has(n.id)}
+                  future={marks.future}
+                  // status AT THE CURSOR: running while its end is still ahead
+                  status={replayState?.status.get(n.id) ?? n.status}
+                  callsShown={replayState?.callsShown.get(n.id)}
+                  // never on a ghost — a badge is a statement about content
+                  badge={present && badged.has(n.id)}
                 />
               );
             })}
@@ -549,6 +674,7 @@ export function Canvas({
             view={view}
             box={box}
             focusIds={focusIds}
+            replayState={replayState}
             onDragState={setMmDragging}
             onJump={(cx, cy) => {
               userTouched();
@@ -569,8 +695,14 @@ export function Canvas({
 /**
  * Whole-graph overview strip: kind-colored node rects (no edges — noise at
  * this scale), error beacons, and a draggable bright viewport rect.
+ *
+ * Mirrors the canvas at a moment: future nodes are ghosts (same
+ * `data-future`), beacons only on present nodes. The shape of the run stays
+ * legible for jumping around — that is what ghosts are for — and a click on a
+ * ghosted region still pans the VIEW there; the playhead is what a minimap
+ * click never moves.
  */
-function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onDragState }) {
+function Minimap({ graph, layout, view, box, focusIds, replayState, onJump, onSelectNode, onDragState }) {
   const frame = minimapFrame(layout.width, layout.height);
   const vr = viewportRect(view, box);
   const dragRef = useRef(null);
@@ -622,7 +754,9 @@ function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onD
   };
 
   const minNode = 2 / frame.s; // nodes stay ≥2px so 500-node runs keep structure
-  const errored = graph.nodes.filter((n) => n.status === 'error' || (n.errorCount ?? 0) > 0);
+  const isPresent = (n) => !replayState || replayState.present.has(n.id);
+  // A beacon on a ghost would announce an error before it happened.
+  const errored = graph.nodes.filter((n) => isPresent(n) && (n.status === 'error' || (n.errorCount ?? 0) > 0));
 
   return (
     <svg
@@ -659,8 +793,12 @@ function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onD
               key={n.id}
               data-kind={n.kind}
               // a focus off-screen must still be findable — the minimap is the
-              // only place the whole run is visible at once
-              data-focused={String(Boolean(focusIds?.has(n.id)))}
+              // only place the whole run is visible at once. Through
+              // nodeMarks, the one rule, so future beats focus here exactly
+              // as on the canvas: a ghost in the FocusSet is a ghost, not a
+              // faint amber bloom announcing a node that has not happened.
+              data-focused={String(nodeMarks(n, focusIds, isPresent(n)).focused)}
+              data-future={String(!isPresent(n))}
               x={pos.x}
               y={pos.y}
               width={Math.max(minNode, pos.w)}
@@ -695,14 +833,43 @@ function Minimap({ graph, layout, view, box, focusIds, onJump, onSelectNode, onD
   );
 }
 
-function NodeView({ node, pos, selected, focused, dim, reverted, badge }) {
-  const meta = nodeMeta(node);
+const NodeView = memo(function NodeView({ node, pos, selected, focused, dim, reverted, future, badge, status, callsShown }) {
+  // A ghost: the shape of what is coming, not its content. `rect.body` alone —
+  // no text, no status bar, no badge, no ring, no revert mark, and no <title>
+  // either, since a tooltip that names the node is content too. It keeps its
+  // id and selection attributes so the j/k walk and the minimap can still
+  // land on it, and so the layout it holds a place in never collapses.
+  if (future) {
+    return (
+      <g
+        class="node"
+        data-kind={node.kind}
+        data-status="future"
+        data-future="true"
+        data-selected={String(selected)}
+        data-focused="false"
+        data-dim="false"
+        data-reverted="false"
+        data-node-id={node.id}
+        transform={`translate(${pos.x} ${pos.y})`}
+      >
+        <rect class="body" width={pos.w} height={pos.h} rx="8" />
+      </g>
+    );
+  }
+  const shownStatus = status ?? node.status;
+  // Mid-flight AT THE CURSOR — not a genuinely live node, which keeps today's
+  // rendering. The error count is a fact about how the group ENDED, so it
+  // appears when the end does; the label counts up (`×k`) as its calls land.
+  const midFlight = shownStatus === 'running' && node.status !== 'running';
+  const meta = nodeMeta(node, midFlight);
   const clip = `clip-${node.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   return (
     <g
       class="node"
       data-kind={node.kind}
-      data-status={node.status}
+      data-status={shownStatus}
+      data-future="false"
       data-selected={String(selected)}
       data-focused={String(Boolean(focused))}
       // dimmed, never removed: hiding collapses the layout and destroys the
@@ -728,7 +895,7 @@ function NodeView({ node, pos, selected, focused, dim, reverted, badge }) {
           {node.kind === 'human' ? node.interventionKind ?? 'human' : KIND_TAGS[node.kind]}
           {node.kind === 'workflow' ? '  ⌄ drill in' : ''}
         </text>
-        <text class="label" x="12" y={meta ? pos.h - 22 : pos.h / 2 + 9}>{node.label}</text>
+        <text class="label" x="12" y={meta ? pos.h - 22 : pos.h / 2 + 9}>{replayLabel(node, callsShown)}</text>
         {meta && (
           <text class="meta" x="12" y={pos.h - 8}>{meta}</text>
         )}
@@ -750,14 +917,19 @@ function NodeView({ node, pos, selected, focused, dim, reverted, badge }) {
       <title>{reverted ? `${node.label} — reverted` : node.label}</title>
     </g>
   );
-}
+});
 
-function nodeMeta(n) {
+function nodeMeta(n, midFlight = false) {
   const parts = [];
   // Not the call count: every adapter already appends ` ×N` to a collapsed
   // group's LABEL (the convention `toolFamily()` in signals.js strips), so
   // repeating it here printed "Read · find.js ×2" over a second "×2".
-  if (n.errorCount) parts.push(`${n.errorCount} err`);
+  //
+  // The error count waits for the group's END: at the cursor a group whose
+  // end is still ahead has not failed yet (per-call error timing is spec
+  // §11's `callErrors`, deferred). A genuinely live node is not mid-flight
+  // and shows its count exactly as today.
+  if (n.errorCount && !midFlight) parts.push(`${n.errorCount} err`);
   if (n.model) parts.push(n.model.length > 20 ? n.model.slice(0, 19) + '…' : n.model);
   if (n.tokens) parts.push(`${fmtTokens(n.tokens.input + n.tokens.output)} tok`);
   if (n.durationMs != null) parts.push(fmtDuration(n.durationMs));
@@ -776,29 +948,33 @@ export function fmtDuration(ms) {
   return `${ms}ms`;
 }
 
-function EdgeView({ edge, pts, selected, dim }) {
+const EdgeView = memo(function EdgeView({ edge, pts, selected, dim, present = true }) {
   const d = edgePath(pts);
   const mid = pts[Math.floor(pts.length / 2)];
+  // A future edge is a ghost like a future node: the line (its shape) stays,
+  // its reason flag, label and tooltip (its content) wait for it to happen.
+  const future = present === false;
   return (
     <g
       class={`edge${edge.reason ? ' has-reason' : ''}`}
       data-kind={edge.kind}
       data-dim={String(Boolean(dim))}
+      data-future={String(future)}
       data-edge-id={edge.id}
     >
       <path d={d} marker-end={edge.kind !== 'sequence' ? 'url(#arrow)' : undefined} />
       {/* invisible fat hit area */}
       <path d={d} stroke="transparent" stroke-width="12" fill="none" style="cursor:pointer" />
-      {edge.reason && mid && (
+      {!future && edge.reason && mid && (
         <text class="reason" x={mid.x + 6} y={mid.y - 4}>⚑ {truncate(edge.reason, 34)}</text>
       )}
-      {selected && edge.label && mid && (
+      {!future && selected && edge.label && mid && (
         <text x={mid.x + 6} y={mid.y + 10}>{truncate(edge.label, 40)}</text>
       )}
-      <title>{[edge.kind, edge.label, edge.reason].filter(Boolean).join(' — ')}</title>
+      {!future && <title>{[edge.kind, edge.label, edge.reason].filter(Boolean).join(' — ')}</title>}
     </g>
   );
-}
+});
 
 function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;

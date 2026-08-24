@@ -196,6 +196,32 @@ describe('structure-only', () => {
     expect(g).toMatchSnapshot();
   });
 
+  // The replay timings are mechanical, so the census keeps them: a recipient
+  // opening a structure-only bundle gets call-level replay, not node-level.
+  // Pinned on the one multi-call group in the session fixture (`Bash ×2`),
+  // against the values the adapter's own tests pin, so a whitelist edit that
+  // drops either field fails here rather than degrading someone's replay.
+  it('keeps callOffsets and tool endedAt — timings are mechanical, not authored', async () => {
+    const { ir } = await parseFresh(SESSION_RUN_ID);
+    const g = structureOnly(ir);
+    const src = ir.nodes.find((n) => n.id === 'g:toolu_fx0001');
+    expect(src.callCount).toBe(2);
+    expect(src.callOffsets).toEqual([0, 3000]);
+    const kept = g.nodes.find((n) => n.id === 'g:toolu_fx0001');
+    expect(kept.callOffsets).toEqual([0, 3000]);
+    expect(kept.endedAt).toBe('2026-08-01T12:00:10.500Z');
+    // …and the label still reduced to the bare tool name: the timing fields
+    // ride along without loosening the authored-text rule.
+    expect(kept.label).toBe('Bash ×2');
+    // Every tool node's timing survives, not just the pinned one.
+    for (const n of ir.nodes) {
+      if (n.kind !== 'tool') continue;
+      const k = g.nodes.find((x) => x.id === n.id);
+      expect(k.endedAt, n.id).toBe(n.endedAt);
+      expect(k.callOffsets, n.id).toEqual(n.callOffsets);
+    }
+  });
+
   it('drops detail payloads entirely and prompts count zero', async () => {
     const { envelope, inventory, blocked } = await buildBundle([SECRETS_RUN_ID], {
       redaction: 'structure-only',

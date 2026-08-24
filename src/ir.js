@@ -21,13 +21,41 @@
  * @property {string} label         Short human label (prompt snippet, tool name, …).
  * @property {NodeStatus} status
  * @property {string} [startedAt]   ISO 8601.
- * @property {string} [endedAt]     ISO 8601.
+ * @property {string} [endedAt]     ISO 8601. On a tool node: the group's LAST
+ *                                  resolution (result, error, or a human
+ *                                  denial), present only once EVERY collapsed
+ *                                  call has resolved — a live group carries
+ *                                  none, exactly as a live turn does — and
+ *                                  never earlier than `startedAt`. Deliberately
+ *                                  the only tool-group timing beyond the
+ *                                  offsets: `durationMs` is NOT set on tool
+ *                                  nodes, because the outlier signal reads it
+ *                                  and ~40% of a session's nodes are tool
+ *                                  groups — a calibrated threshold would move
+ *                                  as a side effect of a replay feature.
  * @property {number} [durationMs]
  * @property {Tokens} [tokens]
  * @property {string} [model]       agent nodes: model that ran the agent.
  * @property {string} [agentId]     agent nodes: provider agent id.
  * @property {number} [callCount]   tool nodes: number of collapsed calls.
  * @property {number} [errorCount]  tool nodes: how many of those calls errored.
+ * @property {number[]} [callOffsets] tool nodes: each collapsed call's start
+ *                                  in whole milliseconds after `startedAt`, in
+ *                                  the detail payload's `calls[]` order. Only on
+ *                                  groups of two or more calls (call 0 IS the
+ *                                  start, so `[0]` would be information-free
+ *                                  bytes on most tool nodes — the `files`
+ *                                  reasoning), and only when the adapter timed
+ *                                  EVERY call: there is no partial list.
+ *                                  `[0] === 0`, non-decreasing, integers ≥ 0,
+ *                                  `length === callCount`; a list that would
+ *                                  violate any of these is omitted whole, and
+ *                                  `timeline.js` treats a malformed one as
+ *                                  absent. Guard, asserted across every corpus:
+ *                                  `callOffsets[i] === Date.parse(calls[i].startedAt)
+ *                                  − Date.parse(startedAt)`. A batch issued in
+ *                                  one row reads `[0, 0, 0]` — that is the
+ *                                  truth, never smoothed.
  * @property {string} [runRef]      workflow nodes: runId of the drill-in subgraph.
  * @property {'answer'|'denial'|'interrupt'} [interventionKind]  human nodes.
  * @property {boolean} [reverted]   This node's work was rolled back by the user

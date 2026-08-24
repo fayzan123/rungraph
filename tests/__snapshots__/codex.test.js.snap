@@ -60,6 +60,11 @@ exports[`codex parse > clean-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 2,
+      "callOffsets": [
+        0,
+        6000,
+      ],
+      "endedAt": "2026-08-01T10:00:24.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/src/forms/signup.ts",
@@ -87,6 +92,7 @@ exports[`codex parse > clean-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T10:00:44.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "g:call_c1test",
@@ -202,6 +208,7 @@ exports[`codex parse > subagent-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T10:01:18.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/acme/src/auth/session.ts",
@@ -238,6 +245,11 @@ exports[`codex parse > subagent-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 2,
+      "callOffsets": [
+        0,
+        4000,
+      ],
+      "endedAt": "2026-08-01T10:01:38.000Z",
       "errorCount": 1,
       "hasDetail": true,
       "id": "g:call_c2t1",

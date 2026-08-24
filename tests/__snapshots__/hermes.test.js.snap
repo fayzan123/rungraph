@@ -179,6 +179,7 @@ exports[`hermes parse > clean-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:06.000Z",
       "errorCount": 0,
       "hasDetail": true,
       "id": "t2",
@@ -189,6 +190,7 @@ exports[`hermes parse > clean-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:10.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/notes/launch.md",
@@ -216,6 +218,7 @@ exports[`hermes parse > clean-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:18.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/notes/launch.md",
@@ -388,6 +391,7 @@ exports[`hermes parse > delegation-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:01:12.000Z",
       "errorCount": 0,
       "group": "lane:a20260801_123001_c41d01",
       "hasDetail": true,
@@ -430,6 +434,7 @@ exports[`hermes parse > delegation-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:01:13.000Z",
       "errorCount": 0,
       "files": [
         "/home/dev/notes/plugins.md",
@@ -534,6 +539,12 @@ exports[`hermes parse > trouble-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 3,
+      "callOffsets": [
+        0,
+        0,
+        0,
+      ],
+      "endedAt": "2026-08-01T12:00:32.000Z",
       "errorCount": 3,
       "hasDetail": true,
       "id": "t12",
@@ -553,6 +564,11 @@ exports[`hermes parse > trouble-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 2,
+      "callOffsets": [
+        0,
+        4000,
+      ],
+      "endedAt": "2026-08-01T12:00:44.000Z",
       "errorCount": 1,
       "hasDetail": true,
       "id": "t18",
@@ -572,6 +588,7 @@ exports[`hermes parse > trouble-run IR matches the snapshot 1`] = `
     },
     {
       "callCount": 1,
+      "endedAt": "2026-08-01T12:00:48.000Z",
       "errorCount": 1,
       "files": [
         "/home/dev/ci/deploy.sh",

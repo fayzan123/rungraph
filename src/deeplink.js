@@ -113,23 +113,46 @@ export function decodeDescriptor(text) {
 }
 
 /**
- * Build the URL hash for a view: run, optional selected node, optional focus
- * descriptor. Returns '' when there is nothing to link to.
+ * A replay moment as it travels in a link: the canonical ISO string for a
+ * parseable timestamp, else null. The playhead's stable identity is a
+ * TIMESTAMP, never an event index (src/timeline.js `cursorForTime`), which
+ * is what lets a `t=` link survive a re-parse and open a bundle. Canonical
+ * on both write and read because `Date.parse` accepts engine-specific forms
+ * beyond ISO ("2026-08-01 12:00" parses in V8, not everywhere): a hand-edited
+ * link is normalised to the one form every browser reads the same way, and a
+ * garbage one degrades to "no moment" rather than to epoch zero or a throw.
  */
-export function buildFocusHash({ runId, sel, descriptor } = {}) {
+function isoMoment(t) {
+  if (typeof t !== 'string' || !t) return null;
+  const ms = Date.parse(t);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/**
+ * Build the URL hash for a view: run, optional selected node, optional focus
+ * descriptor, optional replay moment `t` (an ISO string — written only when
+ * it parses; the app passes it only in `at` mode, never `edge`, because an
+ * edge link would pin a moment the user meant as "the latest"). Returns ''
+ * when there is nothing to link to.
+ */
+export function buildFocusHash({ runId, sel, descriptor, t } = {}) {
   if (typeof runId !== 'string' || !runId) return '';
   const params = new URLSearchParams();
   params.set('run', runId);
   if (typeof sel === 'string' && sel) params.set('sel', sel);
   const f = descriptor ? encodeDescriptor(descriptor) : '';
   if (f) params.set('f', f);
+  const moment = isoMoment(t);
+  if (moment) params.set('t', moment);
   return '#' + params.toString();
 }
 
 /**
- * Parse a location.hash back into { runId, sel, descriptor }.
- * Returns null when the hash is not a rungraph deep link — an unrelated
- * fragment must not be mistaken for a broken one.
+ * Parse a location.hash back into { runId, sel, descriptor, t }. `t` is the
+ * canonical ISO string when the link carries a parseable one, else null — a
+ * hash without it parses exactly as it did before replay existed, plus the
+ * one null field. Returns null when the hash is not a rungraph deep link —
+ * an unrelated fragment must not be mistaken for a broken one.
  */
 export function parseFocusHash(hash) {
   if (typeof hash !== 'string') return null;
@@ -147,5 +170,6 @@ export function parseFocusHash(hash) {
     runId,
     sel: params.get('sel') || null,
     descriptor: decodeDescriptor(params.get('f') ?? '') ?? null,
+    t: isoMoment(params.get('t') ?? ''),
   };
 }

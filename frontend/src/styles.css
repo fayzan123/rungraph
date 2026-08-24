@@ -1251,6 +1251,179 @@ button.ghost[data-on="true"] {
 }
 .resume-actions .primary:disabled { opacity: 0.45; cursor: default; }
 
+/* ---------- replay ---------- */
+
+/* The bar's height is a token so the landing page can lift its guided chips
+   above it when the bar is open — the chips sit at the bottom of the same
+   column, and a chip under a scrubber is a chip nobody can press. */
+:root { --replay-bar-h: 44px; }
+
+/* "When", one line, along the BOTTOM of the centre column: the strip's
+   bottom-edge sibling. Same mono, same hairline, same panel. It STACKS below
+   the canvas at every width — `.center` is a flex column and the canvas
+   gives up 44px — and never overlays it: a scrubber you cannot see the graph
+   under is useless. Zero height when closed because App does not render it. */
+.replay-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--replay-bar-h);
+  padding: 0 10px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Disabled while elk is still running: the layout is not there to scrub yet.
+   State is preserved underneath; the bar enables when the layout lands. */
+.replay-bar[data-disabled="true"] { opacity: 0.5; pointer-events: none; }
+
+.replay-bar .controls { flex: none; display: flex; gap: 4px; }
+/* Transport glyphs, not words: compact, equal-width, and line-height pinned so
+   the ⏮ / ❚❚ glyphs (taller than the mono x-height) do not bump the row. */
+.replay-bar .controls .ghost {
+  min-width: 28px;
+  padding: 3px 6px;
+  line-height: 1.3;
+  text-align: center;
+}
+.replay-bar .play[aria-pressed="true"] {
+  color: var(--amber);
+  border-color: color-mix(in oklch, var(--amber) 50%, transparent);
+}
+
+/* The scrubber: a 12px hit area over a 2px hairline. Event index, not wall
+   time, so the geometry is uniform per event and the whole bar is one hairline
+   plus three absolutely placed children plus the markers. `touch-action: none`
+   so a finger drag on the embed scrubs instead of scrolling the page. */
+.replay-bar .scrub {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 12px;
+  cursor: pointer;
+  touch-action: none;
+}
+.replay-bar[data-disabled="true"] .scrub { cursor: default; }
+.replay-bar .track,
+.replay-bar .played {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  pointer-events: none;
+}
+.replay-bar .track { right: 0; background: var(--hairline); }
+.replay-bar .played { background: var(--amber); }
+.replay-bar .playhead {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  background: var(--amber);
+  pointer-events: none;
+}
+
+/* Markers: the observed acts (a human's turn, a signal's reveal) as tiny glyph
+   buttons on the track. Placed by position only, centred on their event.
+   Humans wear the house amber, as the human node does on the canvas; signals
+   keep one colour — the bar cannot tell severity apart at 10px, and a second
+   hue on a 2px track would read as noise, not as triage. The panel background
+   behind each glyph is what keeps it legible over the played line. */
+.replay-bar .marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 2px;
+  color: var(--ink-dim);
+  background: var(--bg-panel);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 100ms ease-out;
+}
+.replay-bar .marker:hover { color: var(--ink); }
+.replay-bar .marker[data-kind="human"] { color: var(--amber); }
+.replay-bar .marker[data-kind="human"]:hover { color: var(--ink); }
+
+/* Readout: the wall-clock time at the playhead and `step / total`. Tabular
+   digits so the numbers tick in place instead of jittering while playing. */
+.replay-bar .readout {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.replay-bar .readout .clock { color: var(--ink); }
+.replay-bar .readout .step { color: var(--ink-faint); text-align: right; }
+
+.replay-bar .rate { flex: none; min-width: 4.5ch; text-align: center; }
+.replay-bar .live { flex: none; }
+
+/* Ghosts — the TIME channel. A node ahead of the playhead has not happened
+   yet: the canvas keeps its full layout (scrubbing never calls elk, nothing
+   moves under a drag) and draws the future as an outline with no content —
+   no text, no status bar, no badge, no ring, no revert mark (the JSX omits
+   them), so the shape of what is coming is visible but not what it says.
+
+   This is a THIRD channel, distinct from the two the canvas already has, and
+   it cannot collide with either. The FocusSet's channel is OPACITY on present
+   nodes (members light, non-members recede); the revert channel is a MARK
+   (struck label, ↩ badge). A ghost is a shape with no content: it has no
+   label to strike and it is never a focus member (future beats focus in
+   `nodeMarks`), so it takes stroke-opacity on its one rect and leaves both
+   other channels untouched. Edges, group boxes and minimap dots do fade as a
+   whole — they carry no mark and no focus opacity of their own to collide
+   with. NOTHING HERE MENTIONS data-reverted, so the opencode test's opacity
+   guard is unaffected.
+
+   Spec §5 says "~6% outline"; this starts at 12% and is tuned in the browser —
+   6% vanished against the dotted canvas ground on the first look. */
+.node[data-future="true"] { cursor: default; }
+.node[data-future="true"] rect.body,
+.node[data-future="true"]:hover rect.body {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.12;
+  animation: none;
+}
+.edge[data-future="true"] { opacity: 0.08; }
+.group-box[data-future="true"] { opacity: 0.12; }
+.minimap .mm-node[data-future="true"] { opacity: 0.15; }
+
+/* Inspector at a moment. `.moment` is the overview's one line saying the pane
+   is moment-aware ("at 14:02:31 · 143 of 612 events"); it sits under the
+   title, so it pulls up into the h2's bottom margin. Future call rows take the
+   ghost treatment. `.detail-body` dims while the playhead is moving: the
+   transcript shown is the LAST SETTLED node's, held until the playhead rests
+   (no fetch per tick, no "loading…" flicker), and the dim says so. */
+.inspector .moment {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin: -6px 0 10px;
+}
+.tool-call[data-future="true"] { opacity: 0.25; }
+.detail-body[data-stale="true"] { opacity: 0.45; transition: opacity 160ms ease-out; }
+
+/* Narrow: the readout drops to the time alone and the rate toggle hides; the
+   controls and the scrubber stay. The bar still stacks — it never overlays. */
+@media (max-width: 700px) {
+  .replay-bar .step,
+  .replay-bar .rate { display: none; }
+}
+
 /* scrollbars */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 5px; }

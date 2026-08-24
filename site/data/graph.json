@@ -42,7 +42,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:54:46.644Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:54:48.035Z"
   },
   {
    "id": "g:toolu_01UXsVmQ6aA9UxyQnGU8sdK2",
@@ -56,7 +57,12 @@
    "files": [
     "/Users/Shared/rungraph-demo/test/auth.test.js",
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "callOffsets": [
+    0,
+    2210
+   ],
+   "endedAt": "2026-08-17T23:54:52.185Z"
   },
   {
    "id": "g:toolu_01Ut5m7ofMBJgqcYc261S3ne",
@@ -66,7 +72,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:55:07.532Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:55:07.903Z"
   },
   {
    "id": "g:toolu_01FMxxF5JGeW9Zmx77bEefvG",
@@ -79,7 +86,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:11.561Z"
   },
   {
    "id": "g:toolu_017NCphHmDrjHusWmNeoJxaj",
@@ -92,7 +100,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:13.843Z"
   },
   {
    "id": "g:toolu_01YJUTEQzJizWwkXdajuF5HY",
@@ -105,7 +114,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:16.615Z"
   },
   {
    "id": "g:toolu_012UsqGR8wpc5a9UiK2LsDqA",
@@ -118,7 +128,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:18.243Z"
   },
   {
    "id": "g:toolu_01CybyCduNWT5rCKamawSEhU",
@@ -131,7 +142,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:21.326Z"
   },
   {
    "id": "g:toolu_01A5DdE1FJZ4CFfmjqfR7doB",
@@ -141,7 +153,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:55:23.588Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:55:24.064Z"
   },
   {
    "id": "g:toolu_01A7ULrAh9bEu6EecpunZhJA",
@@ -154,7 +167,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:26.796Z"
   },
   {
    "id": "g:toolu_01S9pDmjtnJSS2WYmgBSUmAh",
@@ -164,7 +178,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:55:29.610Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:55:29.666Z"
   },
   {
    "id": "g:toolu_01T5hwsm2kCbi6gR4J6YzAiW",
@@ -177,7 +192,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:34.382Z"
   },
   {
    "id": "g:toolu_013x2GfSeJzu4FcmxNYcxt7Q",
@@ -187,7 +203,8 @@
    "callCount": 1,
    "errorCount": 1,
    "startedAt": "2026-08-17T23:55:36.218Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:55:36.579Z"
   },
   {
    "id": "g:toolu_01DN34ZyyZa3FctVDngrPk8V",
@@ -201,7 +218,12 @@
    "files": [
     "/Users/Shared/rungraph-demo/scripts/sync-tokens.mjs",
     "/Users/Shared/rungraph-demo/src/token.template.js"
-   ]
+   ],
+   "callOffsets": [
+    0,
+    1970
+   ],
+   "endedAt": "2026-08-17T23:55:40.326Z"
   },
   {
    "id": "g:toolu_01Y6ASWEwQzgf7eiadeBB8TP",
@@ -214,7 +236,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.template.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:43.836Z"
   },
   {
    "id": "g:toolu_01XoUJVCfEeWPtXUjJu8idra",
@@ -224,7 +247,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:55:45.578Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:55:45.932Z"
   },
   {
    "id": "g:toolu_01GpBFvAjnRVM9bXdB4D7GJd",
@@ -237,7 +261,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-17T23:55:47.602Z"
   },
   {
    "id": "t:42f46ec4-ac84-4297-9472-29d524c93dde",
@@ -261,7 +286,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:56:02.302Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:56:02.310Z"
   },
   {
    "id": "g:toolu_016qrQYpqewYbuVWg398h9Zw",
@@ -271,7 +297,8 @@
    "callCount": 1,
    "errorCount": 1,
    "startedAt": "2026-08-17T23:56:05.567Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:56:05.699Z"
   },
   {
    "id": "g:toolu_01Hd79JmzoVJ1CZ9m5dDwxEA",
@@ -281,7 +308,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:57:08.302Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-17T23:57:08.309Z"
   },
   {
    "id": "g:toolu_01TUv5DEspq71jdadEa6dfnw",
@@ -291,7 +319,12 @@
    "callCount": 2,
    "errorCount": 0,
    "startedAt": "2026-08-17T23:57:17.880Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "callOffsets": [
+    0,
+    645606
+   ],
+   "endedAt": "2026-08-18T00:08:03.506Z"
   },
   {
    "id": "t:a7b990c9-36d6-45d7-b9f1-be13632886eb",
@@ -315,7 +348,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:21:39.791Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-18T00:21:41.359Z"
   },
   {
    "id": "h:b748601b-d5e8-44f4-9a1c-557e0609ccb7",
@@ -337,7 +371,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:07.537Z"
   },
   {
    "id": "g:toolu_01UVmzTvt2Hx9CCw4NSW3JpF",
@@ -350,7 +385,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:10.926Z"
   },
   {
    "id": "g:toolu_01SnG6f1FeH7TN9ZdR5caiF9",
@@ -360,7 +396,13 @@
    "callCount": 3,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:22:13.312Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "callOffsets": [
+    0,
+    4064,
+    6808
+   ],
+   "endedAt": "2026-08-18T00:22:20.240Z"
   },
   {
    "id": "g:toolu_01VKDZRp235yTVSTqG6uEawg",
@@ -373,7 +415,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:22.024Z"
   },
   {
    "id": "g:toolu_01Bm9oijPLbjTWrzdq7jcz5r",
@@ -386,7 +429,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/src/token.js"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:27.463Z"
   },
   {
    "id": "g:toolu_019b4ubhibYFRypTmi7iXctn",
@@ -396,7 +440,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:22:29.693Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-18T00:22:29.737Z"
   },
   {
    "id": "g:toolu_019frQZH3EahZJeQQwyuPMMz",
@@ -409,7 +454,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/package.json"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:31.061Z"
   },
   {
    "id": "g:toolu_01D3ZcQxRpWgED3kBZVT3USg",
@@ -422,7 +468,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/package.json"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:22:33.600Z"
   },
   {
    "id": "g:toolu_01DXUhbDjt28fabSrtuFLHgm",
@@ -432,7 +479,12 @@
    "callCount": 2,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:22:35.644Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "callOffsets": [
+    0,
+    2100
+   ],
+   "endedAt": "2026-08-18T00:22:37.811Z"
   },
   {
    "id": "t:30d9035c-05da-4b2b-abb3-0ffeee493d6b",
@@ -456,7 +508,14 @@
    "callCount": 4,
    "errorCount": 1,
    "startedAt": "2026-08-18T00:22:46.463Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "callOffsets": [
+    0,
+    3378,
+    8187,
+    9779
+   ],
+   "endedAt": "2026-08-18T00:22:56.254Z"
   },
   {
    "id": "h:1f1d5aa3-1c66-40fc-bfa8-42640e215a48",
@@ -498,7 +557,15 @@
    "callCount": 5,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:23:01.103Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "callOffsets": [
+    0,
+    2815,
+    4432,
+    5967,
+    7583
+   ],
+   "endedAt": "2026-08-18T00:23:08.987Z"
   },
   {
    "id": "t:ec740969-6ea1-4008-b59f-2aebc0b88d2e",
@@ -525,7 +592,8 @@
    "hasDetail": true,
    "files": [
     "/Users/Shared/rungraph-demo/.github/workflows/test.yml"
-   ]
+   ],
+   "endedAt": "2026-08-18T00:23:15.940Z"
   },
   {
    "id": "g:toolu_019iLTXCJBaizmm482iLYuq2",
@@ -535,7 +603,8 @@
    "callCount": 1,
    "errorCount": 0,
    "startedAt": "2026-08-18T00:23:19.053Z",
-   "hasDetail": true
+   "hasDetail": true,
+   "endedAt": "2026-08-18T00:23:20.110Z"
   },
   {
    "id": "a:toolu_01Hb5upQcjJXe66CCd4gw1RU",

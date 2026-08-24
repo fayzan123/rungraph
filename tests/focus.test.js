@@ -14,6 +14,7 @@ import {
   newHighSignalIds,
   signalKey,
   refocus,
+  nodeMarks,
 } from '../frontend/src/focus.js';
 import { fitNodes } from '../frontend/src/viewmath.js';
 
@@ -171,6 +172,38 @@ describe('inspector + canvas helpers', () => {
   it('does not escalate on a bare re-derivation of the same signal', () => {
     const seen = new Set(graph.signals.map(signalKey));
     expect(newHighSignalIds(graph.signals.map((s) => ({ ...s })), seen)).toEqual([]);
+  });
+});
+
+describe('nodeMarks', () => {
+  // The eight-way matrix proper lives beside the revert fixtures in
+  // tests/opencode.test.js; this pins the replay half from the FocusSet side:
+  // `present` is a third channel that outranks the other two, and its default
+  // leaves every existing caller untouched.
+  const plain = { id: 'n1' };
+  const rolled = { id: 'n2', reverted: true };
+  const ghost = { focused: false, dim: false, reverted: false, future: true };
+
+  it('defaults to present, so callers that never heard of replay render as before', () => {
+    expect(nodeMarks(plain, null)).toEqual({ focused: false, dim: false, reverted: false, future: false });
+    expect(nodeMarks(plain, null, undefined)).toEqual(nodeMarks(plain, null));
+    expect(nodeMarks(rolled, new Set(['n2']))).toEqual({ focused: true, dim: false, reverted: true, future: false });
+  });
+
+  it('future beats focus: a node that has not happened cannot be lit or dimmed', () => {
+    expect(nodeMarks(plain, new Set(['n1']), false)).toEqual(ghost);
+    expect(nodeMarks(plain, new Set(['n9']), false)).toEqual(ghost);
+  });
+
+  it('future beats revert: a ghost has no label to strike', () => {
+    expect(nodeMarks(rolled, null, false)).toEqual(ghost);
+    expect(nodeMarks(rolled, new Set(['n2']), false)).toEqual(ghost);
+  });
+
+  it('only an explicit false makes a ghost — the one channel that hides content is never implied', () => {
+    expect(nodeMarks(plain, null, null).future).toBe(false);
+    expect(nodeMarks(plain, null, 0).future).toBe(false);
+    expect(nodeMarks(plain, null, true).future).toBe(false);
   });
 });
 

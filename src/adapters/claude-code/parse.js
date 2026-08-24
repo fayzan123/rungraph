@@ -184,6 +184,11 @@ class GraphBuilder {
     this.lastHumanNodeId = null;
     this.toolNames = new Map(); // tool node id → plain tool name (labels are descriptive)
     this.toolFiles = new Map(); // tool node id → union of paths its calls touched
+    // tool node id → { starts, resolved, endTs } — the timing of every call in
+    // a group, kept in the builder's own state (like toolFiles) rather than in
+    // details.calls, because `rungraph graph --json` collects no details and
+    // the IR must carry callOffsets/endedAt on that path too.
+    this.toolTimes = new Map();
     this.narration = null; // assistant text since the last tool call, this turn
     this.compactions = []; // one {trigger, preTokens, postTokens} per seam
   }
@@ -274,6 +279,9 @@ class GraphBuilder {
         call.isError = true;
         call.output = '(rejected by user)';
       }
+      // A denial is a resolution: the call is over, and this record's
+      // timestamp is when. Without it the group would read as never finished.
+      this.resolveCall(tu.nodeId, obj.timestamp);
       this.pendingToolUse.delete(tr.tool_use_id);
     }
     // Consecutive denials (parallel batch) collapse into one human node.
@@ -405,6 +413,7 @@ class GraphBuilder {
       if (isError) group.errorCount = (group.errorCount ?? 0) + 1;
       if (group.status !== 'error') group.status = 'completed';
     }
+    this.resolveCall(tu.nodeId, obj.timestamp);
     if (this.collect) {
       const d = this.details.get(tu.nodeId);
       const call = d?.calls.find((c) => c.toolUseId === tr.tool_use_id);
@@ -531,6 +540,10 @@ class GraphBuilder {
       if (paths.length) {
         this.toolFiles.set(rec.nodeId, mergeFiles(this.toolFiles.get(rec.nodeId), paths));
       }
+      // The call's start is this tool_use record's timestamp — the same
+      // instant `calls[].startedAt` below reports, which is what lets the
+      // callOffsets ↔ calls[].startedAt invariant hold by construction.
+      this.callStarted(rec.nodeId, obj.timestamp);
       if (this.collect) {
         this.details.get(rec.nodeId)?.calls.push({
           toolUseId: block.id,
@@ -610,6 +623,75 @@ class GraphBuilder {
       // Absent, never [], when nothing was touched — consumers tolerate absence.
       const files = this.toolFiles.get(n.id);
       if (files?.length) n.files = files;
+      if (n.kind === 'tool') this.applyToolTimes(n);
+    }
+  }
+
+  // ---- tool-group timing ---------------------------------------------------
+  // Recorded per call as the records arrive; materialized in finish(), never
+  // on the fly. A group keeps growing after its calls resolve (call, result,
+  // same-tool call, result — one node), so an endedAt written at the first
+  // result would be stale after the second call and WRONG if that call never
+  // resolves in a live tail.
+
+  callStarted(nodeId, ts) {
+    const t = this.toolTimes.get(nodeId) ?? { starts: [], resolved: 0, endTs: undefined, endUntimed: false };
+    // A record without a usable timestamp poisons the whole list: there is no
+    // partial callOffsets, and an offset is never invented.
+    t.starts.push(typeof ts === 'string' && Number.isFinite(Date.parse(ts)) ? ts : undefined);
+    this.toolTimes.set(nodeId, t);
+  }
+
+  resolveCall(nodeId, ts) {
+    const t = this.toolTimes.get(nodeId);
+    if (!t) return;
+    t.resolved += 1;
+    if (typeof ts === 'string' && Number.isFinite(Date.parse(ts))) {
+      // Latest resolution wins — results of a collapsed group arrive in
+      // order, but "latest" is the contract, not "last seen".
+      if (t.endTs === undefined || Date.parse(ts) > Date.parse(t.endTs)) t.endTs = ts;
+    } else {
+      t.endUntimed = true;
+    }
+  }
+
+  /** callOffsets + endedAt on one tool node, or nothing — never a partial or malformed value. */
+  applyToolTimes(n) {
+    const t = this.toolTimes.get(n.id);
+    if (!t) return;
+    const start = Date.parse(n.startedAt);
+    // callOffsets: only on groups of two or more (a single call IS the node's
+    // start — `[0]` would be information-free bytes on most tool nodes), only
+    // when every call was timed, and only if the list is well-formed
+    // (`[0] === 0`, non-negative, non-decreasing, one entry per call). A call
+    // recorded out of time order yields no list rather than a list the
+    // consumer has to distrust.
+    if (n.callCount >= 2 && t.starts.length === n.callCount && Number.isFinite(start)) {
+      const offsets = [];
+      let ok = true;
+      for (const s of t.starts) {
+        const off = s === undefined ? NaN : Date.parse(s) - start;
+        if (!Number.isInteger(off) || off < 0 || (offsets.length && off < offsets.at(-1))) {
+          ok = false;
+          break;
+        }
+        offsets.push(off);
+      }
+      if (ok && offsets[0] === 0) n.callOffsets = offsets;
+    }
+    // endedAt: the group's last resolution (result, error or denial), set only
+    // once EVERY call has one — a live group with a call still out carries
+    // none, exactly as a live turn does. Deliberately NOT durationMs: the
+    // outlier signal reads durationMs, and giving ~40% of a session's nodes
+    // a duration would move a calibrated threshold as a side effect.
+    if (
+      t.resolved === n.callCount &&
+      !t.endUntimed &&
+      t.endTs !== undefined &&
+      Number.isFinite(start) &&
+      Date.parse(t.endTs) >= start
+    ) {
+      n.endedAt = t.endTs;
     }
   }
 

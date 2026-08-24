@@ -13,6 +13,7 @@ import {
   minimapToLayout,
   viewportRect,
   graphFullyVisible,
+  panToReveal,
 } from '../frontend/src/viewmath.js';
 
 const box = { width: 1000, height: 700 };
@@ -185,5 +186,103 @@ describe('graphFullyVisible (minimap auto-hide)', () => {
     const fit = fitView(layout, box);
     const panned = { ...fit, ty: fit.ty - 200 };
     expect(graphFullyVisible(panned, box, layout)).toBe(false);
+  });
+});
+
+describe('panToReveal (replay follow-camera)', () => {
+  // A 1000×700 box: the inner 70% region is x ∈ [150, 850], y ∈ [105, 595].
+  const v = { tx: 0, ty: 0, scale: 1 };
+  const node = (x, y, w = 100, h = 40) => ({ x, y, w, h });
+  const screen = (view, r) => ({
+    x: r.x * view.scale + view.tx,
+    y: r.y * view.scale + view.ty,
+    w: r.w * view.scale,
+    h: r.h * view.scale,
+  });
+  // Half a pixel of slack: the camera treats a sub-pixel shift as "inside"
+  // (see panToReveal), and 700 × 0.7 is not exact in floating point.
+  const inside = (view, r) => {
+    const s = screen(view, r);
+    return s.x >= 149.5 && s.x + s.w <= 850.5 && s.y >= 104.5 && s.y + s.h <= 595.5;
+  };
+
+  it('a node inside the inner 70% never moves the view', () => {
+    expect(panToReveal(v, node(400, 300), box)).toBeNull();
+    // Right up against the region's edges still counts as inside.
+    expect(panToReveal(v, node(150, 105), box)).toBeNull();
+    expect(panToReveal(v, node(750, 555), box)).toBeNull();
+  });
+
+  it('a node just outside moves by the minimum amount on that axis alone, and is then inside', () => {
+    const cases = [
+      { r: node(140, 300), d: { tx: 10, ty: 0 } }, // left
+      { r: node(400, 95), d: { tx: 0, ty: 10 } }, // top
+      { r: node(760, 300), d: { tx: -10, ty: 0 } }, // right (x + w = 860 > 850)
+      { r: node(400, 560), d: { tx: 0, ty: -5 } }, // bottom (y + h = 600 > 595)
+    ];
+    for (const { r, d } of cases) {
+      const next = panToReveal(v, r, box);
+      expect(next.scale).toBe(1);
+      expect(next.tx).toBeCloseTo(v.tx + d.tx);
+      expect(next.ty).toBeCloseTo(v.ty + d.ty);
+      expect(inside(next, r)).toBe(true);
+      // And the SAME node against the moved view needs no further move —
+      // the camera settles instead of oscillating.
+      expect(panToReveal(next, r, box)).toBeNull();
+    }
+  });
+
+  it('a node straddling the region edge moves', () => {
+    const r = node(120, 300); // spans 120–220: partly inside
+    const next = panToReveal(v, r, box);
+    expect(next.scale).toBe(1);
+    expect(next.tx).toBeCloseTo(30);
+    expect(next.ty).toBe(0);
+    expect(inside(next, r)).toBe(true);
+  });
+
+  it('a node far off-screen on both axes moves on both, by the minimum on each', () => {
+    const r = node(-500, 2000);
+    const next = panToReveal(v, r, box);
+    expect(next.tx).toBeCloseTo(650); // −500 → 150
+    expect(next.ty).toBeCloseTo(-1445); // 2040 → 595
+    expect(inside(next, r)).toBe(true);
+  });
+
+  it('a node larger than the region centres on that axis', () => {
+    // Wider than 700 screen px: no position fits, so centre horizontally.
+    // Vertically it fits and is already inside, so ty does not move.
+    const wide = node(0, 300, 900, 40);
+    const next = panToReveal(v, wide, box);
+    expect(next.ty).toBe(0);
+    expect(next.tx + 450).toBeCloseTo(500); // centre of the node at the box centre
+    // Taller than 490: centre vertically.
+    const tall = node(400, 900, 100, 600);
+    const t = panToReveal(v, tall, box);
+    expect(t.tx).toBe(0);
+    expect(t.ty + 900 + 300).toBeCloseTo(350);
+  });
+
+  it('scale never changes, and the screen math honours the view scale', () => {
+    const zoomed = { tx: -300, ty: -200, scale: 0.5 };
+    const r = node(100, 100); // screen: (−250, −150), 50×20 → off to the top-left
+    const next = panToReveal(zoomed, r, box);
+    expect(next.scale).toBe(0.5);
+    expect(next.tx).toBeCloseTo(-300 + 400); // −250 → 150
+    expect(next.ty).toBeCloseTo(-200 + 255); // −150 → 105
+    expect(inside(next, r)).toBe(true);
+    expect(panToReveal(next, r, box)).toBeNull();
+  });
+
+  it('a custom inner fraction is honoured, and garbage inputs are null', () => {
+    // inner = 1: the region is the whole box, so a node at (0, 0) is inside.
+    expect(panToReveal(v, node(0, 0), box, 1)).toBeNull();
+    // inner = 0.5: region x ∈ [250, 750]; a node at 200 is now outside.
+    const half = panToReveal(v, node(200, 300), box, 0.5);
+    expect(half.tx).toBeCloseTo(50);
+    expect(half.ty).toBe(0);
+    expect(panToReveal(v, null, box)).toBeNull();
+    expect(panToReveal(null, node(0, 0), box)).toBeNull();
+    expect(panToReveal(v, node(0, 0), null)).toBeNull();
   });
 });

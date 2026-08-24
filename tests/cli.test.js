@@ -116,6 +116,27 @@ describe('golden CLI (agent contract)', () => {
     expect(ir.nodes.some((n) => n.files?.some((f) => f.endsWith('token.js')))).toBe(true);
   });
 
+  // `graph --json` is the IR path — it collects no detail payloads — and the
+  // replay timings must ride it anyway: an agent that wants call-level order
+  // reads them here, and the frontend builds its timeline from the same
+  // bytes. The multi-call `Bash ×2` group is the session fixture's one
+  // callOffsets carrier; single-call nodes carry endedAt and no list.
+  it('graph --json carries callOffsets and tool endedAt', async () => {
+    const ir = JSON.parse((await run('graph', SESSION_RUN_ID, '--json')).stdout);
+    const group = ir.nodes.find((n) => n.id === 'g:toolu_fx0001');
+    expect(group.kind).toBe('tool');
+    expect(group.callCount).toBe(2);
+    expect(group.callOffsets).toEqual([0, 3000]);
+    expect(group.endedAt).toBe('2026-08-01T12:00:10.500Z');
+    expect(group.durationMs).toBeUndefined();
+    const singles = ir.nodes.filter((n) => n.kind === 'tool' && n.callCount === 1);
+    expect(singles.length).toBeGreaterThan(0);
+    for (const n of singles) {
+      expect(n.callOffsets, n.id).toBeUndefined();
+      expect(typeof n.endedAt, n.id).toBe('string');
+    }
+  });
+
   it('a clean run reports an empty signals array, not a missing one', async () => {
     const ir = JSON.parse((await run('graph', CLEAN_RUN_ID, '--json')).stdout);
     expect(ir.signals).toEqual([]);

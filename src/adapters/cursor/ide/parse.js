@@ -41,7 +41,9 @@ import { isPath, toolFamily, toolFiles, toolHint } from '../tools.js';
  * otherwise; `thinkingDurationMs` goes to the turn's detail, never into
  * `durationMs`; IDE tool nodes carry none. Never a header-`createdAt` delta —
  * that includes the user's thinking time and would fire the duration outlier
- * on every pause for coffee.
+ * on every pause for coffee. A tool group's `callOffsets` and `endedAt` ARE
+ * header instants (see `settleTimings`) — positions on the replay timeline,
+ * not durations, so the outlier never sees them.
  *
  * **Tokens are not reported.** `tokenCount` is `{0, 0}` on every bubble
  * measured, and the composer's `contextTokensUsed` is a context-window gauge,
@@ -318,6 +320,11 @@ class ComposerWalker {
     this.toolKey = new Map(); // tool node id → family
     this.toolFiles = new Map(); // tool node id → union of touched paths
     this.toolPrev = new Map(); // tool node id → the node it chained off
+    // tool node id → [{ at: epoch ms | undefined, resolved: boolean }], one
+    // entry per collapsed call in call order. Kept on the walker, not in
+    // details.calls, because `callOffsets` and the group's `endedAt` are IR
+    // fields and the IR path (`rungraph graph --json`) collects no details.
+    this.toolCalls = new Map();
     this.lastToolNodeId = null;
     this.lastHumanId = null;
     this.assistantSinceDenial = false; // any non-tool assistant bubble since the last denial
@@ -498,7 +505,6 @@ class ComposerWalker {
     const params = parseJson(tf.params);
     const result = parseJson(tf.result);
     const error = parseJson(tf.error);
-    const ad = tf.additionalData && typeof tf.additionalData === 'object' ? tf.additionalData : {};
     const family = toolFamily(tf, params);
     // The drift tally is for statuses Cursor WROTE; a skeleton record (the
     // bubble is gone and the header carries no status) is a hole, not drift.
@@ -536,6 +542,7 @@ class ComposerWalker {
       });
       this.toolKey.set(nodeId, family);
       this.toolPrev.set(nodeId, this.chainTip);
+      this.toolCalls.set(nodeId, []);
       if (this.collect) {
         this.details.set(nodeId, {
           kind: 'tool',
@@ -558,12 +565,26 @@ class ComposerWalker {
         if (this.turn) this.turn.running = true;
       }
     }
+    // The bubble's `createdAt` is the ONE instant Cursor records for a call
+    // (probed 2026-08-24: header and bubble agree on it 63/63; nothing on
+    // the bubble or on `toolFormerData` says when the result landed). So it
+    // is the call's start, and — for a call whose status is terminal — also
+    // the only end the format has. A running call has no end yet. Settled
+    // into `callOffsets` / `endedAt` by finish(), which sees the whole group.
+    // `additionalData.startedAtMs` is deliberately NOT this instant: on the
+    // probe machine it sits 1.5–11.5 s AFTER `createdAt` on every terminal
+    // command that carries it (10/10) — it is when the approved command began
+    // executing, after the dialog — and it exists on no other tool. One
+    // clock per group, or the offsets would mix "issued" with "approved".
+    this.toolCalls.get(nodeId)?.push({ at: instant(at), resolved: !running });
     const paths = toolFiles(tf, params);
     if (paths.length) this.attachFiles(nodeId, paths);
     if (typeof bubble?.checkpointId === 'string') this.checkpointFiles(bubble.checkpointId);
 
     if (this.collect) {
-      const startedAtMs = num(ad.startedAtMs);
+      // Same instant as the offset above — SCHEMA.md's guard is
+      // `callOffsets[i] === calls[i].startedAt − node.startedAt`.
+      const callStartedAt = isoAny(at);
       const errorText = str(error?.clientVisibleErrorMessage) ?? str(error?.modelVisibleErrorMessage);
       const output = bubble
         ? errorText && !result
@@ -577,7 +598,7 @@ class ComposerWalker {
         input: cap(params !== undefined ? safeStringify(params) : (str(tf.params) ?? str(tf.rawArgs) ?? ''), 3000),
         output: cap(errorText && result ? `${errorText}\n\n${output}` : output, 4000),
         isError: failed,
-        ...(startedAtMs !== undefined ? { startedAt: isoAny(startedAtMs) } : {}),
+        ...(callStartedAt ? { startedAt: callStartedAt } : {}),
       });
     }
 
@@ -731,7 +752,41 @@ class ComposerWalker {
       if (n.callCount > 1) n.label = `${n.label} ×${n.callCount}`;
       const files = this.toolFiles.get(n.id);
       if (files?.length) n.files = files;
+      settleTimings(n, this.toolCalls.get(n.id));
     }
+  }
+}
+
+/**
+ * The group's `callOffsets` and `endedAt` (SCHEMA.md), from the per-call
+ * instants tool() recorded. Both are all-or-nothing: one call without a
+ * `createdAt` (the degraded `_v:9` shape strips it) and the group carries
+ * neither — a partial list would put the ×k counter out of step with the
+ * canvas, and a fabricated end is a timing the format never recorded.
+ *
+ * - `callOffsets` only on a collapsed group (`callCount ≥ 2`); `[0]` is 0 by
+ *   construction because the node's `startedAt` IS the first call's instant.
+ *   A header sequence whose times run backwards is omitted rather than
+ *   sorted — header order is authoritative (§16 item 4), the clock is not.
+ * - `endedAt` only once EVERY call has a terminal status, and it is the
+ *   latest call instant: Cursor records no result time, so the last bubble's
+ *   `createdAt` is the group's last resolution — a refusal included, since
+ *   a refused call is a resolved one. NOT `durationMs`: that would feed the
+ *   outlier signal a population it was never calibrated on.
+ */
+function settleTimings(n, calls) {
+  if (!Array.isArray(calls) || calls.length !== n.callCount) return;
+  const startMs = instant(n.startedAt);
+  if (startMs === undefined || calls.some((c) => c.at === undefined)) return;
+  if (calls.length >= 2) {
+    const offsets = calls.map((c) => c.at - startMs);
+    const valid = offsets.every((o, i) => Number.isInteger(o) && o >= 0 && (i === 0 ? o === 0 : o >= offsets[i - 1]));
+    if (valid) n.callOffsets = offsets;
+  }
+  if (calls.every((c) => c.resolved)) {
+    const endMs = Math.max(...calls.map((c) => c.at));
+    const endedAt = endMs >= startMs ? isoAny(endMs) : undefined;
+    if (endedAt) n.endedAt = endedAt;
   }
 }
 
