@@ -159,9 +159,10 @@ click one to jump straight to the failure.
 ### Replay
 
 `r` (or the `replay` button in the header) opens a bar along the bottom of
-the canvas: a playhead over the run's events. Drag it and the canvas, the
-inspector and the strip all show what had happened by that moment — nodes
-that haven't happened yet are ghost outlines, a tool group counts up its
+the canvas; `r` again, or the bar's own `× close`, closes it. It is a playhead
+over the run's events. Drag it and the canvas, the inspector and the strip all
+show what had happened by that moment — nodes that haven't happened yet are
+ghost outlines, a tool group counts up its
 `×N` call by call, and a signal's chip appears at the moment it became true.
 Markers on the bar are the moments worth jumping to: ✋ where you stepped in,
 and a signal's glyph where its evidence was complete. Play is a time-lapse at

@@ -55,6 +55,7 @@ export function ReplayBar({
   onTogglePlay,
   onSetRate,
   onLive,
+  onClose,
   onScrubState,
 }) {
   const scrubRef = useRef(null);
@@ -283,6 +284,21 @@ export function ReplayBar({
           live
         </button>
       )}
+
+      {/* The way OUT lives on the bar itself. The header's `replay` button
+          is the other way, and the landing page hides the header — which
+          left a phone visitor with no way to close it at all — and "r
+          replay" in a caption never said that r also closes. The key hint
+          rides on the button; a phone has no keys, so CSS drops it there. */}
+      <button
+        class="ghost close"
+        disabled={off}
+        onClick={() => onClose?.()}
+        title="close replay  ( r )"
+        aria-label="close replay"
+      >
+        × close<span class="key" aria-hidden="true">r</span>
+      </button>
     </div>
   );
 }

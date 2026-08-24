@@ -1370,6 +1370,16 @@ button.ghost[data-on="true"] {
 
 .replay-bar .rate { flex: none; min-width: 4.5ch; text-align: center; }
 .replay-bar .live { flex: none; }
+/* The exit, with its key hint in the caption's own faint register. */
+.replay-bar .close { flex: none; }
+.replay-bar .close .key {
+  margin-left: 8px;
+  padding: 0 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
 
 /* Ghosts — the TIME channel. A node ahead of the playhead has not happened
    yet: the canvas keeps its full layout (scrubbing never calls elk, nothing
@@ -1422,6 +1432,8 @@ button.ghost[data-on="true"] {
 @media (max-width: 700px) {
   .replay-bar .step,
   .replay-bar .rate { display: none; }
+  /* No keyboard on a phone: the × stays, its key hint goes. */
+  .replay-bar .close .key { display: none; }
 }
 
 /* scrollbars */

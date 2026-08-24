@@ -849,6 +849,16 @@ export function App() {
           setPlayingNow(true);
           return true;
         },
+        // The chip is also the way back: with the header hidden on the page,
+        // the bar's own × and this are the only exits a phone visitor has.
+        stop() {
+          if (replayRef.current === null) return false;
+          closeReplay();
+          return true;
+        },
+        isOpen() {
+          return replayRef.current !== null;
+        },
       },
       clearFocus,
     };
@@ -1137,6 +1147,7 @@ export function App() {
               onTogglePlay={togglePlay}
               onSetRate={setReplayRate}
               onLive={goLive}
+              onClose={closeReplay}
               onScrubState={setScrubbing}
             />
           )}

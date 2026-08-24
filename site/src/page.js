@@ -122,8 +122,12 @@ for (const chip of document.querySelectorAll('[data-try]')) {
       // Opens the bar and plays the run from the start through the SAME
       // producers the header button uses — never a synthetic keypress or a
       // click on a control the embed may have hidden. False when the app is
-      // not up yet, or the run has no timeline (the bridge says so).
-      done = embed.app?.replay?.play() ?? false;
+      // not up yet, or the run has no timeline (the bridge says so). While
+      // the bar is open the same chip is the way back out ("■ stop"): the
+      // page hides the header, so the entry point must also be the exit.
+      done = embed.app?.replay?.isOpen?.()
+        ? (embed.app.replay.stop() ?? false)
+        : (embed.app?.replay?.play() ?? false);
     } else if (kind === 'find') {
       embed.app?.openFind();
       done = Boolean(embed.app);
@@ -139,6 +143,26 @@ for (const chip of document.querySelectorAll('[data-try]')) {
       setTimeout(() => chip.removeAttribute('data-done'), 2200);
     }
   });
+}
+
+// The replay chip's label follows the bar: "▶ watch it happen" while it is
+// closed, "■ stop replay" while open — whichever way it was opened or closed
+// (chip, r key, the bar's own ×). Watching the DOM for the bar rather than
+// tracking clicks keeps the label honest across every producer.
+{
+  const chip = document.querySelector('[data-try="replay"]');
+  const app = document.getElementById('app');
+  if (chip && app) {
+    const idle = chip.textContent;
+    const sync = () => {
+      const open = Boolean(app.querySelector('.replay-bar'));
+      chip.textContent = open ? '■ stop replay' : idle;
+      chip.toggleAttribute('data-on', open);
+      chip.setAttribute('aria-pressed', String(open));
+    };
+    new MutationObserver(sync).observe(app, { childList: true, subtree: true });
+    sync();
+  }
 }
 
 /* ------------------------------------------------------ section reveals */
