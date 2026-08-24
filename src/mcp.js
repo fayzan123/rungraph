@@ -559,7 +559,7 @@ async function focusNodes(args, ctx) {
     return {
       focused: false,
       reason: 'no rungraph server is running that could show this run',
-      hint: 'Tell the user the dashboard highlight was skipped; `rungraph` (or open_visualization) starts it.',
+      hint: 'Tell the user the dashboard highlight was skipped; `npx rungraph` in a terminal (or open_visualization) starts it.',
     };
   }
 
@@ -664,7 +664,7 @@ async function openVisualization(args, ctx) {
 
   if (!server) {
     const child = spawnServer(ctx.project);
-    if (!child) throw new ToolError('Could not start `rungraph serve`. Ask the user to run `rungraph` in a terminal.');
+    if (!child) throw new ToolError('Could not start the dashboard server. Ask the user to run `npx rungraph` in a terminal.');
     pid = child.pid ?? null;
     server = await waitForServer(SERVER_BOOT_MS);
     if (!server) {
@@ -1334,7 +1334,7 @@ async function checkMcpInner(opts) {
     ok: Boolean(server),
     advisory: true,
     detail: server ? `serving on ${server}` : 'not running (optional — only focus_nodes needs it)',
-    fix: 'Run `rungraph` in a terminal to start it and open the dashboard.',
+    fix: 'Run `npx rungraph` in a terminal to start it and open the dashboard.',
   });
 
   const registeredRows = checks.filter((c) => c.client);

@@ -20,6 +20,16 @@ import {
 } from './helpers.js';
 import { scanText } from '../src/secrets.js';
 
+/**
+ * A `rungraph` written as a COMMAND for a human to type, without `npx` in
+ * front of it. The README's only entry point is `npx rungraph`, so a user who
+ * followed it has no `rungraph` on PATH and a bare one is "command not found".
+ * A Cursor user hit exactly that (2026-08-24): `--check` printed
+ * "Run `rungraph` in a terminal" and the shell said the command was unknown.
+ * Prose mentions ("rungraph reads transcripts") are not commands and pass.
+ */
+const BARE_RUNGRAPH = /(?<!npx )`?\brungraph\b(?=`| (?:mcp|serve|export|open)\b)/;
+
 const exec = promisify(execFile);
 const BIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'rungraph.js');
 
@@ -340,6 +350,10 @@ describe('MCP tools (no server running)', () => {
     expect(isError).toBe(false);
     expect(payload.focused).toBe(false);
     expect(payload.reason).toContain('no rungraph server');
+    // The hint is relayed verbatim to the human, who may have rungraph
+    // through `npx` and nothing else.
+    expect(payload.hint).toContain('npx rungraph');
+    expect(payload.hint).not.toMatch(BARE_RUNGRAPH);
   });
 
   it('get_current_view reports nothing when no browser is connected', async () => {
@@ -626,6 +640,10 @@ describe('rungraph mcp --check', () => {
       // A failing row hands back its one next step — unless there is none
       // worth printing, which is the "detected but the CLI is gone" case.
       if (!c.ok && c.fix !== undefined) expect(c.fix.length).toBeGreaterThan(10);
+      // ...and that step is typed by a human who may only have `npx`. Checked
+      // on every row, passing or not: the dashboard row carries its fix
+      // either way, and the reporter's dashboard was down while ours is up.
+      if (c.fix !== undefined) expect(c.fix).not.toMatch(BARE_RUNGRAPH);
     }
     // 120s, not 90: the check now spawns one vendor CLI per detected provider
     // (in parallel), and `claude mcp list` health-checks every server it finds.

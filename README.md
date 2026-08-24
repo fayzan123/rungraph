@@ -393,7 +393,7 @@ Everything is local. The server binds `127.0.0.1` only, and every request is
 Host-header-guarded, so a hostile web page can't DNS-rebind its way into your
 transcripts. rungraph makes no network requests and phones nothing home.
 
-Nothing leaves your machine unless you run `rungraph export` — an explicit
+Nothing leaves your machine unless you run `npx rungraph export` — an explicit
 command naming explicit runs, which prints an inventory of what's included
 every time and hard-stops on detected secrets. The transfer channel for the
 resulting file is yours, not rungraph's.
